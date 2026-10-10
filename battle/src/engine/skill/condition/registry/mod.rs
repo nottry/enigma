@@ -104,6 +104,13 @@ pub enum SkillActionTriggerPolicy {
     InitialCriticalFollowUp,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReactionMultiplicity {
+    #[default]
+    PerEvent,
+    OncePerAction,
+}
+
 impl SkillActionTriggerPolicy {
     pub const fn child_skill_kind(self) -> Option<extra::ExtraSkillKind> {
         match self {
@@ -124,6 +131,7 @@ pub struct ConditionDefinition {
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
     pub reaction_timing: ReactionTiming,
+    pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
@@ -145,6 +153,7 @@ pub struct ConditionMetadata {
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
     pub reaction_timing: ReactionTiming,
+    pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
@@ -173,6 +182,7 @@ pub const fn definition(
         dependencies: metadata.dependencies,
         publication: metadata.publication,
         reaction_timing: metadata.reaction_timing,
+        reaction_multiplicity: metadata.reaction_multiplicity,
         consequence: metadata.consequence,
         behavior_ownership: metadata.behavior_ownership,
         filters_behavior_targets: metadata.filters_behavior_targets,
@@ -195,6 +205,7 @@ pub const fn predicate(dependencies: &'static [EventKind]) -> ConditionMetadata 
         dependencies,
         publication: PublicationPhase::AfterPublish,
         reaction_timing: ReactionTiming::Immediate,
+        reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
@@ -217,6 +228,7 @@ pub const fn event_trigger(event: EventKind, phase: Option<SkillPhase>) -> Condi
         dependencies: &[],
         publication: PublicationPhase::AfterPublish,
         reaction_timing: ReactionTiming::Immediate,
+        reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
@@ -243,6 +255,7 @@ pub const fn setup_route(
         dependencies,
         publication: PublicationPhase::AfterPublish,
         reaction_timing: ReactionTiming::Immediate,
+        reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
@@ -266,6 +279,11 @@ pub const fn before_publish(mut metadata: ConditionMetadata) -> ConditionMetadat
 
 pub const fn after_skill(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_timing = ReactionTiming::AfterSkill;
+    metadata
+}
+
+pub const fn once_per_action(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_multiplicity = ReactionMultiplicity::OncePerAction;
     metadata
 }
 
@@ -649,7 +667,7 @@ condition_definitions! {
     [46301, 46303, 46304, 46307] "NoActRound" => trigger::parse_no_action_round, event_trigger(EventKind::NoActionRound, None);
     [22202, 22204, 22209, 22211] "BeAttacked" => trigger::parse_target_attacked, event_trigger(EventKind::TargetAttacked, None);
     [22213] "BeAttacked" => trigger::parse_ally_attacked, before_publish(ally_of_attacked_target_observes(event_trigger(EventKind::SkillAction, Some(SkillPhase::HitPassives))));
-    [695213] "ShareDamage" => trigger::parse_share_damage, event_trigger(EventKind::DamageShared, None);
+    [695213] "ShareDamage" => trigger::parse_share_damage, once_per_action(event_trigger(EventKind::DamageShared, None));
     [1001203] "Assassinate" => trigger::parse_assassinate, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [1001204] "Assassinate" => trigger::parse_assassinate, event_trigger(EventKind::SkillAction, None);
     [1001208] "Assassinate" => trigger::parse_assassinate, in_causing_frame(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage)));

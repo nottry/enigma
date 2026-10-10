@@ -1459,7 +1459,7 @@ fn damage_based_rebound_routes_once_and_removes_the_counter() {
 }
 
 #[test]
-fn exact_event_aliases_fire_independently_per_hp_transaction() {
+fn shared_damage_subscription_queues_once_per_action() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -1507,12 +1507,12 @@ fn exact_event_aliases_fire_independently_per_hp_transaction() {
         domain: RuleDomain::Skill,
         key: DefinitionKey::new(1, "Damage"),
     };
-    let transaction = || {
+    let transaction = |target_uid| {
         vec![
             BattleEvent::Hit(crate::engine::event::payload::HitEvent {
                 origin,
                 source_uid: -1,
-                target_uid: 10,
+                target_uid,
                 skill_id: 1,
                 amount: 100,
                 shield_absorbed: 0,
@@ -1540,7 +1540,7 @@ fn exact_event_aliases_fire_independently_per_hp_transaction() {
         &managers,
         &catalog,
         &mut RoundDeterminism::default(),
-        &[transaction(), transaction()],
+        &[transaction(11), transaction(10)],
         &root,
         &root,
         Some(&root),
@@ -1555,20 +1555,34 @@ fn exact_event_aliases_fire_independently_per_hp_transaction() {
     let casts = reactions
         .into_ordered()
         .into_iter()
-        .filter(|queued| {
-            matches!(
-                queued.op,
-                RuleOp::Skill(SkillInvocation {
-                    plan: SkillRequest {
-                        skill_id: 434111,
-                        ..
-                    },
+        .filter_map(|queued| match queued.op {
+            RuleOp::Skill(
+                invocation @ SkillInvocation {
+                    plan:
+                        SkillRequest {
+                            skill_id: 434111, ..
+                        },
                     ..
-                })
-            )
+                },
+            ) => Some((
+                queued.trigger,
+                invocation.condition_key,
+                invocation.condition_slot,
+            )),
+            _ => None,
         })
-        .count();
-    assert_eq!(casts, 4);
+        .collect::<Vec<_>>();
+    assert_eq!(
+        casts
+            .iter()
+            .filter(|(trigger, _, _)| matches!(
+                trigger,
+                SkillOpTrigger::Event(BattleEvent::DamageShared { .. })
+            ))
+            .count(),
+        1,
+        "{casts:#?}"
+    );
 }
 
 #[test]
@@ -1677,7 +1691,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
 }
 
 #[test]
-fn shared_hit_pipeline_triggers_a_non_target_participant_once() {
+fn mass_shared_hit_pipeline_triggers_share_and_direct_hit_once_each() {
     crate::test_support::init_config();
     let entity = |position, uid, passive_skill, buffs| FightEntityInfo {
         uid: Some(uid),
@@ -1740,38 +1754,46 @@ fn shared_hit_pipeline_triggers_a_non_target_participant_once() {
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [RuleOp::Command(BattleCommand::Hp(
-            crate::engine::manager::hp::HpCommand::Damage(crate::engine::manager::hp::HpDamage {
-                origin: CommandOrigin {
-                    domain: RuleDomain::Skill,
-                    key: DefinitionKey::new(1, "SkillDamage"),
-                },
-                source_uid: -1,
-                target_uid: 10,
-                amount: 2_102,
-                config_effect: -1,
-                effect_kind: crate::engine::manager::hp::DamageEffectKind::Normal,
-                assassinate: false,
-                ignore_riposte: false,
-                hurt: crate::engine::manager::hp::HurtInfoData {
-                    from_uid: -1,
-                    is_crit: false,
-                    career_restraint: false,
-                    reduce_hp: 0,
-                    effect_id: 0,
-                    skill_id: 1,
-                    damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
-                    buff_act_id: 0,
-                    buff_uid: 0,
-                    hurt_effect_type: sonettobuf::effect_type_enum::EffectType::Damage as i32,
-                    display_amount: None,
-                },
-            }),
+        [RuleOp::Command(BattleCommand::HpBatch(
+            [13, 10, 11, 12]
+                .into_iter()
+                .map(|target_uid| {
+                    crate::engine::manager::hp::HpCommand::Damage(
+                        crate::engine::manager::hp::HpDamage {
+                            origin: CommandOrigin {
+                                domain: RuleDomain::Skill,
+                                key: DefinitionKey::new(1, "SkillDamage"),
+                            },
+                            source_uid: -1,
+                            target_uid,
+                            amount: 2_102,
+                            config_effect: -1,
+                            effect_kind: crate::engine::manager::hp::DamageEffectKind::Normal,
+                            assassinate: false,
+                            ignore_riposte: false,
+                            hurt: crate::engine::manager::hp::HurtInfoData {
+                                from_uid: -1,
+                                is_crit: false,
+                                career_restraint: false,
+                                reduce_hp: 0,
+                                effect_id: 0,
+                                skill_id: 1,
+                                damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
+                                buff_act_id: 0,
+                                buff_uid: 0,
+                                hurt_effect_type: sonettobuf::effect_type_enum::EffectType::Damage
+                                    as i32,
+                                display_amount: None,
+                            },
+                        },
+                    )
+                })
+                .collect(),
         ))],
     )
     .unwrap();
     for uid in [10, 11, 12, 13] {
-        assert_eq!(managers.buff.buff_id_amount(uid, 434121), 3);
+        assert_eq!(managers.buff.buff_id_amount(uid, 434121), 4);
     }
 }
 

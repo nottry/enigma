@@ -1811,7 +1811,7 @@ fn shared_primary_skill_events_wait_for_the_actions_after_hit_skills() {
     {
         *damage_from = crate::engine::manager::hp::HurtDamageFromType::Skill;
     }
-    assert!(waits_for_shared_hit_completion(&shared));
+    assert!(!waits_for_shared_hit_completion(&shared));
 }
 
 #[test]

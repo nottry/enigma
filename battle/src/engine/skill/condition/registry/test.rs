@@ -7,6 +7,14 @@ use crate::engine::skill::condition::{
 mod mane;
 
 #[test]
+fn shared_damage_reacts_once_per_action() {
+    assert_eq!(
+        find_key(695213, "ShareDamage").map(|definition| definition.reaction_multiplicity),
+        Some(ReactionMultiplicity::OncePerAction)
+    );
+}
+
+#[test]
 fn generic_round_end_keys_keep_their_exact_timing() {
     assert_eq!(
         parse(301, "None", &[]),

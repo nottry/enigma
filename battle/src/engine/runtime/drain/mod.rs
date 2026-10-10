@@ -1601,13 +1601,6 @@ fn waits_for_shared_hit_completion(queued: &QueuedOp) -> bool {
     matches!(
         &queued.trigger,
         SkillOpTrigger::Event(BattleEvent::Hit(hit)) if hit.share_count > 0
-    ) || matches!(
-        &queued.trigger,
-        SkillOpTrigger::Event(BattleEvent::DamageShared {
-            share_count,
-            damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
-            ..
-        }) if *share_count > 0
     )
 }
 

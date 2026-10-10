@@ -167,6 +167,7 @@ pub(super) fn dispatch_event_batch(
 struct EventBatchState {
     queued_attack_consumption: bool,
     fired_once_per_target: std::collections::HashSet<OncePerTargetKey>,
+    fired_once_per_action: std::collections::HashSet<OncePerActionKey>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -287,6 +288,7 @@ fn dispatch_event_batch_inner(
             Some(publication_phase),
         )?;
         retain_event_multiplicity(&mut dispatched, event, &mut state.fired_once_per_target);
+        retain_reaction_multiplicity(&mut dispatched, &mut state.fired_once_per_action);
         defer_after_hit_skill_buff_acts(&mut dispatched);
         reactions.before_publish.extend(dispatched.before_publish);
         reactions.after_publish.extend(dispatched.after_publish);
@@ -354,6 +356,13 @@ type OncePerTargetKey = (
     i64,
 );
 
+type OncePerActionKey = (
+    i64,
+    i32,
+    Option<usize>,
+    crate::engine::skill::rule::DefinitionKey,
+);
+
 fn retain_event_multiplicity(
     reactions: &mut ReactionBatch,
     event: &BattleEvent,
@@ -399,6 +408,38 @@ fn once_per_target_key(queued: &QueuedOp, event: &BattleEvent) -> Option<OncePer
     (definition.runtime.event_multiplicity
         == crate::engine::skill::buff_act::registry::RuntimeEventMultiplicity::OncePerActionTarget)
         .then_some((owner_uid, buff_uid, key, hit.source_uid, hit.target_uid))
+}
+
+fn retain_reaction_multiplicity(
+    reactions: &mut ReactionBatch,
+    fired: &mut std::collections::HashSet<OncePerActionKey>,
+) {
+    for lane in [
+        &mut reactions.before_publish,
+        &mut reactions.after_publish,
+        &mut reactions.after_skill,
+        &mut reactions.after_hit,
+        &mut reactions.after_action,
+    ] {
+        lane.retain(|queued| once_per_action_key(queued).is_none_or(|key| fired.insert(key)));
+    }
+}
+
+fn once_per_action_key(queued: &QueuedOp) -> Option<OncePerActionKey> {
+    let RuleOp::Skill(invocation) = &queued.op else {
+        return None;
+    };
+    let key = invocation.condition_key?;
+    let definition =
+        crate::engine::skill::condition::registry::find_key(key.opcode, key.type_name)?;
+    (definition.reaction_multiplicity
+        == crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction)
+        .then_some((
+            invocation.plan.source_uid,
+            invocation.plan.skill_id,
+            invocation.condition_slot,
+            key,
+        ))
 }
 
 pub(super) fn ordered_hit_entities(
