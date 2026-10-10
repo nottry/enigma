@@ -1535,12 +1535,32 @@ fn shared_damage_subscription_queues_once_per_action() {
     };
     let mut frames = Vec::new();
     let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
-    let reactions = dispatch_event_groups(
+    let mut drain_state = DrainState::new(TargetContext::default());
+    let mut determinism = RoundDeterminism::default();
+    let first = dispatch_event_groups(
         &pool,
         &managers,
         &catalog,
-        &mut RoundDeterminism::default(),
-        &[transaction(11), transaction(10)],
+        &mut determinism,
+        &mut drain_state,
+        &[transaction(11)],
+        &root,
+        &root,
+        Some(&root),
+        Some((-1, 1, Some(10))),
+        true,
+        true,
+        crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        None,
+    )
+    .unwrap();
+    let second = dispatch_event_groups(
+        &pool,
+        &managers,
+        &catalog,
+        &mut determinism,
+        &mut drain_state,
+        &[transaction(10)],
         &root,
         &root,
         Some(&root),
@@ -1552,9 +1572,10 @@ fn shared_damage_subscription_queues_once_per_action() {
     )
     .unwrap();
 
-    let casts = reactions
+    let casts = first
         .into_ordered()
         .into_iter()
+        .chain(second.into_ordered())
         .filter_map(|queued| match queued.op {
             RuleOp::Skill(
                 invocation @ SkillInvocation {
@@ -1691,7 +1712,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
 }
 
 #[test]
-fn mass_shared_hit_pipeline_triggers_share_and_direct_hit_once_each() {
+fn mane_mass_attack_orders_shared_damage_before_hit_passives_and_direct_hit() {
     crate::test_support::init_config();
     let entity = |position, uid, passive_skill, buffs| FightEntityInfo {
         uid: Some(uid),
@@ -1706,25 +1727,21 @@ fn mass_shared_hit_pipeline_triggers_share_and_direct_hit_once_each() {
         buffs,
         ..Default::default()
     };
+    let share_buff = |uid| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(31090121),
+        from_uid: Some(13),
+        layer: Some(3),
+        ..Default::default()
+    };
     let fight = Fight {
         version: Some(7),
         attacker: Some(FightTeam {
             entitys: vec![
-                entity(
-                    1,
-                    10,
-                    Vec::new(),
-                    vec![BuffInfo {
-                        uid: Some(50),
-                        buff_id: Some(31090121),
-                        from_uid: Some(13),
-                        layer: Some(3),
-                        ..Default::default()
-                    }],
-                ),
-                entity(2, 11, Vec::new(), Vec::new()),
-                entity(3, 12, Vec::new(), Vec::new()),
-                entity(4, 13, vec![434111], Vec::new()),
+                entity(1, 10, Vec::new(), vec![share_buff(50)]),
+                entity(2, 11, Vec::new(), vec![share_buff(51)]),
+                entity(3, 12, Vec::new(), vec![share_buff(52)]),
+                entity(4, 13, vec![434111], vec![share_buff(53)]),
             ],
             ..Default::default()
         }),
@@ -1736,8 +1753,22 @@ fn mass_shared_hit_pipeline_triggers_share_and_direct_hit_once_each() {
                 current_hp: Some(10_000),
                 attr: Some(HeroAttribute {
                     hp: Some(10_000),
+                    attack: Some(1_000),
                     ..Default::default()
                 }),
+                passive_skill: vec![109380006],
+                power_infos: vec![
+                    PowerInfo {
+                        power_id: Some(9),
+                        num: Some(0),
+                        max: Some(4),
+                    },
+                    PowerInfo {
+                        power_id: Some(10),
+                        num: Some(100),
+                        max: Some(100),
+                    },
+                ],
                 ..Default::default()
             }],
             ..Default::default()
@@ -1746,55 +1777,40 @@ fn mass_shared_hit_pipeline_triggers_share_and_direct_hit_once_each() {
     };
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
-    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
-
-    run_command_group(
+    let catalog =
+        SkillEffectCatalog::from_roots(config::configs::get(), [109380001, 109380006, 434111], []);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: -1,
+        skill_id: 109380001,
+    }
+    .into();
+    invocation.mode = crate::engine::skill::action::SkillExecutionMode::Active;
+    let result = run_action(
         &mut managers,
         &pool,
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [RuleOp::Command(BattleCommand::HpBatch(
-            [13, 10, 11, 12]
-                .into_iter()
-                .map(|target_uid| {
-                    crate::engine::manager::hp::HpCommand::Damage(
-                        crate::engine::manager::hp::HpDamage {
-                            origin: CommandOrigin {
-                                domain: RuleDomain::Skill,
-                                key: DefinitionKey::new(1, "SkillDamage"),
-                            },
-                            source_uid: -1,
-                            target_uid,
-                            amount: 2_102,
-                            config_effect: -1,
-                            effect_kind: crate::engine::manager::hp::DamageEffectKind::Normal,
-                            assassinate: false,
-                            ignore_riposte: false,
-                            hurt: crate::engine::manager::hp::HurtInfoData {
-                                from_uid: -1,
-                                is_crit: false,
-                                career_restraint: false,
-                                reduce_hp: 0,
-                                effect_id: 0,
-                                skill_id: 1,
-                                damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
-                                buff_act_id: 0,
-                                buff_uid: 0,
-                                hurt_effect_type: sonettobuf::effect_type_enum::EffectType::Damage
-                                    as i32,
-                                display_amount: None,
-                            },
-                        },
-                    )
-                })
-                .collect(),
-        ))],
+        [],
+        invocation,
     )
     .unwrap();
-    for uid in [10, 11, 12, 13] {
-        assert_eq!(managers.buff.buff_id_amount(uid, 434121), 4);
+
+    fn collect_skills(step: &sonettobuf::FightStep, skills: &mut Vec<i32>) {
+        if let Some(skill_id @ (434111 | 109380006)) = step.act_id {
+            skills.push(skill_id);
+        }
+        for effect in &step.act_effect {
+            if let Some(child) = effect.fight_step.as_ref() {
+                collect_skills(child, skills);
+            }
+        }
     }
+    let mut skills = Vec::new();
+    for step in crate::engine::packet::timeline::project(&result.frames).unwrap() {
+        collect_skills(&step, &mut skills);
+    }
+    assert_eq!(skills, vec![434111, 109380006, 434111]);
 }
 
 #[test]

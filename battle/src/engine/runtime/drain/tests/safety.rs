@@ -1,5 +1,16 @@
 use super::*;
 
+#[test]
+fn completing_an_action_clears_its_reaction_cardinality() {
+    let mut state = DrainState::new(TargetContext::default());
+    let action_path = vec![0];
+    let reaction = (10, 20, Some(1), DefinitionKey::new(695213, "ShareDamage"));
+
+    assert!(state.action_reactions(&action_path).insert(reaction));
+    state.take_after_action_casts(&action_path);
+    assert!(state.action_reactions(&action_path).insert(reaction));
+}
+
 fn queued(op: RuleOp) -> QueuedOp {
     QueuedOp {
         op,
@@ -32,6 +43,8 @@ fn canceling_an_action_releases_its_held_after_action_casts() {
     let action_path = vec![0];
     let mut state = DrainState::new(TargetContext::default());
     state.open_action(action_path.clone());
+    let reaction = (10, 20, Some(1), DefinitionKey::new(695213, "ShareDamage"));
+    assert!(state.action_reactions(&action_path).insert(reaction));
     state.push_after_action_cast(action_path.clone(), None, queued(RuleOp::Skill(invocation)));
 
     let current: SkillInvocation = SkillRequest {
@@ -43,6 +56,7 @@ fn canceling_an_action_releases_its_held_after_action_casts() {
 
     assert!(managers.advance_configured_rule_progress_until_cast(10, rule, 1, 1));
     assert!(!state.action_in_progress(&action_path));
+    assert!(state.action_reactions(&action_path).insert(reaction));
     assert!(state.take_after_action_casts(&action_path).is_empty());
 }
 

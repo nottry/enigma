@@ -90,6 +90,7 @@ pub(super) fn dispatch_event_groups(
     managers: &BattleManagers,
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
+    drain_state: &mut DrainState,
     event_groups: &[Vec<BattleEvent>],
     parent_path: &[usize],
     reuse_path: &[usize],
@@ -102,6 +103,10 @@ pub(super) fn dispatch_event_groups(
 ) -> Result<ReactionBatch, DrainError> {
     let all_events = event_groups.iter().flatten().cloned().collect::<Vec<_>>();
     let mut state = EventBatchState::default();
+    let mut unscoped_reactions = std::collections::HashSet::new();
+    let fired_once_per_action = action_path.map_or(&mut unscoped_reactions, |action_path| {
+        drain_state.action_reactions(action_path)
+    });
     let mut reactions = ReactionBatch::default();
     for events in event_groups {
         let mut group = dispatch_event_batch_inner(
@@ -120,6 +125,7 @@ pub(super) fn dispatch_event_groups(
             publication_phase,
             owner_uids,
             &mut state,
+            fired_once_per_action,
         )?;
         group.order_skills(pool, managers, catalog, events)?;
         reactions.append(group);
@@ -160,6 +166,7 @@ pub(super) fn dispatch_event_batch(
         publication_phase,
         owner_uids,
         &mut EventBatchState::default(),
+        &mut std::collections::HashSet::new(),
     )
 }
 
@@ -167,7 +174,6 @@ pub(super) fn dispatch_event_batch(
 struct EventBatchState {
     queued_attack_consumption: bool,
     fired_once_per_target: std::collections::HashSet<OncePerTargetKey>,
-    fired_once_per_action: std::collections::HashSet<OncePerActionKey>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -187,6 +193,7 @@ fn dispatch_event_batch_inner(
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
     state: &mut EventBatchState,
+    fired_once_per_action: &mut std::collections::HashSet<OncePerActionKey>,
 ) -> Result<ReactionBatch, DrainError> {
     let scoped_owner_uids = terminal_owner_scope(pool, managers, owner_uids);
     let owner_uids = scoped_owner_uids.as_deref();
@@ -288,7 +295,7 @@ fn dispatch_event_batch_inner(
             Some(publication_phase),
         )?;
         retain_event_multiplicity(&mut dispatched, event, &mut state.fired_once_per_target);
-        retain_reaction_multiplicity(&mut dispatched, &mut state.fired_once_per_action);
+        retain_reaction_multiplicity(&mut dispatched, fired_once_per_action);
         defer_after_hit_skill_buff_acts(&mut dispatched);
         reactions.before_publish.extend(dispatched.before_publish);
         reactions.after_publish.extend(dispatched.after_publish);
