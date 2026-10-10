@@ -1526,6 +1526,7 @@ fn exact_event_aliases_fire_independently_per_hp_transaction() {
                 origin,
                 source_uid: -1,
                 target_uid: 11,
+                participant_uids: vec![10, 11, 12],
                 amount: 25,
                 share_count: 3,
                 damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
@@ -1611,6 +1612,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
             },
             source_uid: -1,
             target_uid: 10,
+            participant_uids: vec![10, 11, 12],
             amount: 300,
             share_count: 3,
             damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
@@ -1663,6 +1665,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
             },
             source_uid: -1,
             target_uid: 10,
+            participant_uids: vec![10, 11, 12],
             amount: 300,
             share_count: 3,
             damage_from: crate::engine::manager::hp::HurtDamageFromType::SkillEffect,
@@ -1674,7 +1677,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
 }
 
 #[test]
-fn shared_hit_pipeline_triggers_holder_reactions_for_share_and_hit() {
+fn shared_hit_pipeline_triggers_a_non_target_participant_once() {
     crate::test_support::init_config();
     let entity = |position, uid, passive_skill, buffs| FightEntityInfo {
         uid: Some(uid),
@@ -1696,7 +1699,7 @@ fn shared_hit_pipeline_triggers_holder_reactions_for_share_and_hit() {
                 entity(
                     1,
                     10,
-                    vec![434111],
+                    Vec::new(),
                     vec![BuffInfo {
                         uid: Some(50),
                         buff_id: Some(31090121),
@@ -1707,7 +1710,7 @@ fn shared_hit_pipeline_triggers_holder_reactions_for_share_and_hit() {
                 ),
                 entity(2, 11, Vec::new(), Vec::new()),
                 entity(3, 12, Vec::new(), Vec::new()),
-                entity(4, 13, Vec::new(), Vec::new()),
+                entity(4, 13, vec![434111], Vec::new()),
             ],
             ..Default::default()
         }),
@@ -1768,7 +1771,7 @@ fn shared_hit_pipeline_triggers_holder_reactions_for_share_and_hit() {
     )
     .unwrap();
     for uid in [10, 11, 12, 13] {
-        assert_eq!(managers.buff.buff_id_amount(uid, 434121), 6);
+        assert_eq!(managers.buff.buff_id_amount(uid, 434121), 3);
     }
 }
 

@@ -347,6 +347,12 @@ impl HpChanges {
                         .map_or(self.origin, |share| share.origin),
                     source_uid: self.source_uid,
                     target_uid: self.target_uid,
+                    participant_uids: shared
+                        .shares
+                        .iter()
+                        .filter(|share| share.hp.is_some_and(|change| change.delta < 0))
+                        .map(|share| share.target_uid)
+                        .collect(),
                     amount,
                     share_count,
                     damage_from: self

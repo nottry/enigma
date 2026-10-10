@@ -245,14 +245,21 @@ mod tests {
                 BattleEvent::DamageShared {
                     source_uid,
                     target_uid,
+                    participant_uids,
                     amount,
                     share_count,
                     ..
-                } => Some((source_uid, target_uid, amount, share_count)),
+                } => Some((
+                    source_uid,
+                    target_uid,
+                    participant_uids,
+                    amount,
+                    share_count,
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(shared, vec![(-1, 10, 1_575, 3)]);
+        assert_eq!(shared, vec![(-1, 10, vec![11, 12, 13], 1_575, 3)]);
         assert!(changes.events().iter().any(|event| {
             matches!(
                 event,

@@ -213,11 +213,12 @@ pub enum BattleEvent {
         amount: i32,
         buff_uid: Option<i64>,
     },
-    // A ShareHurt split: `source_uid` attacked `target_uid`, which shared damage with its allies.
+    // A ShareHurt split: `source_uid` attacked `target_uid`, which shared damage with `participant_uids`.
     DamageShared {
         origin: CommandOrigin,
         source_uid: i64,
         target_uid: i64,
+        participant_uids: Vec<i64>,
         amount: i32,
         share_count: i32,
         damage_from: crate::engine::manager::hp::HurtDamageFromType,

@@ -125,12 +125,18 @@ pub(super) fn apply_event_context(
         }
         BattleEvent::DamageShared {
             target_uid,
+            participant_uids,
             share_count,
             damage_from,
             ..
         } => {
             context.runtime_target_uid = *target_uid;
-            context.damage_shared_uid = *target_uid;
+            context.damage_shared_uid =
+                if participant_uids.contains(&context.active_skill_source_uid) {
+                    context.active_skill_source_uid
+                } else {
+                    0
+                };
             context.damage_shared_count = *share_count;
             context.hit_damage_from = Some(*damage_from);
         }
