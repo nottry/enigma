@@ -121,6 +121,21 @@ mod tests {
             ),
             320
         );
+        let attributes = crate::engine::manager::attribute::AttributeManager::default();
+        assert_eq!(
+            super::super::calculated_attack_attribute_delta_for_skill(
+                &feature,
+                AttrId::DmgBonus,
+                &attributes,
+                &buffs,
+                &hp,
+                false,
+                false,
+                true,
+                &[(31050145, 10)],
+            ),
+            0
+        );
         assert_eq!(
             attribute_delta(&feature, AttrId::GenesisDmgBonus, &buffs),
             0

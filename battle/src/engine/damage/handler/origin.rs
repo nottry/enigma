@@ -11,7 +11,9 @@ use super::critical_technique_bonus;
 pub(super) struct OriginRuntime<'a> {
     pub managers: &'a BattleManagers,
     pub pool: &'a TargetPool,
-    pub extra_action: bool,
+    pub skill_id: i32,
+    pub performs_extra_action: bool,
+    pub unpaid_extra_action_cost_fields: &'a [(i32, i64)],
 }
 
 pub(super) fn amount(
@@ -85,7 +87,7 @@ pub(super) fn amount(
     let mut formula = DamageFormulaInput::genesis(
         managers.origin_attribute(basis_uid, attr_id),
         *rate,
-        genesis_multiplier(managers, source_uid, target_uid, runtime.extra_action),
+        genesis_multiplier(managers, source_uid, target_uid, runtime),
     );
     formula.crit_multiplier = crit_multiplier;
     formula.is_crit = is_crit;
@@ -157,7 +159,7 @@ pub(super) fn team_attribute_amount(
     let trace = calculate_with_trace(DamageFormulaInput::genesis(
         basis,
         *rate,
-        genesis_multiplier(managers, source_uid, target_uid, runtime.extra_action),
+        genesis_multiplier(managers, source_uid, target_uid, runtime),
     ));
     if crate::engine::damage::trace::enabled() {
         eprintln!(
@@ -172,21 +174,33 @@ fn genesis_multiplier(
     managers: &BattleManagers,
     source_uid: i64,
     target_uid: i64,
-    extra_action: bool,
+    runtime: OriginRuntime<'_>,
 ) -> i32 {
-    let local = if extra_action {
+    let local = if runtime.performs_extra_action {
         managers
             .buff
             .active_features(&managers.hp)
             .iter()
             .filter(|feature| feature.owner_uid == source_uid)
+            .filter(|feature| {
+                matches!(
+                    crate::engine::skill::buff_act::feature_kind(feature),
+                    Some(
+                        crate::engine::skill::buff_act::registry::BuffActKind::MustCritAndFixTempAttr
+                            | crate::engine::skill::buff_act::registry::BuffActKind::FixTempAttrByBuffLayer
+                    )
+                )
+            })
             .map(|feature| {
-                crate::engine::skill::buff_act::must_crit_and_fix_temp_attr::attribute_delta(
-                    feature,
-                    AttrId::GenesisDmgBonus,
+                crate::engine::skill::buff_act::calculated_attack_attribute_delta_for_skill(
+                    feature, AttrId::GenesisDmgBonus,
                     &managers.attribute,
                     &managers.buff,
                     &managers.hp,
+                    runtime.pool.catalog().skill_is_big(runtime.skill_id),
+                    false,
+                    true,
+                    runtime.unpaid_extra_action_cost_fields,
                 )
             })
             .sum::<i32>()
