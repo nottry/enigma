@@ -408,6 +408,10 @@ impl EntityManager {
         self.order.iter().copied()
     }
 
+    pub(crate) fn registration_ordered_uids(&self) -> impl Iterator<Item = i64> + '_ {
+        self.identity_order.iter().copied()
+    }
+
     pub(crate) fn in_identity_map_order(&self, targets: &[i64]) -> Vec<i64> {
         let mut bucket_count = 16;
         while self.identities.len() > bucket_count * 3 / 4 {

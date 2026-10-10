@@ -107,7 +107,7 @@ pub fn for_skills(
 }
 
 pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<BuffActSubscriber> {
-    managers
+    let mut subscribers = managers
         .buff
         .active_features(&managers.hp)
         .into_iter()
@@ -149,7 +149,13 @@ pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<Buff
                 raw: feature.raw,
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let owners = managers
+        .entity
+        .registration_ordered_uids()
+        .collect::<Vec<_>>();
+    order_in_owner_order(&mut subscribers, &owners, |subscriber| subscriber.owner_uid);
+    subscribers
 }
 
 fn for_configured_buff_acts(
@@ -362,11 +368,15 @@ pub fn for_compiled_owner_events(
 
 fn retain_in_owner_order<T>(items: &mut Vec<T>, owner_uids: &[i64], owner: impl Fn(&T) -> i64) {
     items.retain(|item| owner_uids.contains(&owner(item)));
+    order_in_owner_order(items, owner_uids, owner);
+}
+
+fn order_in_owner_order<T>(items: &mut [T], owner_uids: &[i64], owner: impl Fn(&T) -> i64) {
     items.sort_by_key(|item| {
         owner_uids
             .iter()
             .position(|owner_uid| *owner_uid == owner(item))
-            .expect("retained owner is present")
+            .unwrap_or(usize::MAX)
     });
 }
 

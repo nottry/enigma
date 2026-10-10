@@ -33,6 +33,121 @@ fn manager_owned_passive_skills_preserve_configured_order() {
 }
 
 #[test]
+fn recreated_buff_keeps_owner_reaction_order() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                team_type: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                team_type: Some(2),
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(31090112),
+                        from_uid: Some(10),
+                        layer: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(21),
+                        buff_id: Some(31090131),
+                        from_uid: Some(-1),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    crate::engine::mechanic::shell::execute(
+        &mut managers,
+        crate::engine::mechanic::shell::ShellCommand::Retrieve {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::BuffAct,
+                key: DefinitionKey::new(871, "ShellDebuff"),
+            },
+            source_uid: 10,
+            target_uid: -1,
+            stock_buff_id: 31090111,
+            amount: 1,
+        },
+    )
+    .unwrap();
+
+    let shell_reactions = for_active_buffs(&managers, EventKind::ShellRetrieved)
+        .into_iter()
+        .filter_map(|subscriber| {
+            matches!(
+                buff_act::subscriber_kind(&subscriber),
+                Some(
+                    buff_act::registry::BuffActKind::ShellProcess
+                        | buff_act::registry::BuffActKind::ShellLock
+                )
+            )
+            .then_some((subscriber.owner_uid, subscriber.key.definition.opcode))
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(shell_reactions, vec![(10, 869), (-1, 873)]);
+}
+
+#[test]
+fn reserve_promotion_does_not_reorder_buff_reaction_owners() {
+    crate::test_support::init_config();
+    let entity = |uid, current_hp, position, buff_uid| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(current_hp),
+        team_type: Some(1),
+        position: Some(position),
+        attr: Some(sonettobuf::HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        buffs: vec![BuffInfo {
+            uid: Some(buff_uid),
+            buff_id: Some(31090131),
+            from_uid: Some(uid),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 0, 1, 20)],
+            sub_entitys: vec![entity(11, 100, -1, 21)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+
+    assert_eq!(managers.entity.promote_reserves(&managers.hp).len(), 1);
+    let owners = for_active_buffs(&managers, EventKind::ShellRetrieved)
+        .into_iter()
+        .filter(|subscriber| {
+            buff_act::subscriber_kind(subscriber)
+                == Some(buff_act::registry::BuffActKind::ShellLock)
+        })
+        .map(|subscriber| subscriber.owner_uid)
+        .collect::<Vec<_>>();
+
+    assert_eq!(owners, vec![10, 11]);
+}
+
+#[test]
 fn reachable_missing_skill_is_not_a_silent_empty_subscription() {
     let fight = Fight {
         attacker: Some(FightTeam {
