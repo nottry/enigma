@@ -303,7 +303,7 @@ pub(in crate::engine::runtime) fn emit_ops(
     // An extra action's Force Field Eureka cost and forced crit open the action, before its own
     // effects; other additional-damage activations follow those effects.
     if !resuming_phase && active_phase == Some(SkillPhase::Immediate) && has_row_damage {
-        for activation in plan::additional_damage_activation(&invocation, managers, execution)
+        for activation in plan::LinkedDamagePlan::activations(&invocation, managers, execution)
             .into_iter()
             .filter(|activation| activation.pays_extra_action_cost)
         {
@@ -813,7 +813,7 @@ pub(in crate::engine::runtime) fn emit_ops(
         );
     }
     if active_phase == Some(SkillPhase::Immediate) && has_row_damage {
-        for activation in plan::additional_damage_activation(&invocation, managers, execution) {
+        for activation in plan::LinkedDamagePlan::activations(&invocation, managers, execution) {
             let activated = execution.has_activated_additional_damage(&activation.additional);
             if !activated {
                 outputs.extend(emit_additional_damage_activation(

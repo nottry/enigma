@@ -25,8 +25,8 @@ pub(in crate::engine::runtime) struct SkillExecution {
     pub(super) buff_additions: Vec<(i32, i32)>,
     pub(super) team_injury_count_round: i32,
     team_injury_count_consumed: Option<DefinitionKey>,
-    pub(super) resolved_hit_additional_damage: Vec<PlannedAdditionalDamage>,
-    pub(super) activated_additional_damage: Vec<PlannedAdditionalDamage>,
+    pub(super) resolved_hit_additional_damage: Vec<LinkedDamagePlan>,
+    pub(super) activated_additional_damage: Vec<LinkedDamagePlan>,
     pub(super) temporary_damage_buffs: Vec<(CommandOrigin, i32)>,
     pub(super) pending_additional_damage: Vec<HpCommand>,
     pending_after_damage_ops: Vec<RuleOp>,
@@ -261,7 +261,7 @@ impl SkillExecution {
         }
     }
 
-    pub(super) fn activate_additional_damage(&mut self, planned: PlannedAdditionalDamage) {
+    pub(super) fn activate_additional_damage(&mut self, planned: LinkedDamagePlan) {
         if planned.is_resolved_hit_derived() {
             self.resolved_hit_additional_damage.push(planned);
         } else {
@@ -269,10 +269,7 @@ impl SkillExecution {
         }
     }
 
-    pub(super) fn has_activated_additional_damage(
-        &self,
-        candidate: &PlannedAdditionalDamage,
-    ) -> bool {
+    pub(super) fn has_activated_additional_damage(&self, candidate: &LinkedDamagePlan) -> bool {
         self.resolved_hit_additional_damage
             .iter()
             .chain(&self.activated_additional_damage)
@@ -316,7 +313,7 @@ pub(super) struct DamageOps {
     pub(super) avoided: Vec<ActiveBuffFeature>,
 }
 pub(super) struct AdditionalDamageActivation {
-    pub(super) additional: PlannedAdditionalDamage,
+    pub(super) additional: LinkedDamagePlan,
     pub(super) buff_act_ops: Vec<RuleOp>,
     pub(super) skill_ops: Vec<RuleOp>,
     pub(super) temporary_buff: Option<(CommandOrigin, i32)>,
@@ -324,48 +321,48 @@ pub(super) struct AdditionalDamageActivation {
 }
 
 #[derive(Clone)]
-pub(super) struct PlannedAdditionalDamage {
+pub(super) struct LinkedDamagePlan {
     pub(super) feature: ActiveBuffFeature,
     spec: crate::engine::skill::buff_act::additional_damage::AdditionalDamageSpec,
     uses_extra_lane: bool,
 }
 
-impl PlannedAdditionalDamage {
+impl LinkedDamagePlan {
     fn is_resolved_hit_derived(&self) -> bool {
         self.spec.formula == crate::engine::damage::DamageFormula::ResolvedHitProportionalAdditional
     }
-}
 
-fn additional_damage(
-    source_uid: i64,
-    managers: &BattleManagers,
-    execution: &SkillExecution,
-    extra_action: bool,
-) -> Vec<PlannedAdditionalDamage> {
-    // Damage derived from the resolved main hit stays in that hit's lane. Independently rolled
-    // cast-local and pre-existing linked producers follow it in their own activation order.
-    let mut planned = execution.resolved_hit_additional_damage.clone();
-    planned.extend(
-        execution
-            .modifiers
-            .additional_damage
-            .iter()
-            .filter_map(|modifier| {
-                crate::engine::skill::buff_act::additional_damage::configured(
-                    managers.catalog(),
-                    modifier.buff_id,
-                    source_uid,
-                    source_uid,
-                )
-                .map(|(feature, spec)| PlannedAdditionalDamage {
-                    feature,
-                    spec,
-                    uses_extra_lane: spec.uses_extra_lane(managers, extra_action),
-                })
-            }),
-    );
-    planned.extend(execution.activated_additional_damage.iter().cloned());
-    planned
+    fn for_execution(
+        source_uid: i64,
+        managers: &BattleManagers,
+        execution: &SkillExecution,
+        extra_action: bool,
+    ) -> Vec<Self> {
+        // Damage derived from the resolved main hit stays in that hit's lane. Independently rolled
+        // cast-local and pre-existing linked producers follow it in their own activation order.
+        let mut planned = execution.resolved_hit_additional_damage.clone();
+        planned.extend(
+            execution
+                .modifiers
+                .additional_damage
+                .iter()
+                .filter_map(|modifier| {
+                    crate::engine::skill::buff_act::additional_damage::configured(
+                        managers.catalog(),
+                        modifier.buff_id,
+                        source_uid,
+                        source_uid,
+                    )
+                    .map(|(feature, spec)| Self {
+                        feature,
+                        spec,
+                        uses_extra_lane: spec.uses_extra_lane(managers, extra_action),
+                    })
+                }),
+        );
+        planned.extend(execution.activated_additional_damage.iter().cloned());
+        planned
+    }
 }
 
 // "When an ally performs an extra action": follow-ups, ripostes and extra actions, and any other
@@ -377,124 +374,125 @@ fn performs_extra_action(invocation: &SkillInvocation, execution: &SkillExecutio
         && invocation.mode == crate::engine::skill::action::SkillExecutionMode::Active)
 }
 
-pub(super) fn linked_shell_attributes(
-    extra_skill_kind: i32,
-    uses_extra_lane: bool,
-) -> (bool, bool) {
-    use crate::engine::skill::condition::extra::ExtraSkillKind;
+impl LinkedDamagePlan {
+    pub(super) fn shell_attributes(extra_skill_kind: i32, uses_extra_lane: bool) -> (bool, bool) {
+        use crate::engine::skill::condition::extra::ExtraSkillKind;
 
-    let (damage, critical) =
-        match crate::engine::skill::condition::extra::skill_kind_from_is_extra(extra_skill_kind) {
-            Some(ExtraSkillKind::ExtraAction) => (true, true),
-            Some(ExtraSkillKind::FollowUp) => (true, false),
-            Some(ExtraSkillKind::Riposte) => (false, false),
-            _ => (true, false),
-        };
-    (damage || uses_extra_lane, critical)
-}
+        let (damage, critical) =
+            match crate::engine::skill::condition::extra::skill_kind_from_is_extra(extra_skill_kind)
+            {
+                Some(ExtraSkillKind::ExtraAction) => (true, true),
+                Some(ExtraSkillKind::FollowUp) => (true, false),
+                Some(ExtraSkillKind::Riposte) => (false, false),
+                _ => (true, false),
+            };
+        (damage || uses_extra_lane, critical)
+    }
 
-pub(super) fn owned_linked_attack_attributes(
-    local: &[(crate::engine::entity::attr::AttrId, i32)],
-    shared: &[(crate::engine::entity::attr::AttrId, i32)],
-    action_source_uid: i64,
-    credited_source_uid: i64,
-    inherit_action_critical_damage: bool,
-) -> Vec<(crate::engine::entity::attr::AttrId, i32)> {
-    local
-        .iter()
-        .copied()
-        .filter(|(attr, _)| {
-            *attr != crate::engine::entity::attr::AttrId::CriticalDmg
-                || credited_source_uid == action_source_uid
-                || inherit_action_critical_damage
-        })
-        .chain(shared.iter().copied())
-        .filter(|(attr, _)| {
-            !matches!(
-                attr,
-                crate::engine::entity::attr::AttrId::UltimateMight
-                    | crate::engine::entity::attr::AttrId::IncantationMight
-                    | crate::engine::entity::attr::AttrId::UltimateMightMultiplier
-                    | crate::engine::entity::attr::AttrId::IncantationSkillUltMightMultiplier
-                    | crate::engine::entity::attr::AttrId::IncantationMightMultiplier
-            )
+    pub(super) fn attack_attributes(
+        local: &[(crate::engine::entity::attr::AttrId, i32)],
+        shared: &[(crate::engine::entity::attr::AttrId, i32)],
+        action_source_uid: i64,
+        credited_source_uid: i64,
+        inherit_action_critical_damage: bool,
+    ) -> Vec<(crate::engine::entity::attr::AttrId, i32)> {
+        local
+            .iter()
+            .copied()
+            .filter(|(attr, _)| {
+                *attr != crate::engine::entity::attr::AttrId::CriticalDmg
+                    || credited_source_uid == action_source_uid
+                    || inherit_action_critical_damage
+            })
+            .chain(shared.iter().copied())
+            .filter(|(attr, _)| {
+                !matches!(
+                    attr,
+                    crate::engine::entity::attr::AttrId::UltimateMight
+                        | crate::engine::entity::attr::AttrId::IncantationMight
+                        | crate::engine::entity::attr::AttrId::UltimateMightMultiplier
+                        | crate::engine::entity::attr::AttrId::IncantationSkillUltMightMultiplier
+                        | crate::engine::entity::attr::AttrId::IncantationMightMultiplier
+                )
+            })
+            .collect()
+    }
+
+    pub(super) fn activations(
+        invocation: &SkillInvocation,
+        managers: &BattleManagers,
+        execution: &SkillExecution,
+    ) -> Vec<AdditionalDamageActivation> {
+        let extra_action = performs_extra_action(invocation, execution);
+        crate::engine::skill::buff_act::additional_damage::active_features(
+            managers,
+            invocation.plan.source_uid,
+        )
+        .into_iter()
+        .filter_map(|(feature, spec)| {
+            let uses_extra_lane = spec.uses_extra_lane(managers, extra_action);
+            let additional = Self {
+                feature,
+                spec,
+                uses_extra_lane,
+            };
+            let origin =
+                crate::engine::skill::buff_act::feature_command_origin(&additional.feature)?;
+            let temporary_buff = (additional.spec.temp_buff_id > 0)
+                .then_some((origin, additional.spec.temp_buff_id));
+            let mut buff_act_ops = Vec::new();
+            if additional.spec.source_count_cost > 0 && additional.feature.buff_uid > 0 {
+                buff_act_ops.push(RuleOp::Command(
+                    crate::engine::skill::rule::output::BattleCommand::Buff(
+                        crate::engine::manager::buff::BuffCommand::ConsumeCount(
+                            crate::engine::manager::buff::BuffConsume {
+                                origin,
+                                target_uid: additional.feature.owner_uid,
+                                selector: crate::engine::manager::buff::BuffSelector::Uid(
+                                    additional.feature.buff_uid,
+                                ),
+                                amount: additional.spec.source_count_cost,
+                                depleted: crate::engine::manager::buff::DepletedBuff::Remove,
+                            },
+                        ),
+                    ),
+                ));
+            }
+            let mut skill_ops = Vec::new();
+            if let Some((origin, buff_id)) = temporary_buff {
+                skill_ops.push(RuleOp::Command(
+                    crate::engine::skill::rule::output::BattleCommand::Buff(
+                        crate::engine::manager::buff::BuffCommand::Grant(
+                            crate::engine::manager::buff::BuffGrant {
+                                origin,
+                                source_uid: invocation.plan.source_uid,
+                                target_uid: invocation.plan.source_uid,
+                                buff_id,
+                                amount: None,
+                                occurrences: 1,
+                                child_uid_reservations: 0,
+                            },
+                        ),
+                    ),
+                ));
+            }
+            let cost = crate::engine::skill::buff_act::additional_damage::extra_action_cost_op(
+                &additional.feature,
+                additional.spec,
+                uses_extra_lane,
+            );
+            let pays_extra_action_cost = cost.is_some();
+            buff_act_ops.extend(cost);
+            Some(AdditionalDamageActivation {
+                additional,
+                buff_act_ops,
+                skill_ops,
+                temporary_buff,
+                pays_extra_action_cost,
+            })
         })
         .collect()
-}
-
-pub(super) fn additional_damage_activation(
-    invocation: &SkillInvocation,
-    managers: &BattleManagers,
-    execution: &SkillExecution,
-) -> Vec<AdditionalDamageActivation> {
-    let extra_action = performs_extra_action(invocation, execution);
-    crate::engine::skill::buff_act::additional_damage::active_features(
-        managers,
-        invocation.plan.source_uid,
-    )
-    .into_iter()
-    .filter_map(|(feature, spec)| {
-        let uses_extra_lane = spec.uses_extra_lane(managers, extra_action);
-        let additional = PlannedAdditionalDamage {
-            feature,
-            spec,
-            uses_extra_lane,
-        };
-        let origin = crate::engine::skill::buff_act::feature_command_origin(&additional.feature)?;
-        let temporary_buff =
-            (additional.spec.temp_buff_id > 0).then_some((origin, additional.spec.temp_buff_id));
-        let mut buff_act_ops = Vec::new();
-        if additional.spec.source_count_cost > 0 && additional.feature.buff_uid > 0 {
-            buff_act_ops.push(RuleOp::Command(
-                crate::engine::skill::rule::output::BattleCommand::Buff(
-                    crate::engine::manager::buff::BuffCommand::ConsumeCount(
-                        crate::engine::manager::buff::BuffConsume {
-                            origin,
-                            target_uid: additional.feature.owner_uid,
-                            selector: crate::engine::manager::buff::BuffSelector::Uid(
-                                additional.feature.buff_uid,
-                            ),
-                            amount: additional.spec.source_count_cost,
-                            depleted: crate::engine::manager::buff::DepletedBuff::Remove,
-                        },
-                    ),
-                ),
-            ));
-        }
-        let mut skill_ops = Vec::new();
-        if let Some((origin, buff_id)) = temporary_buff {
-            skill_ops.push(RuleOp::Command(
-                crate::engine::skill::rule::output::BattleCommand::Buff(
-                    crate::engine::manager::buff::BuffCommand::Grant(
-                        crate::engine::manager::buff::BuffGrant {
-                            origin,
-                            source_uid: invocation.plan.source_uid,
-                            target_uid: invocation.plan.source_uid,
-                            buff_id,
-                            amount: None,
-                            occurrences: 1,
-                            child_uid_reservations: 0,
-                        },
-                    ),
-                ),
-            ));
-        }
-        let cost = crate::engine::skill::buff_act::additional_damage::extra_action_cost_op(
-            &additional.feature,
-            additional.spec,
-            uses_extra_lane,
-        );
-        let pays_extra_action_cost = cost.is_some();
-        buff_act_ops.extend(cost);
-        Some(AdditionalDamageActivation {
-            additional,
-            buff_act_ops,
-            skill_ops,
-            temporary_buff,
-            pays_extra_action_cost,
-        })
-    })
-    .collect()
+    }
 }
 
 pub(super) fn split_excess_crit_conversion(excess_crit: i32, conversion_rate: i32) -> (i32, i32) {
@@ -553,7 +551,7 @@ pub(super) fn damage_ops(
         .unwrap_or_default();
     let main_target = targets.first().copied();
     let extra_action = performs_extra_action(invocation, execution);
-    let additional = additional_damage(source_uid, managers, execution, extra_action)
+    let additional = LinkedDamagePlan::for_execution(source_uid, managers, execution, extra_action)
         .into_iter()
         .filter_map(|additional| {
             crate::engine::skill::buff_act::feature_command_origin(&additional.feature).map(
@@ -708,7 +706,7 @@ pub(super) fn damage_ops(
             ));
         }
         let (linked_shell_damage, linked_shell_critical) =
-            linked_shell_attributes(execution.context.extra_skill_kind, false);
+            LinkedDamagePlan::shell_attributes(execution.context.extra_skill_kind, false);
         let mut target_shell_damage = 0;
         for attr_id in [
             crate::engine::entity::attr::AttrId::CriticalDmg,
@@ -925,7 +923,7 @@ pub(super) fn damage_ops(
                     target_uid,
                     damage::crit_chance(additional.credited_source_uid, target_uid, pool, managers),
                 );
-                let mut additional_attributes = owned_linked_attack_attributes(
+                let mut additional_attributes = LinkedDamagePlan::attack_attributes(
                     &linked_attack_attributes,
                     &shared_linked_attack_attributes,
                     action_owner_uid,
@@ -935,8 +933,10 @@ pub(super) fn damage_ops(
                     // forces the producer's critical owns that lane instead.
                     !field_forces_critical(additional.credited_source_uid, managers, extra_action),
                 );
-                let (producer_shell_damage, _) =
-                    linked_shell_attributes(execution.context.extra_skill_kind, *uses_extra_lane);
+                let (producer_shell_damage, _) = LinkedDamagePlan::shell_attributes(
+                    execution.context.extra_skill_kind,
+                    *uses_extra_lane,
+                );
                 if producer_shell_damage && !linked_shell_damage && target_shell_damage != 0 {
                     additional_attributes.push((
                         crate::engine::entity::attr::AttrId::DmgBonus,
