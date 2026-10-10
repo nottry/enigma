@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn all_enemy_capture_order_does_not_change_group_membership() {
+    assert!(captured_targets_match(
+        TargetRule::EnemiesIncludingSpecial,
+        &[10, 11, 12],
+        &[12, 10, 11],
+    ));
+    assert!(!captured_targets_match(
+        TargetRule::EnemiesIncludingSpecial,
+        &[10, 11, 12],
+        &[12, 10],
+    ));
+    assert!(!captured_targets_match(
+        TargetRule::EnemiesIncludingSpecial,
+        &[10, 10, 11],
+        &[10, 11, 12],
+    ));
+    assert!(!captured_targets_match(
+        TargetRule::MainAllies,
+        &[10, 11, 12],
+        &[12, 10, 11],
+    ));
+}
+
+#[test]
 fn other_allies_anchor_their_shared_skill_frame_to_the_caster() {
     assert_eq!(frame_anchor_for_rule(102, 10), Some(10));
     assert_eq!(frame_anchor_for_rule(103, 10), None);
