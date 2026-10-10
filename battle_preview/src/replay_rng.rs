@@ -173,14 +173,15 @@ fn shell_moxie_choices(game_data: &'static config::GameDB, round: &FightRound) -
         for effect in &step.act_effect {
             let current_shell = effect.buff.as_ref().and_then(|buff| {
                 buff.buff_id
+                    .zip(effect.target_id.filter(|uid| *uid != 0))
                     .zip(buff.from_uid.filter(|uid| *uid != 0))
-                    .filter(|(buff_id, _)| {
+                    .filter(|((buff_id, _), _)| {
                         battle::tooling::shell_process_spec(game_data, *buff_id).is_some()
                     })
             });
-            if let Some((deployed_buff_id, source_uid)) = current_shell
-                && let Some((stock_buff_id, stock_source_uid)) = previous_shell
-                && stock_source_uid == source_uid
+            if let Some(((deployed_buff_id, _), source_uid)) = current_shell
+                && let Some((stock_buff_id, stock_owner_uid)) = previous_shell
+                && stock_owner_uid == source_uid
                 && let Some((expected_deployed_buff_id, moxie_delta)) =
                     battle::tooling::shell_process_spec(game_data, stock_buff_id)
                 && deployed_buff_id == expected_deployed_buff_id
@@ -202,7 +203,7 @@ fn shell_moxie_choices(game_data: &'static config::GameDB, round: &FightRound) -
             if let Some(child) = effect.fight_step.as_ref() {
                 visit(game_data, child, choices);
             }
-            previous_shell = current_shell;
+            previous_shell = current_shell.map(|((buff_id, owner_uid), _)| (buff_id, owner_uid));
         }
     }
 
@@ -616,11 +617,12 @@ mod tests {
         crate::init_test_config();
         use sonettobuf::{ActEffect, effect_type_enum::EffectType};
 
-        let shell = |buff_id| ActEffect {
+        let shell = |buff_id, target_id, from_uid| ActEffect {
             effect_type: Some(EffectType::Buffupdate as i32),
+            target_id: Some(target_id),
             buff: Some(BuffInfo {
                 buff_id: Some(buff_id),
-                from_uid: Some(20),
+                from_uid: Some(from_uid),
                 ..Default::default()
             }),
             ..Default::default()
@@ -629,13 +631,13 @@ mod tests {
             fight_step: vec![FightStep {
                 act_effect: vec![
                     // Retrieval updates the deployed shell before the stock and is not a roll.
-                    shell(31090112),
-                    shell(31090111),
+                    shell(31090112, -1, 20),
+                    shell(31090111, 20, -1),
                     // Deployment updates the stock before the deployed shell and rolls once.
-                    shell(31090111),
-                    shell(31090112),
-                    shell(31090111),
-                    shell(31090112),
+                    shell(31090111, 20, -1),
+                    shell(31090112, -1, 20),
+                    shell(31090111, 20, -1),
+                    shell(31090112, -1, 20),
                     ActEffect {
                         effect_type: Some(EffectType::Expointchange as i32),
                         target_id: Some(20),
@@ -643,8 +645,8 @@ mod tests {
                         config_effect: Some(0),
                         ..Default::default()
                     },
-                    shell(31090111),
-                    shell(31090112),
+                    shell(31090111, 20, -1),
+                    shell(31090112, -1, 20),
                 ],
                 ..Default::default()
             }],
