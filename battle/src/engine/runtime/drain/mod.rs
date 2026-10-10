@@ -560,6 +560,11 @@ fn drain_queue_with_deferred(
         let frame_group_started = frame_group
             .as_ref()
             .is_some_and(|group| group.borrow().is_some());
+        let reaction_link = frame_group
+            .as_ref()
+            .and_then(|group| state.action_reaction_link(group))
+            .or_else(|| state.reaction_child_link(frame_path.as_ref()))
+            .or_else(|| state.reaction_child_link(parent_path.as_ref()));
         if matches!(trigger, SkillOpTrigger::Event(_))
             && !frame_group_started
             && managers
@@ -761,12 +766,17 @@ fn drain_queue_with_deferred(
                     });
                 if completes_action {
                     state.open_action(frame_path.clone());
+                    if let Some(link) = &reaction_link {
+                        state.claim_action_link(&frame_path, link);
+                    }
                     if let Some(group) = &frame_group {
                         for (caster, mut queued) in state.take_after_reaction_casts(group) {
                             queued.parent_path = Some(frame_path.clone());
                             state.push_after_action_cast(frame_path.clone(), caster, queued);
                         }
                     }
+                } else if let Some(link) = &reaction_link {
+                    state.defer_reaction_child_link(frame_path.clone(), link);
                 }
                 let mut outputs = defeated_owner_card_cleanups
                     .into_iter()
@@ -847,7 +857,7 @@ fn drain_queue_with_deferred(
                         op: RuleOp::Skill(continuation),
                         trigger,
                         skill_execution: Some(execution),
-                        frame_path: Some(frame_path),
+                        frame_path: Some(frame_path.clone()),
                         parent_path: None,
                         frame_group: None,
                         independent_parent_group: None,
@@ -1538,13 +1548,34 @@ fn drain_queue_with_deferred(
                         )
                     }),
                 );
-                let (after_action, mut held_casts) = if completes_action {
+                let (after_action, mut held_casts, claimed_casts) = if completes_action {
                     let casts = state.take_after_action_casts(&frame_path);
-                    (state.take_after_action(&frame_path), casts)
+                    let claimed = state.take_claimed_reaction_casts(&frame_path);
+                    (state.take_after_action(&frame_path), casts, claimed)
                 } else {
-                    (Vec::new(), Vec::new())
+                    (Vec::new(), Vec::new(), Vec::new())
                 };
-
+                let action_reactions = if held_casts.is_empty() {
+                    Vec::new()
+                } else {
+                    ally_action_reaction_groups(&after_publish)
+                };
+                if !action_reactions.is_empty() {
+                    let link = DrainState::reaction_cast_link(std::mem::take(&mut held_casts));
+                    for group in &action_reactions {
+                        state.defer_action_reaction_link(group, &link);
+                    }
+                    drain_nested_queue(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        std::mem::take(&mut after_publish).into(),
+                        &mut result,
+                        state,
+                    )?;
+                    held_casts = DrainState::take_unclaimed_reaction_casts(&link);
+                }
                 if !held_casts.is_empty()
                     && let Some(group) = after_action
                         .iter()
@@ -1558,10 +1589,14 @@ fn drain_queue_with_deferred(
                 {
                     state.defer_after_reaction_casts(&group, std::mem::take(&mut held_casts));
                 }
-                let held_casts = held_casts.into_iter().map(|(caster, mut queued)| {
-                    queued.caster_frame = caster;
-                    queued
-                });
+                let held_casts =
+                    held_casts
+                        .into_iter()
+                        .chain(claimed_casts)
+                        .map(|(caster, mut queued)| {
+                            queued.caster_frame = caster;
+                            queued
+                        });
 
                 // Manager-produced follow-ups re-enter the same queue. Skills marked
                 // AfterCurrentAction are retained until that action closes.
@@ -1852,6 +1887,26 @@ fn casting_reaction(
             owner @ FrameOwner::Skill { .. } => Some(owner.clone()),
             _ => None,
         })
+}
+
+fn ally_action_reaction_group(queued: &QueuedOp) -> Option<Rc<RefCell<Option<FramePath>>>> {
+    let SkillOpTrigger::Event(BattleEvent::AllyAction(_)) = &queued.trigger else {
+        return None;
+    };
+    let RuleOp::Skill(_) = &queued.op else {
+        return None;
+    };
+    queued.frame_group.clone()
+}
+
+fn ally_action_reaction_groups(queued: &[QueuedOp]) -> Vec<Rc<RefCell<Option<FramePath>>>> {
+    let mut groups = Vec::new();
+    for group in queued.iter().filter_map(ally_action_reaction_group) {
+        if !groups.iter().any(|known| Rc::ptr_eq(known, &group)) {
+            groups.push(group);
+        }
+    }
+    groups
 }
 
 fn insert_after_frame(

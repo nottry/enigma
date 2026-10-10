@@ -12,6 +12,17 @@ use crate::engine::{
 
 use super::{DrainBudget, DrainError, QueuedOp};
 
+type FrameGroup = Rc<RefCell<Option<FramePath>>>;
+type DeferredCast = (Option<FrameOwner>, QueuedOp);
+
+#[derive(Default)]
+pub(super) struct ReactionCastState {
+    action_path: Option<FramePath>,
+    casts: Vec<DeferredCast>,
+}
+
+pub(super) type ReactionCastLink = Rc<RefCell<ReactionCastState>>;
+
 /// Owns bookkeeping shared by the root drain and every nested reaction drain.
 #[derive(Default)]
 pub(super) struct DrainState {
@@ -21,9 +32,12 @@ pub(super) struct DrainState {
     after_hit_skills: HashMap<FramePath, Vec<QueuedOp>>,
     after_action: HashMap<FramePath, Vec<QueuedOp>>,
     // Casts held until their action completes, with the step that cast them.
-    after_action_casts: HashMap<FramePath, Vec<(Option<FrameOwner>, QueuedOp)>>,
+    after_action_casts: HashMap<FramePath, Vec<DeferredCast>>,
     // Casts released after a reaction action inherit that reaction's frame once it materializes.
-    after_reaction_casts: HashMap<usize, Vec<(Option<FrameOwner>, QueuedOp)>>,
+    after_reaction_casts: Vec<(FrameGroup, Vec<DeferredCast>)>,
+    action_reaction_links: Vec<(FrameGroup, ReactionCastLink)>,
+    reaction_child_links: HashMap<FramePath, ReactionCastLink>,
+    claimed_action_links: HashMap<FramePath, Vec<ReactionCastLink>>,
     // Actions that will publish ActionCompleted and have not yet done so.
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
@@ -167,24 +181,110 @@ impl DrainState {
             .unwrap_or_default()
     }
 
+    pub(super) fn take_claimed_reaction_casts(
+        &mut self,
+        action_path: &FramePath,
+    ) -> Vec<DeferredCast> {
+        let mut casts = Vec::new();
+        for link in self
+            .claimed_action_links
+            .remove(action_path)
+            .unwrap_or_default()
+        {
+            casts.extend(
+                link.borrow_mut()
+                    .casts
+                    .drain(..)
+                    .map(|(caster, mut queued)| {
+                        queued.parent_path = Some(action_path.clone());
+                        (caster, queued)
+                    }),
+            );
+        }
+        casts
+    }
+
     pub(super) fn defer_after_reaction_casts(
         &mut self,
         group: &Rc<RefCell<Option<FramePath>>>,
-        casts: Vec<(Option<FrameOwner>, QueuedOp)>,
+        casts: Vec<DeferredCast>,
     ) {
-        self.after_reaction_casts
-            .entry(Rc::as_ptr(group) as usize)
-            .or_default()
-            .extend(casts);
+        if let Some((_, pending)) = self
+            .after_reaction_casts
+            .iter_mut()
+            .find(|(known, _)| Rc::ptr_eq(known, group))
+        {
+            pending.extend(casts);
+        } else {
+            self.after_reaction_casts.push((group.clone(), casts));
+        }
     }
 
     pub(super) fn take_after_reaction_casts(
         &mut self,
         group: &Rc<RefCell<Option<FramePath>>>,
-    ) -> Vec<(Option<FrameOwner>, QueuedOp)> {
-        self.after_reaction_casts
-            .remove(&(Rc::as_ptr(group) as usize))
-            .unwrap_or_default()
+    ) -> Vec<DeferredCast> {
+        let Some(index) = self
+            .after_reaction_casts
+            .iter()
+            .position(|(known, _)| Rc::ptr_eq(known, group))
+        else {
+            return Vec::new();
+        };
+        self.after_reaction_casts.swap_remove(index).1
+    }
+
+    pub(super) fn defer_action_reaction_link(
+        &mut self,
+        group: &FrameGroup,
+        link: &ReactionCastLink,
+    ) {
+        self.action_reaction_links
+            .push((group.clone(), link.clone()));
+    }
+
+    pub(super) fn action_reaction_link(&self, group: &FrameGroup) -> Option<ReactionCastLink> {
+        self.action_reaction_links
+            .iter()
+            .find(|(known, _)| Rc::ptr_eq(known, group))
+            .map(|(_, link)| link.clone())
+    }
+
+    pub(super) fn defer_reaction_child_link(&mut self, path: FramePath, link: &ReactionCastLink) {
+        self.reaction_child_links
+            .entry(path)
+            .or_insert_with(|| link.clone());
+    }
+
+    pub(super) fn reaction_child_link(&self, path: Option<&FramePath>) -> Option<ReactionCastLink> {
+        path.and_then(|path| self.reaction_child_links.get(path).cloned())
+    }
+
+    pub(super) fn reaction_cast_link(casts: Vec<DeferredCast>) -> ReactionCastLink {
+        Rc::new(RefCell::new(ReactionCastState {
+            action_path: None,
+            casts,
+        }))
+    }
+
+    pub(super) fn take_unclaimed_reaction_casts(link: &ReactionCastLink) -> Vec<DeferredCast> {
+        let mut state = link.borrow_mut();
+        if state.action_path.is_some() {
+            Vec::new()
+        } else {
+            std::mem::take(&mut state.casts)
+        }
+    }
+
+    pub(super) fn claim_action_link(&mut self, action_path: &FramePath, link: &ReactionCastLink) {
+        if link.borrow().action_path.is_some() {
+            return;
+        }
+        link.borrow_mut().action_path = Some(action_path.clone());
+        self.claimed_action_links
+            .entry(action_path.clone())
+            .or_default()
+            .push(link.clone());
     }
 
     pub(super) fn cancel_action(&mut self, action_path: &FramePath) -> Vec<QueuedOp> {
@@ -193,6 +293,15 @@ impl DrainState {
         self.injuries.remove(action_path);
         self.deaths.remove(action_path);
         self.target_modifiers.remove(action_path);
+        for link in self
+            .claimed_action_links
+            .remove(action_path)
+            .unwrap_or_default()
+        {
+            if link.borrow().action_path.as_ref() == Some(action_path) {
+                link.borrow_mut().action_path = None;
+            }
+        }
 
         let mut abandoned = self.after_hit.remove(action_path).unwrap_or_default();
         abandoned.extend(
