@@ -16,7 +16,7 @@ pub(in crate::engine::runtime) struct SkillExecution {
     pub(super) context: TargetContext,
     pub(super) primary_target_uid: Option<i64>,
     pub(super) configured_targets: Option<Vec<i64>>,
-    pub(super) configured_additional_targets: Option<Vec<i64>>,
+    pub(super) additional_damage_targets: Option<Vec<i64>>,
     pub(super) planned_crits: Option<Vec<(i64, bool)>>,
     pub(super) assassination_marks_at_action_start: Option<Vec<(i64, i32)>>,
     pub(super) injured_allies: Vec<i64>,
@@ -49,7 +49,7 @@ impl SkillExecution {
             context,
             primary_target_uid: None,
             configured_targets: None,
-            configured_additional_targets: None,
+            additional_damage_targets: None,
             planned_crits: None,
             assassination_marks_at_action_start: None,
             injured_allies: Vec::new(),
@@ -79,7 +79,7 @@ impl SkillExecution {
             context,
             primary_target_uid: None,
             configured_targets: None,
-            configured_additional_targets: None,
+            additional_damage_targets: None,
             planned_crits: None,
             assassination_marks_at_action_start: None,
             injured_allies: Vec::new(),
@@ -539,7 +539,7 @@ pub(super) fn damage_ops(
         rend.as_ref(),
     );
     let additional_target_order = execution
-        .configured_additional_targets
+        .additional_damage_targets
         .as_ref()
         .filter(|targets| !targets.is_empty())
         .cloned()

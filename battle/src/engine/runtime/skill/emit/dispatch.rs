@@ -242,7 +242,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.context,
             )
         };
-        execution.configured_additional_targets = determinism
+        execution.additional_damage_targets = determinism
             .take_skill_target_choice(
                 invocation.plan.skill_id,
                 invocation.plan.source_uid,
@@ -601,10 +601,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.attacked_targets.clone()
             } else if active_phase.is_some()
                 && uses_action_targets
-                && let Some(targets) = execution
-                    .configured_additional_targets
-                    .as_ref()
-                    .or(execution.configured_targets.as_ref())
+                && let Some(targets) = execution.configured_targets.as_ref()
             {
                 targets.clone()
             } else {
@@ -629,6 +626,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                 })
             };
         if per_target_conditions {
+            targets = managers.entity.in_identity_map_order(&targets);
             targets.retain(|target_uid| {
                 conditions.iter().all(|condition| {
                     conditions_match(

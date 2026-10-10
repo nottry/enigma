@@ -81,6 +81,7 @@ pub struct EntityManager {
     identities: HashMap<i64, FightEntityInfo>,
     roster_lanes: HashMap<i64, RosterLane>,
     order: Vec<i64>,
+    identity_order: Vec<i64>,
     replacements: HashMap<i64, FightEntityInfo>,
     ultimate_kinds: HashMap<i64, ExtraSkillKind>,
     next_special_uid: i64,
@@ -148,7 +149,7 @@ impl EntityManager {
         let order = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
-            .collect();
+            .collect::<Vec<_>>();
         let largest_existing_index = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
@@ -160,6 +161,7 @@ impl EntityManager {
             teams,
             identities,
             roster_lanes,
+            identity_order: order.clone(),
             order,
             replacements: HashMap::new(),
             ultimate_kinds: HashMap::new(),
@@ -199,6 +201,7 @@ impl EntityManager {
                 self.identities.insert(uid, entity.clone());
                 self.roster_lanes.insert(uid, RosterLane::Main);
                 self.order.push(uid);
+                self.identity_order.push(uid);
                 entity
             }
             EntityOperation::SummonSpecial { model_id } => {
@@ -219,6 +222,7 @@ impl EntityManager {
                 self.identities.insert(uid, entity.clone());
                 self.roster_lanes.insert(uid, RosterLane::Special);
                 self.order.push(uid);
+                self.identity_order.push(uid);
                 entity
             }
             EntityOperation::Transform {
@@ -310,6 +314,7 @@ impl EntityManager {
         self.roster_lanes.insert(uid, lane);
         if !self.identities.contains_key(&uid) {
             self.order.push(uid);
+            self.identity_order.push(uid);
         }
         self.identities.insert(uid, entity.clone());
     }
@@ -401,6 +406,27 @@ impl EntityManager {
 
     pub(crate) fn ordered_uids(&self) -> impl Iterator<Item = i64> + '_ {
         self.order.iter().copied()
+    }
+
+    pub(crate) fn in_identity_map_order(&self, targets: &[i64]) -> Vec<i64> {
+        let mut bucket_count = 16;
+        while self.identities.len() > bucket_count * 3 / 4 {
+            bucket_count *= 2;
+        }
+        let mut targets = targets.to_vec();
+        // Live behavior filters iterate the Java entity map, including its bucket order.
+        targets.sort_by_key(|uid| {
+            let bits = *uid as u64;
+            let hash = (bits ^ (bits >> 32)) as u32;
+            let bucket = (hash ^ (hash >> 16)) as usize & (bucket_count - 1);
+            let inserted = self
+                .identity_order
+                .iter()
+                .position(|known_uid| known_uid == uid)
+                .unwrap_or(usize::MAX);
+            (bucket, inserted)
+        });
+        targets
     }
 
     pub(crate) fn passive_override(&self, uid: i64) -> Option<&[i32]> {

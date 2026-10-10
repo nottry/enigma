@@ -1288,7 +1288,7 @@ fn additional_damage_keeps_its_own_target_order_and_critical_targets() {
     .into();
     let mut execution = SkillExecution::new(TargetContext::default());
     execution.configured_targets = Some(vec![-1, -2]);
-    execution.configured_additional_targets = Some(vec![-2, -1]);
+    execution.additional_damage_targets = Some(vec![-2, -1]);
     for activation in plan::LinkedDamagePlan::activations(&invocation, &managers, &execution) {
         execution.activate_additional_damage(activation.additional);
     }

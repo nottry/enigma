@@ -22,6 +22,62 @@ fn configured_seed_preserves_defender_uid_reservations() {
 }
 
 #[test]
+fn identity_map_order_uses_full_map_capacity_and_insertion_order() {
+    let uids = [
+        1, 33, 234410900, 237352626, 240494381, 240494371, 2, 3, 4, 5, 6, 7, 8,
+    ];
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: uids
+                .into_iter()
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let manager = EntityManager::seed(&fight);
+
+    assert_eq!(
+        manager.in_identity_map_order(&[234410900, 237352626, 240494381, 240494371]),
+        [234410900, 240494371, 237352626, 240494381],
+    );
+    assert_eq!(manager.in_identity_map_order(&[33, 1]), [1, 33]);
+}
+
+#[test]
+fn identity_map_order_survives_reserve_promotion() {
+    let entity = |uid, hp, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(1),
+        position: Some(position),
+        current_hp: Some(hp),
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(1, 0, 1)],
+            sub_entitys: vec![entity(17, 100, -1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = EntityManager::seed(&fight);
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+
+    assert_eq!(manager.promote_reserves(&hp).len(), 1);
+    assert_eq!(manager.in_identity_map_order(&[17, 1]), [1, 17]);
+}
+
+#[test]
 fn configured_ultimate_kind_applies_only_to_the_current_ultimate() {
     let fight = Fight {
         attacker: Some(FightTeam {
