@@ -1,6 +1,6 @@
 use battle::tooling::{
     opening_hand_size,
-    replay::{HandRankChoice, ReplayBattle, RoundDeterminism},
+    replay::{HandRankChoice, ReplayBattle, RoundDeterminism, SkillTargetChoice},
     scan::{SkillEffectCatalog, SkillEffectSlot},
     ultimate_ignores_limit,
 };
@@ -89,10 +89,79 @@ pub fn seed_round_determinism(
     if runtime.fight_version() == 7 {
         runtime.seed_next_ai_cards(round.ai_use_cards.clone());
     }
+    runtime.seed_skill_targets(skill_target_choices(catalog, round));
     runtime.seed_random_skills(random_skill_choices(catalog, round));
     runtime.seed_shell_moxie_choices(shell_moxie_choices(config::configs::get(), round));
     let (hidden, additional, indirect_heals) = crit_choices(config::configs::get(), round);
     runtime.seed_crits(hidden, additional, indirect_heals);
+}
+
+fn skill_target_choices(
+    catalog: &SkillEffectCatalog,
+    round: &FightRound,
+) -> Vec<SkillTargetChoice> {
+    use sonettobuf::{effect_type_enum::EffectType, fight_hurt_info::DamageFromType};
+
+    fn push_unique(targets: &mut Vec<i64>, target_uid: i64) {
+        if target_uid != 0 && !targets.contains(&target_uid) {
+            targets.push(target_uid);
+        }
+    }
+
+    fn visit(catalog: &SkillEffectCatalog, step: &FightStep, choices: &mut Vec<SkillTargetChoice>) {
+        if let Some((skill_id, source_uid)) = step
+            .act_id
+            .filter(|skill_id| *skill_id > 0)
+            .zip(step.from_id.filter(|source_uid| *source_uid != 0))
+        {
+            let mut choice = SkillTargetChoice {
+                skill_id,
+                source_uid,
+                target_code: catalog.logic_target(skill_id),
+                targets: Vec::new(),
+                additional_targets: Vec::new(),
+                crit_targets: Vec::new(),
+                additional_crit_targets: Vec::new(),
+            };
+            for effect in &step.act_effect {
+                let Some(hurt) = effect.hurt_info.as_ref() else {
+                    continue;
+                };
+                let target_uid = effect.target_id.unwrap_or_default();
+                match hurt.damage_from_type {
+                    Some(kind) if kind == DamageFromType::Skill as i32 => {
+                        push_unique(&mut choice.targets, target_uid);
+                        if effect.effect_type == Some(EffectType::Crit as i32) {
+                            push_unique(&mut choice.crit_targets, target_uid);
+                        }
+                    }
+                    Some(kind) if kind == DamageFromType::SkillEffect as i32 => {
+                        push_unique(&mut choice.additional_targets, target_uid);
+                        if effect.effect_type == Some(EffectType::Origincrit as i32) {
+                            push_unique(&mut choice.additional_crit_targets, target_uid);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if !choice.targets.is_empty() || !choice.additional_targets.is_empty() {
+                choices.push(choice);
+            }
+        }
+        for child in step
+            .act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+        {
+            visit(catalog, child, choices);
+        }
+    }
+
+    let mut choices = Vec::new();
+    for step in &round.fight_step {
+        visit(catalog, step, &mut choices);
+    }
+    choices
 }
 
 fn shell_moxie_choices(game_data: &'static config::GameDB, round: &FightRound) -> Vec<bool> {
@@ -361,7 +430,7 @@ fn opening_hand_rank_choices(
 
 #[cfg(test)]
 mod tests {
-    use sonettobuf::{BuffInfo, FightEntityInfo, FightTeam};
+    use sonettobuf::{BuffInfo, FightEntityInfo, FightHurtInfo, FightTeam};
 
     use super::*;
 
@@ -372,6 +441,44 @@ mod tests {
             temp_card: Some(temporary),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn observed_skill_effect_targets_keep_their_first_seen_order() {
+        use sonettobuf::{ActEffect, fight_hurt_info::DamageFromType};
+
+        let effect = |target_id, damage_from_type| ActEffect {
+            target_id: Some(target_id),
+            hurt_info: Some(FightHurtInfo {
+                damage_from_type: Some(damage_from_type as i32),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let round = FightRound {
+            fight_step: vec![FightStep {
+                act_id: Some(109380001),
+                from_id: Some(-1),
+                act_effect: vec![
+                    effect(40, DamageFromType::SkillEffect),
+                    effect(20, DamageFromType::SkillEffect),
+                    effect(30, DamageFromType::SkillEffect),
+                    effect(10, DamageFromType::SkillEffect),
+                    effect(40, DamageFromType::SkillEffect),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let mut catalog = SkillEffectCatalog::default();
+        catalog.insert_logic_target(109380001, 202);
+        let choices = skill_target_choices(&catalog, &round);
+
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].skill_id, 109380001);
+        assert_eq!(choices[0].target_code, 202);
+        assert_eq!(choices[0].additional_targets, vec![40, 20, 30, 10]);
     }
 
     #[test]

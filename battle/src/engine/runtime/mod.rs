@@ -150,6 +150,13 @@ impl BattleRuntime {
         self.determinism.enqueue_crystal_cards(cards);
     }
 
+    pub fn seed_skill_targets(
+        &mut self,
+        choices: impl IntoIterator<Item = determinism::SkillTargetChoice>,
+    ) {
+        self.determinism.enqueue_skill_target_choices(choices);
+    }
+
     pub fn seed_hidden_crits(
         &mut self,
         skill_id: i32,
