@@ -1815,14 +1815,23 @@ fn shared_primary_skill_events_wait_for_the_actions_after_hit_skills() {
 }
 
 #[test]
-fn hit_reactions_follow_owner_skill_order_across_event_kinds() {
+fn hit_reactions_follow_skill_order_without_moving_other_owners() {
     crate::test_support::init_config();
     let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100_000),
+                passive_skill: vec![109380004, 109320108],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
         defender: Some(FightTeam {
             entitys: vec![FightEntityInfo {
                 uid: Some(-1),
                 current_hp: Some(100_000),
-                passive_skill: vec![109380004, 109320108],
+                passive_skill: vec![109380004],
                 ..Default::default()
             }],
             ..Default::default()
@@ -1859,11 +1868,11 @@ fn hit_reactions_follow_owner_skill_order_across_event_kinds() {
             ignore_riposte: false,
         }),
     ];
-    let queued = |skill_id| QueuedOp {
+    let queued = |frame_owner| QueuedOp {
         op: RuleOp::Skill(
             SkillRequest {
                 source_uid: -1,
-                skill_id,
+                skill_id: 1,
             }
             .into(),
         ),
@@ -1873,17 +1882,30 @@ fn hit_reactions_follow_owner_skill_order_across_event_kinds() {
         parent_path: None,
         frame_group: None,
         independent_parent_group: None,
-        frame_owner: Some(FrameOwner::Skill {
-            source_uid: -1,
-            skill_id,
-            card_index: 0,
-            target_uid: None,
-        }),
+        frame_owner: Some(frame_owner),
         subscriber_owner_uid: Some(-1),
         caster_frame: None,
     };
+    let skill = |source_uid, skill_id| FrameOwner::Skill {
+        source_uid,
+        skill_id,
+        card_index: 0,
+        target_uid: None,
+    };
+    let buff = FrameOwner::BuffAct {
+        owner_uid: 10,
+        source_uid: -1,
+        buff_uid: 1,
+        buff_id: 31240121,
+        key: DefinitionKey::new(10004, "BeAttackedAssassinate"),
+    };
     let mut batch = ReactionBatch {
-        after_publish: vec![queued(109320108), queued(109380004)],
+        after_publish: vec![
+            queued(skill(10, 109320108)),
+            queued(buff),
+            queued(skill(-1, 109380004)),
+            queued(skill(10, 109380004)),
+        ],
         ..Default::default()
     };
 
@@ -1893,11 +1915,26 @@ fn hit_reactions_follow_owner_skill_order_across_event_kinds() {
 
     let ordered = batch
         .after_publish
-        .into_iter()
-        .filter_map(|queued| match queued.frame_owner {
-            Some(FrameOwner::Skill { skill_id, .. }) => Some(skill_id),
-            _ => None,
+        .iter()
+        .map(|queued| match queued.frame_owner {
+            Some(FrameOwner::Skill {
+                source_uid,
+                skill_id,
+                ..
+            }) => ("skill", source_uid, skill_id),
+            Some(FrameOwner::BuffAct {
+                owner_uid, buff_id, ..
+            }) => ("buff", owner_uid, buff_id),
+            _ => ("other", 0, 0),
         })
         .collect::<Vec<_>>();
-    assert_eq!(ordered, vec![109380004, 109320108]);
+    assert_eq!(
+        ordered,
+        vec![
+            ("skill", 10, 109380004),
+            ("buff", 10, 31240121),
+            ("skill", -1, 109380004),
+            ("skill", 10, 109320108),
+        ]
+    );
 }

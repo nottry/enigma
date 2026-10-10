@@ -336,17 +336,43 @@ impl ReactionBatch {
             &mut self.after_hit,
             &mut self.after_action,
         ] {
-            lane.sort_by_key(|queued| match queued.frame_owner {
-                Some(FrameOwner::Skill {
-                    source_uid,
-                    skill_id,
-                    ..
-                }) => order
-                    .get(&(source_uid, skill_id))
-                    .copied()
-                    .unwrap_or(usize::MAX),
-                _ => usize::MAX,
-            });
+            let mut owners = lane
+                .iter()
+                .filter_map(|queued| match queued.frame_owner {
+                    Some(FrameOwner::Skill { source_uid, .. }) => Some(source_uid),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            owners.sort_unstable();
+            owners.dedup();
+            for owner_uid in owners {
+                let skill_positions = lane
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, queued)| match queued.frame_owner {
+                        Some(FrameOwner::Skill { source_uid, .. }) if source_uid == owner_uid => {
+                            Some(index)
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let mut skills = skill_positions
+                    .iter()
+                    .rev()
+                    .map(|index| lane.remove(*index))
+                    .collect::<Vec<_>>();
+                skills.reverse();
+                skills.sort_by_key(|queued| match queued.frame_owner {
+                    Some(FrameOwner::Skill { skill_id, .. }) => order
+                        .get(&(owner_uid, skill_id))
+                        .copied()
+                        .unwrap_or(usize::MAX),
+                    _ => unreachable!("only skill-owned reactions were extracted"),
+                });
+                for (position, skill) in skill_positions.into_iter().zip(skills) {
+                    lane.insert(position, skill);
+                }
+            }
         }
         Ok(())
     }
