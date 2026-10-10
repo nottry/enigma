@@ -622,6 +622,7 @@ fn run_player_card_ops(
             })
             .flatten()
             .copied()
+            .filter(|owner_uid| managers.ex_point.gains_composition_ex_point(*owner_uid))
             .collect::<Vec<_>>();
         append(&mut result, composed);
         if skills.len() > skill_count {

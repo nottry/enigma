@@ -738,3 +738,83 @@ fn queued_play_projects_composition_reward_before_the_triggering_skill() {
     assert_eq!(managers.ex_point.get(20), 1);
     assert_eq!(managers.card.hand()[0].skill_id, Some(201));
 }
+
+#[test]
+fn queued_play_does_not_grant_composition_moxie_to_a_special_resource() {
+    init_config();
+    let entity = |uid, skills, ex_point_type| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(1),
+        current_hp: Some(100),
+        ex_point: Some(0),
+        ex_point_type: Some(ex_point_type),
+        skill_group1: skills,
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                entity(10, vec![100], 0),
+                entity(
+                    20,
+                    vec![200, 201],
+                    crate::engine::manager::ex_point::ExPointKind::Synchronization.as_wire(),
+                ),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::Setup(CardSetup {
+            hand: vec![
+                CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(100),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(20),
+                    skill_id: Some(200),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(20),
+                    skill_id: Some(200),
+                    ..Default::default()
+                },
+            ],
+            draw_pile: Vec::new(),
+            deck_num: 30,
+        }))
+        .unwrap();
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: Vec::new(),
+    });
+
+    run_player_action_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [CardPlay {
+            origin: CARD_PLAY_ORIGIN,
+            hand_index: 0,
+            target_uid: None,
+            chosen_skill_id: None,
+            choice: None,
+            recorded_skill: None,
+        }],
+        1,
+        crate::engine::manager::emitter::UID,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(20), 0);
+    assert_eq!(managers.card.hand()[0].skill_id, Some(201));
+}
