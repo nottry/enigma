@@ -1814,6 +1814,95 @@ fn mane_mass_attack_orders_shared_damage_before_hit_passives_and_direct_hit() {
 }
 
 #[test]
+fn current_hp_damage_reads_each_target_after_prior_shared_damage_settles() {
+    crate::test_support::init_config();
+    let ally = |position, uid, buff_uid| FightEntityInfo {
+        uid: Some(uid),
+        position: Some(position),
+        team_type: Some(1),
+        current_hp: Some(10_000),
+        attr: Some(HeroAttribute {
+            hp: Some(10_000),
+            ..Default::default()
+        }),
+        buffs: vec![BuffInfo {
+            uid: Some(buff_uid),
+            buff_id: Some(31090121),
+            from_uid: Some(13),
+            layer: Some(3),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                ally(1, 10, 50),
+                ally(2, 11, 51),
+                ally(3, 12, 52),
+                ally(4, 13, 53),
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                position: Some(1),
+                team_type: Some(2),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(30014, "OriginDamage"),
+                vec![1, AttrId::CurrentHp as i32, 400],
+                Vec::new(),
+            ),
+            TargetRequest {
+                code: 202,
+                raw: Vec::new(),
+            },
+        )],
+    });
+    catalog.insert_logic_target(100, 202);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: -1,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+
+    run_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [],
+        invocation,
+    )
+    .unwrap();
+
+    for uid in [10, 11, 12, 13] {
+        assert_eq!(managers.hp.current(uid), 6_561);
+    }
+}
+
+#[test]
 fn carrier_death_pipeline_returns_deployed_shells_to_the_caster() {
     crate::test_support::init_config();
     let mut fight = Fight {

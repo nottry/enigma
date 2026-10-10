@@ -34,11 +34,13 @@ pub(in crate::engine::runtime) struct SkillExecution {
     action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
     // The next slot to run when a phase continues after an earlier slot's changes commit.
     pub(super) resume_slot: usize,
+    // The next target in a slot whose prior target must settle first.
+    pub(super) resume_target: usize,
 }
 
 impl SkillExecution {
     pub(in crate::engine::runtime) fn resumes_phase(&self) -> bool {
-        self.resume_slot > 0
+        self.resume_slot > 0 || self.resume_target > 0
     }
 
     pub(in crate::engine::runtime) fn new(context: TargetContext) -> Self {
@@ -64,6 +66,7 @@ impl SkillExecution {
             pending_after_damage_frame_owner: None,
             action_cost: None,
             resume_slot: 0,
+            resume_target: 0,
         }
     }
 
@@ -93,6 +96,7 @@ impl SkillExecution {
             pending_after_damage_frame_owner: None,
             action_cost: None,
             resume_slot: 0,
+            resume_target: 0,
         }
     }
 

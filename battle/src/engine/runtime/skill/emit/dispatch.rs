@@ -201,13 +201,15 @@ pub(in crate::engine::runtime) fn emit_ops(
         .unwrap_or_else(|| execution.context.heat_scale_value.saturating_mul(1000));
     let mut outputs = Vec::new();
     let mut fired_rules = Vec::new();
+    let resuming_phase = execution.resumes_phase();
     let resume_slot = std::mem::take(&mut execution.resume_slot);
+    let resume_target = std::mem::take(&mut execution.resume_target);
     let active_phase = matches!(trigger, SkillOpTrigger::Active).then_some(
         invocation
             .phase
             .unwrap_or(crate::engine::skill::action::SkillPhase::Immediate),
     );
-    if resume_slot == 0
+    if !resuming_phase
         && active_phase == Some(crate::engine::skill::action::SkillPhase::Immediate)
         && execution.configured_targets.is_none()
     {
@@ -256,7 +258,7 @@ pub(in crate::engine::runtime) fn emit_ops(
         execution.record_targets(configured_targets.iter().copied());
         execution.configured_targets = Some(configured_targets);
     }
-    if resume_slot == 0 && active_phase == Some(SkillPhase::Immediate) {
+    if !resuming_phase && active_phase == Some(SkillPhase::Immediate) {
         if let Some(modifier) = invocation.rate_modifier {
             execution.modifiers.rates.push(modifier);
         }
@@ -300,7 +302,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             .any(|slot| slot.behavior.spec.kind == BehaviorKind::IgnoreSkillConfigDamageRate);
     // An extra action's Force Field Eureka cost and forced crit open the action, before its own
     // effects; other additional-damage activations follow those effects.
-    if resume_slot == 0 && active_phase == Some(SkillPhase::Immediate) && has_row_damage {
+    if !resuming_phase && active_phase == Some(SkillPhase::Immediate) && has_row_damage {
         for activation in plan::additional_damage_activation(&invocation, managers, execution)
             .into_iter()
             .filter(|activation| activation.pays_extra_action_cost)
@@ -327,7 +329,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             });
         }
     }
-    if resume_slot == 0
+    if !resuming_phase
         && active_phase == Some(SkillPhase::Damage)
         && has_row_damage
         && execution.planned_crits.is_none()
@@ -644,7 +646,9 @@ pub(in crate::engine::runtime) fn emit_ops(
             targets.truncate(1);
         }
         let outputs_before = outputs.len();
-        for target_uid in targets {
+        let target_count = targets.len();
+        for (target_index, target_uid) in targets.into_iter().enumerate().skip(resume_target) {
+            let target_outputs_before = outputs.len();
             if !has_row_damage && target_uid != 0 {
                 execution.primary_target_uid.get_or_insert(target_uid);
             }
@@ -689,6 +693,29 @@ pub(in crate::engine::runtime) fn emit_ops(
                         frame_owner: None,
                     }
                 }));
+            }
+            if definition.target_emission_mode
+                == behavior::registry::TargetEmissionMode::EachSettled
+                && outputs.len() > target_outputs_before
+                && target_index + 1 < target_count
+            {
+                if let Some(child_skill_kind) = child_skill_kind {
+                    for emission in outputs.iter_mut().skip(target_outputs_before) {
+                        if let RuleOp::Skill(child) = &mut emission.op {
+                            child.extra_skill_kind = Some(child_skill_kind);
+                        }
+                    }
+                }
+                execution.resume_slot = slot_index;
+                execution.resume_target = target_index + 1;
+                let mut continuation = invocation.clone();
+                continuation.phase = active_phase;
+                return Ok(SkillEmission {
+                    ops: outputs,
+                    fired_rules,
+                    continuation: Some(continuation),
+                    target_uid: execution.primary_target_uid,
+                });
             }
         }
         if let Some(child_skill_kind) = child_skill_kind {

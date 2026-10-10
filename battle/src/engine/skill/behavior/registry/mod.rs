@@ -18,6 +18,7 @@ pub enum FireCountMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetEmissionMode {
     Each,
+    EachSettled,
     Once,
     // Configures the casting owner itself, whatever the configured target resolves to.
     Owner,
@@ -364,6 +365,19 @@ pub const fn destination_definition<H: BehaviorHandler>(
     }
 }
 
+pub const fn settled_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        destination: true,
+        target_emission_mode: TargetEmissionMode::EachSettled,
+        ..definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
 pub const fn modifier_definition<H: BehaviorHandler>(
     opcode: i32,
     type_name: &'static str,
@@ -473,6 +487,9 @@ macro_rules! behavior_definitions {
     };
     (@definition destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
+    (@definition settled_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::settled_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
     (@definition queue_preparation, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::queue_preparation_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
@@ -708,7 +725,7 @@ behavior_definitions! {
     [60271] "SetExtraType" => super::general::SetExtraTypeHandler, SetExtraType, Immediate, destination, super::general::supports_extra_type;
     [10006] "Damage" => crate::engine::damage::handler::Handler, Damage, Immediate, destination, crate::engine::damage::handler::supports_attribute_damage;
     [10008] "Damage2" => crate::engine::damage::handler::Handler, Damage2, Immediate, plain;
-    [30014] "OriginDamage" => crate::engine::damage::handler::Handler, OriginDamage, Immediate, destination, crate::engine::damage::handler::supports_origin_damage;
+    [30014] "OriginDamage" => crate::engine::damage::handler::Handler, OriginDamage, Immediate, settled_destination, crate::engine::damage::handler::supports_origin_damage;
     [30015] "OriginDamageCanCrit" => crate::engine::damage::handler::Handler, OriginDamageCanCrit, Immediate, destination, crate::engine::damage::handler::supports_origin_damage;
     [60146] "OriginDamageByTeamAttr" => crate::engine::damage::handler::Handler, OriginDamageByTeamAttr, AfterDamage, plain, crate::engine::damage::handler::supports_team_attr_damage;
     [60127] "OriginDamageByAttrAndBuffGroupSize" => crate::engine::damage::handler::Handler, OriginDamageByAttrAndBuffGroupSize, AfterDamage, plain;
