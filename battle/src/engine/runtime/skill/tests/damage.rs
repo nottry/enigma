@@ -1517,6 +1517,120 @@ fn linked_attack_attributes_distinguish_natural_and_producer_forced_critical() {
 }
 
 #[test]
+fn linked_damage_plan_resolves_committed_credited_source_state() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(10_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        attack: Some(1_000),
+                        ..Default::default()
+                    }),
+                    buffs: vec![BuffInfo {
+                        uid: Some(1),
+                        buff_id: Some(31050144),
+                        from_uid: Some(11),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    current_hp: Some(10_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        attack: Some(1_000),
+                        ..Default::default()
+                    }),
+                    buffs: vec![BuffInfo {
+                        uid: Some(2),
+                        buff_id: Some(434121),
+                        from_uid: Some(11),
+                        layer: Some(9),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    managers.attribute.override_ex(
+        11,
+        &HeroExAttribute {
+            cri: Some(1_500),
+            cri_dmg: Some(1_500),
+            ..Default::default()
+        },
+    );
+    let pool = TargetPool::from_fight(&fight);
+    const SKILL_ID: i32 = 999_999_007;
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert_damage_rate(SKILL_ID, 1_000);
+    let invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: SKILL_ID,
+    }
+    .into();
+    let mut execution = SkillExecution::new(TargetContext::default());
+    execution.configured_targets = Some(vec![-1]);
+    execution
+        .modifiers
+        .attack_attributes
+        .push((AttrId::CriticalDmg, 500));
+    for activation in plan::LinkedDamagePlan::activations(&invocation, &managers, &execution) {
+        execution.activate_additional_damage(activation.additional);
+    }
+
+    managers.buff.add_replacing_excluded_with_layer_specified(
+        &managers.hp,
+        11,
+        11,
+        434121,
+        3,
+        true,
+    );
+    assert_eq!(managers.buff.buff_id_amount(11, 434121), 12);
+
+    let mut determinism = RoundDeterminism::default();
+    determinism.enqueue_hidden_crits(SKILL_ID, 10, [false]);
+    determinism.enqueue_additional_crits(SKILL_ID, 10, -1, [true]);
+    let damage = plan::damage_ops(
+        &invocation,
+        &managers,
+        &pool,
+        &catalog,
+        SKILL_ID,
+        &mut determinism,
+        &mut execution,
+    );
+    let [HpCommand::Damage(linked)] = damage.additional_damage.as_slice() else {
+        panic!("expected one linked damage command")
+    };
+
+    assert_eq!(linked.source_uid, 11);
+    assert_eq!(linked.amount, 643);
+}
+
+#[test]
 fn linked_shell_attributes_keep_extra_action_kinds_distinct() {
     use crate::engine::skill::condition::extra::ExtraSkillKind;
 
