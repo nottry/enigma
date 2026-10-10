@@ -1459,7 +1459,7 @@ fn damage_based_rebound_routes_once_and_removes_the_counter() {
 }
 
 #[test]
-fn shared_damage_subscription_queues_once_per_action() {
+fn shared_damage_subscription_queues_once_per_hp_transaction() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -1535,14 +1535,12 @@ fn shared_damage_subscription_queues_once_per_action() {
     };
     let mut frames = Vec::new();
     let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
-    let mut drain_state = DrainState::new(TargetContext::default());
     let mut determinism = RoundDeterminism::default();
     let first = dispatch_event_groups(
         &pool,
         &managers,
         &catalog,
         &mut determinism,
-        &mut drain_state,
         &[transaction(11)],
         &root,
         &root,
@@ -1559,7 +1557,6 @@ fn shared_damage_subscription_queues_once_per_action() {
         &managers,
         &catalog,
         &mut determinism,
-        &mut drain_state,
         &[transaction(10)],
         &root,
         &root,
@@ -1601,7 +1598,7 @@ fn shared_damage_subscription_queues_once_per_action() {
                 SkillOpTrigger::Event(BattleEvent::DamageShared { .. })
             ))
             .count(),
-        1,
+        2,
         "{casts:#?}"
     );
 }
