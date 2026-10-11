@@ -194,6 +194,91 @@ fn refill_and_all_compositions_grant_cloth_power() {
 }
 
 #[test]
+fn played_cards_grant_cloth_power_only_after_action_completion() {
+    use crate::engine::{
+        manager::card::{CardChangeKind, CardChanges, PlayedCard},
+        round::state::RoundState,
+        runtime::{drain::DrainResult, executor::RuleOutcome},
+        skill::action::{ActionEvent, SkillLifecycle},
+    };
+
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            cloth_id: Some(1),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = crate::engine::manager::BattleManagers::seeded(&fight);
+    let played = |card_index| {
+        RuleOutcome::Card(Box::new(CardChanges {
+            origin: None,
+            kind: CardChangeKind::Played,
+            before: Vec::new(),
+            after: Vec::new(),
+            added: None,
+            played: Some(PlayedCard {
+                card: Default::default(),
+                caster_uid: 10,
+                card_index,
+                skill_id: 100,
+                rank_change_pending: false,
+                rewritten: false,
+                target_uid: Some(-1),
+                recorded_skill: None,
+            }),
+            drawn: Vec::new(),
+            composed_owners: Vec::new(),
+            operation: None,
+            action_queue: None,
+            queued_use_card: None,
+            rank_results: Vec::new(),
+            consumed_indices: Vec::new(),
+            consumed_owner_uid: None,
+            consumption_kind: None,
+            entity: None,
+            hand_limit: None,
+            owner_removal: None,
+            ai_queue: None,
+            team_cards: None,
+        }))
+    };
+
+    let mut state = RoundState {
+        power: 15,
+        ..Default::default()
+    };
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![played(1)],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 15);
+
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![
+                played(1),
+                RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(ActionEvent {
+                    card_index: 1,
+                    ..Default::default()
+                })),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 19);
+}
+
+#[test]
 fn cloth_composition_uses_the_owners_resource_type() {
     let mut managers = crate::engine::manager::BattleManagers::default();
     managers.ex_point.register(&FightEntityInfo {

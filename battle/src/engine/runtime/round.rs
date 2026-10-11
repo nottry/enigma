@@ -764,7 +764,7 @@ pub(super) fn selected_enemy_target(
     })
 }
 
-fn apply_cloth_power(
+pub(super) fn apply_cloth_power(
     fight: &Fight,
     managers: &crate::engine::manager::BattleManagers,
     state: &mut RoundState,

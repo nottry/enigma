@@ -1,6 +1,78 @@
 use super::*;
 
 #[test]
+fn configured_action_target_owns_the_projected_skill_frame() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    ex_point: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    ex_point: Some(3),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let run_case = |logic_target| {
+        let pool = TargetPool::from_fight(&fight);
+        let mut managers = BattleManagers::seeded(&fight);
+        let mut catalog = SkillEffectCatalog::default();
+        catalog.insert(ParsedSkillEffect {
+            skill_id: 100,
+            slots: vec![SkillEffectSlot::new(
+                ParsedBehavior::from_spec(
+                    BehaviorSpec::new(20002, "AddExPoint"),
+                    vec![1],
+                    Vec::new(),
+                ),
+                TargetRequest::self_only(),
+            )],
+        });
+        catalog.insert_logic_target(100, logic_target);
+        let mut invocation: SkillInvocation = SkillRequest {
+            source_uid: 10,
+            skill_id: 100,
+        }
+        .into();
+        invocation.target = SkillTarget::Explicit(-1);
+
+        let result = run(
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext::default(),
+            [RuleOp::Skill(invocation)],
+        )
+        .unwrap();
+        crate::engine::packet::timeline::project(&result.frames).unwrap()[0].to_id
+    };
+
+    assert_eq!(run_case(112), Some(11));
+    assert_eq!(
+        run_case(crate::engine::skill::target::request::SOURCE_TARGET_CODE),
+        Some(-1)
+    );
+}
+
+#[test]
 fn be_attacked_reaction_commits_before_same_hit_threshold() {
     crate::test_support::init_config();
     let entity = |uid, team_type, passive_skill| FightEntityInfo {
