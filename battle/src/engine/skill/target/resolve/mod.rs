@@ -14,6 +14,7 @@ enum TargetRule {
     EventSource,
     Source,
     Allies,
+    AlliesPreservingSelection,
     AssistBoss,
     BossAllies,
     MainAllies,
@@ -194,7 +195,7 @@ impl TargetResolver {
             TargetRule::EventSubject => runtime_target(context),
             TargetRule::EventSource => event_source(context),
             TargetRule::Source => vec![source_uid],
-            TargetRule::Allies => {
+            TargetRule::Allies | TargetRule::AlliesPreservingSelection => {
                 if crate::engine::fight::rules::is_side_uid(source_uid) {
                     vec![source_uid]
                 } else {
@@ -495,10 +496,15 @@ pub fn is_mapped_target_code(code: i32) -> bool {
     target_rule(code).is_some()
 }
 
+pub(crate) fn preserves_selected_frame_target(code: i32) -> bool {
+    target_rule(code) == Some(TargetRule::AlliesPreservingSelection)
+}
+
 pub fn targets_enemy(code: i32) -> Option<bool> {
     match target_rule(code)? {
         TargetRule::Source
         | TargetRule::Allies
+        | TargetRule::AlliesPreservingSelection
         | TargetRule::AssistBoss
         | TargetRule::BossAllies
         | TargetRule::MainAllies
@@ -553,7 +559,8 @@ fn target_rule(code: i32) -> Option<TargetRule> {
         6 => TargetRule::Fixed(emitter::UID),
         8 => TargetRule::EventSubject,
         super::request::SOURCE_TARGET_CODE => TargetRule::Source,
-        4 | 5 | 104 | 105 | 130 => TargetRule::Allies,
+        4 | 5 | 104 | 105 => TargetRule::Allies,
+        130 => TargetRule::AlliesPreservingSelection,
         1005 => TargetRule::BossAllies,
         101 => TargetRule::MainAllies,
         102 => TargetRule::OtherAllies,

@@ -31,6 +31,12 @@ fn other_allies_anchor_their_shared_skill_frame_to_the_caster() {
 }
 
 #[test]
+fn all_allies_target_preserves_the_selected_skill_frame_target() {
+    assert!(preserves_selected_frame_target(130));
+    assert!(!preserves_selected_frame_target(101));
+}
+
+#[test]
 fn resolves_relative_ally_and_enemy_groups_from_fight() {
     let fight = Fight {
         attacker: Some(FightTeam {

@@ -85,6 +85,7 @@ fn configured_action_target_owns_the_projected_skill_frame() {
         )
     };
 
+    assert_eq!(run_case(101), (Some(10), 10));
     assert_eq!(run_case(112), (Some(11), 11));
     assert_eq!(run_case(130), (Some(-1), -1));
     assert_eq!(
