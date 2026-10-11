@@ -718,19 +718,57 @@ pub fn run_start(
                     )?,
                 );
             }
-            append_opening_settlement(
-                &mut settlement,
-                drain::run_setup_schedule_for_owners_in_opening_round_phase(
-                    managers,
-                    pool,
-                    catalog,
-                    determinism,
-                    context,
-                    &[(stage, priority)],
-                    &owner_uids,
-                )?,
-                version7_opening,
-            );
+            if version7_opening {
+                append_opening_round_phase(
+                    &mut settlement,
+                    drain::run_skill_setup_schedule_in_opening_round_phase(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        &[(stage, priority)],
+                        Some(&owner_uids),
+                    )?,
+                );
+                append_opening_round_phase(
+                    &mut settlement,
+                    drain::run_skill_setup_schedule_in_opening_round_phase(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        &[(SetupStage::RoundStart, 1)],
+                        None,
+                    )?,
+                );
+                append_opening_round_phase(
+                    &mut settlement,
+                    drain::run_buff_act_setup_schedule_in_opening_round_phase(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        &[(stage, priority)],
+                        Some(&owner_uids),
+                    )?,
+                );
+            } else {
+                append_round_phase(
+                    &mut settlement,
+                    drain::run_setup_schedule_for_owners_in_opening_round_phase(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        &[(stage, priority)],
+                        &owner_uids,
+                    )?,
+                );
+            }
             let reset_ops = if version7_opening {
                 managers.conduit.action_phase_start_commands(1)
             } else {
@@ -885,13 +923,14 @@ pub fn run_start(
                 &owner_uids,
             )?
         } else if version7_opening && stage == SetupStage::RoundStart && priority == 1 {
-            drain::run_setup_schedule_in_opening_round_phase(
+            drain::run_buff_act_setup_schedule_in_opening_round_phase(
                 managers,
                 pool,
                 catalog,
                 determinism,
                 context,
                 &[(stage, priority)],
+                None,
             )?
         } else {
             drain::run_setup_stage(

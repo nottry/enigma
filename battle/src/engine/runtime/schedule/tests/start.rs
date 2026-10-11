@@ -648,6 +648,101 @@ fn version_seven_opening_orders_immunity_duration_and_buff_gate() {
 }
 
 #[test]
+fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skills() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    position: Some(1),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![40],
+                    buffs: vec![BuffInfo {
+                        uid: Some(2),
+                        buff_id: Some(30810305),
+                        from_uid: Some(10),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(20),
+                    position: Some(2),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    buffs: vec![BuffInfo {
+                        uid: Some(4),
+                        buff_id: Some(31270416),
+                        from_uid: Some(20),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut stored_value = SkillEffectSlot::new(
+        ParsedBehavior::new(1, "AddBuff", vec![30810301, 1]),
+        TargetRequest::self_only(),
+    );
+    stored_value.conditions = vec![ParsedCondition {
+        opcode: 19103,
+        type_name: "HasBuffId".to_owned(),
+        kind: ParsedConditionKind::BuffId {
+            mode: BuffConditionMode::Present,
+            buff_ids: vec![30810101],
+        },
+        raw_args: vec!["30810101".to_owned()],
+    }];
+    stored_value.compiled_route = ConditionRoute::compile(&stored_value.conditions);
+    let mut catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31270151], []);
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![stored_value],
+    });
+
+    let (start, _) = run_start(
+        managers.catalog(),
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext {
+            current_round: 1,
+            ..Default::default()
+        },
+        CardSetup {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            deck_num: 0,
+        },
+        0,
+    )
+    .unwrap();
+
+    let added_buff_ids = start
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Buff(change) => Some(&change.change.added),
+            _ => None,
+        })
+        .flatten()
+        .filter_map(|added| added.buff.buff_id)
+        .filter(|buff_id| matches!(buff_id, 30810301 | 31270407))
+        .collect::<Vec<_>>();
+
+    assert_eq!(added_buff_ids, [30810301, 31270407, 31270407]);
+}
+
+#[test]
 fn start_schedule_finishes_unconditional_setup_before_round_start() {
     init_config();
     let unconditional = START

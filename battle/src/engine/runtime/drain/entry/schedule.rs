@@ -104,27 +104,6 @@ pub fn run_setup_schedule_for_owners_in_round_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run_setup_schedule_in_opening_round_phase(
-    managers: &mut BattleManagers,
-    pool: &TargetPool,
-    catalog: &SkillEffectCatalog,
-    determinism: &mut RoundDeterminism,
-    context: TargetContext,
-    schedule: &[(SetupStage, i32)],
-) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_container(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        schedule,
-        None,
-        SetupFrameContainer::OpeningRoundPhase,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
 pub fn run_setup_schedule_for_owners_in_opening_round_phase(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -143,6 +122,52 @@ pub fn run_setup_schedule_for_owners_in_opening_round_phase(
         schedule,
         Some(owner_uids),
         SetupFrameContainer::OpeningRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_skill_setup_schedule_in_opening_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_dispatch(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        owner_uids,
+        SetupFrameContainer::OpeningRoundPhase,
+        SetupDispatch::Skills,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_buff_act_setup_schedule_in_opening_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_dispatch(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        owner_uids,
+        SetupFrameContainer::OpeningRoundPhase,
+        SetupDispatch::BuffActs,
     )
 }
 
