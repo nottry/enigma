@@ -201,7 +201,6 @@ pub(in crate::engine::runtime) fn emit_ops(
         .unwrap_or_else(|| execution.context.heat_scale_value.saturating_mul(1000));
     let mut outputs = Vec::new();
     let mut fired_rules = Vec::new();
-    let resuming_phase = execution.resumes_phase();
     let resume_slot = std::mem::take(&mut execution.resume_slot);
     let resume_target = std::mem::take(&mut execution.resume_target);
     let active_phase = matches!(trigger, SkillOpTrigger::Active).then_some(
@@ -209,6 +208,9 @@ pub(in crate::engine::runtime) fn emit_ops(
             .phase
             .unwrap_or(crate::engine::skill::action::SkillPhase::Immediate),
     );
+    let resuming_phase = resume_slot > 0
+        || resume_target > 0
+        || (active_phase == Some(SkillPhase::Immediate) && execution.effect_started);
     if !resuming_phase
         && active_phase == Some(crate::engine::skill::action::SkillPhase::Immediate)
         && execution.configured_targets.is_none()
@@ -293,6 +295,15 @@ pub(in crate::engine::runtime) fn emit_ops(
                 pool,
                 execution,
             ));
+            execution.effect_started = true;
+            let mut continuation = invocation.clone();
+            continuation.phase = active_phase;
+            return Ok(SkillEmission {
+                ops: outputs,
+                fired_rules,
+                continuation: Some(continuation),
+                target_uid: execution.primary_target_uid,
+            });
         }
     }
     let has_row_damage = catalog.damage_rate(effect_skill_id) > 0

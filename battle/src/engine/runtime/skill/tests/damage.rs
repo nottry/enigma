@@ -2786,27 +2786,42 @@ fn an_extra_action_resolves_its_extra_action_passives_before_the_force_field_cos
     invocation.mode = SkillExecutionMode::Active;
     invocation.target = SkillTarget::Explicit(-1);
     let mut execution = SkillExecution::new(TargetContext::default());
-    let ops = emit_ops(
+    let mut determinism = RoundDeterminism::default();
+    let started = emit_ops(
         invocation,
         &managers,
         &pool,
         &catalog,
-        &mut RoundDeterminism::default(),
+        &mut determinism,
         &mut execution,
         &SkillOpTrigger::Active,
     )
-    .unwrap()
-    .ops;
-    let position =
-        |matches: &dyn Fn(&RuleOp) -> bool| ops.iter().position(|emission| matches(&emission.op));
-    let started = position(&|op| {
-        matches!(
-            op,
-            RuleOp::Publish(crate::engine::event::payload::BattleEvent::SkillEffectStarted(_))
-        )
-    });
-    let cost = position(&|op| matches!(op, RuleOp::Command(BattleCommand::Eureka(_))));
+    .unwrap();
 
     // Psychube 433911 "When the carrier performs an extra action" resolves as the action starts.
-    assert!(matches!((started, cost), (Some(started), Some(cost)) if started < cost));
+    assert!(matches!(
+        started.ops.as_slice(),
+        [SkillEmissionOp {
+            op: RuleOp::Publish(crate::engine::event::payload::BattleEvent::SkillEffectStarted(_)),
+            ..
+        }]
+    ));
+    let resumed = emit_ops(
+        started
+            .continuation
+            .expect("extra action resumes after its start event"),
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert!(
+        resumed
+            .ops
+            .iter()
+            .any(|emission| { matches!(emission.op, RuleOp::Command(BattleCommand::Eureka(_))) })
+    );
 }

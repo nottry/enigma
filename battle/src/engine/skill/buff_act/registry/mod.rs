@@ -890,10 +890,8 @@ buff_act_definitions! {
         state_consumer: true,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(728, "ChangeRemoveBuffUseSkillParam"), &[]));
     (748, "UseDamageSkillAddToTarget") => UseDamageSkillAddToTarget,
-        events: [EventKind::SkillCast],
-        publications: [
-            EventKind::SkillAction => BeforePublish
-        ],
+        effect_time_subscription: false,
+        events: [EventKind::SkillCast, EventKind::SkillEffectStarted],
         scoped_runtime: |context| super::use_damage_skill_add_to_target::rule_ops(context.managers, context.catalog, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(748, "UseDamageSkillAddToTarget"), &[EffectType::None as i32]));
     (757, "UseSkillLoseHpNotFixed") => UseSkillLoseHpNotFixed,

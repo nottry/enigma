@@ -136,16 +136,18 @@ fn registry_requires_exact_id_and_type() {
         find(203, "Dot").unwrap().state.read_timing,
         StatReadTiming::ByArguments
     );
-    for event in [EventKind::SkillAction, EventKind::SkillCast] {
+    for event in [EventKind::SkillEffectStarted, EventKind::SkillCast] {
         assert_eq!(
             runtime_publication(748, "UseDamageSkillAddToTarget", event),
-            if event == EventKind::SkillAction {
-                PublicationPhase::BeforePublish
-            } else {
-                PublicationPhase::AfterPublish
-            }
+            PublicationPhase::AfterPublish
         );
     }
+    assert!(!subscribes_to_event(
+        748,
+        "UseDamageSkillAddToTarget",
+        201,
+        EventKind::SkillAction
+    ));
     for (act_id, act_type) in [(100, "Attr"), (834, "EachChangeAttr")] {
         assert_eq!(
             runtime_publication(act_id, act_type, EventKind::BuffAdded),

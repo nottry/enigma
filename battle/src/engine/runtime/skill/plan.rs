@@ -36,6 +36,8 @@ pub(in crate::engine::runtime) struct SkillExecution {
     pub(super) resume_slot: usize,
     // The next target in a slot whose prior target must settle first.
     pub(super) resume_target: usize,
+    // SkillEffectStarted subscribers settle before the skill's immediate slots.
+    pub(super) effect_started: bool,
 }
 
 impl SkillExecution {
@@ -67,6 +69,7 @@ impl SkillExecution {
             action_cost: None,
             resume_slot: 0,
             resume_target: 0,
+            effect_started: false,
         }
     }
 
@@ -97,6 +100,7 @@ impl SkillExecution {
             action_cost: None,
             resume_slot: 0,
             resume_target: 0,
+            effect_started: false,
         }
     }
 

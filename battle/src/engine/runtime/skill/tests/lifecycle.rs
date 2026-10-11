@@ -176,12 +176,13 @@ fn zero_cost_skill_publishes_exact_pre_effect_event_before_its_commands() {
     invocation.mode = crate::engine::skill::action::SkillExecutionMode::Active;
     let mut execution = SkillExecution::new(TargetContext::default());
 
+    let mut determinism = RoundDeterminism::default();
     let emission = emit_ops(
         invocation.clone(),
         &managers,
         &pool,
         &catalog,
-        &mut RoundDeterminism::default(),
+        &mut determinism,
         &mut execution,
         &SkillOpTrigger::Active,
     )
@@ -192,14 +193,27 @@ fn zero_cost_skill_publishes_exact_pre_effect_event_before_its_commands() {
         Some(RuleOp::Publish(BattleEvent::SkillEffectStarted(action)))
             if action.phase == crate::engine::skill::action::SkillPhase::Immediate
     ));
+    assert_eq!(emission.ops.len(), 1);
+    let emission = emit_ops(
+        emission
+            .continuation
+            .expect("skill resumes after its start event"),
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
     assert!(matches!(
-        emission.ops.get(1).map(|emission| &emission.op),
+        emission.ops.first().map(|emission| &emission.op),
         Some(RuleOp::Command(BattleCommand::Hp(HpCommand::Lose(
             HpLoss { amount: 100, .. }
         ))))
     ));
     assert!(matches!(
-        emission.ops.get(2).map(|emission| &emission.op),
+        emission.ops.get(1).map(|emission| &emission.op),
         Some(RuleOp::SkillLifecycle(
             crate::engine::skill::action::SkillLifecycle::PhaseCompleted(action)
         )) if action.phase == crate::engine::skill::action::SkillPhase::Immediate
