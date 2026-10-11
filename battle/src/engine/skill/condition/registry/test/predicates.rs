@@ -778,3 +778,16 @@ fn round_start_power_gate_keeps_its_exact_phase_and_payload_order() {
     );
     assert!(find_key(180101, "PowerCompare").is_none());
 }
+
+#[test]
+fn active_device_group_gate_is_an_exact_static_predicate() {
+    assert_eq!(
+        parse(794210, "DeviceSkillIndex", &["1".into()]),
+        Some(ParsedConditionKind::ConduitSkillGroup { group: 1 })
+    );
+    assert_eq!(
+        find_key(794210, "DeviceSkillIndex").map(|definition| definition.role),
+        Some(ConditionRole::Predicate)
+    );
+    assert!(find_key(794209, "DeviceSkillIndex").is_none());
+}
