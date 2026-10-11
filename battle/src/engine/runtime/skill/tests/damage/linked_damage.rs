@@ -134,6 +134,109 @@ fn resolved_hit_additional_damage_precedes_independent_linked_damage() {
 }
 
 #[test]
+fn linked_damage_main_rate_follows_the_explicit_action_target() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(10_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        attack: Some(1_000),
+                        ..Default::default()
+                    }),
+                    buffs: vec![BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(31050144),
+                        from_uid: Some(12),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    current_hp: Some(10_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(12),
+                    current_hp: Some(10_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        attack: Some(1_000),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    const SKILL_ID: i32 = 999_999_008;
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert_damage_rate(SKILL_ID, 1_000);
+    catalog.insert_logic_target(SKILL_ID, 1);
+    let linked_damage = |selected_target| {
+        let mut invocation: SkillInvocation = SkillRequest {
+            source_uid: 10,
+            skill_id: SKILL_ID,
+        }
+        .into();
+        invocation.target = SkillTarget::Explicit(selected_target);
+        let mut execution = SkillExecution::new(TargetContext::default());
+        execution.configured_targets = Some(vec![-1]);
+        for activation in plan::LinkedDamagePlan::activations(&invocation, &managers, &execution) {
+            execution.activate_additional_damage(activation.additional);
+        }
+        let mut determinism = RoundDeterminism::default();
+        determinism.enqueue_hidden_crits(SKILL_ID, 10, [false]);
+        determinism.enqueue_additional_crits(SKILL_ID, 10, -1, [false]);
+        plan::damage_ops(
+            &invocation,
+            &managers,
+            &pool,
+            &catalog,
+            SKILL_ID,
+            &mut determinism,
+            &mut execution,
+        )
+        .additional_damage
+        .into_iter()
+        .find_map(|command| match command {
+            HpCommand::Damage(hit) => Some(hit.amount),
+            _ => None,
+        })
+        .expect("force field should add linked damage")
+    };
+
+    let enemy_selected = linked_damage(-1);
+    let ally_selected = linked_damage(11);
+
+    assert_eq!(enemy_selected, ally_selected * 2);
+}
+
+#[test]
 fn target_extra_action_penalty_applies_to_main_and_credited_linked_damage() {
     crate::test_support::init_config();
     let resolve = |with_target_passive: bool| {

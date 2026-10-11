@@ -441,6 +441,16 @@ fn performs_extra_action(invocation: &SkillInvocation, execution: &SkillExecutio
     )
 }
 
+fn additional_damage_main_target(
+    invocation: &SkillInvocation,
+    target_order: &[i64],
+) -> Option<i64> {
+    match invocation.target {
+        SkillTarget::Explicit(target_uid) => Some(target_uid),
+        _ => target_order.first().copied(),
+    }
+}
+
 impl LinkedDamagePlan {
     pub(super) fn shell_attributes(extra_skill_kind: i32, uses_extra_lane: bool) -> (bool, bool) {
         use crate::engine::skill::condition::extra::ExtraSkillKind;
@@ -609,6 +619,8 @@ pub(super) fn damage_ops(
         .filter(|targets| !targets.is_empty())
         .cloned()
         .unwrap_or_else(|| targets.clone());
+    let additional_main_target =
+        additional_damage_main_target(invocation, &additional_target_order);
     execution.record_targets(targets.iter().copied());
     let passive_skills = pool
         .entity(source_uid)
@@ -933,10 +945,8 @@ pub(super) fn damage_ops(
             if additional.requires_assassination && !assassination.assassinate {
                 continue;
             }
-            let rate = additional.rate(
-                additional_target_order.first() == Some(&target_uid),
-                *uses_extra_lane,
-            );
+            let rate =
+                additional.rate(additional_main_target == Some(target_uid), *uses_extra_lane);
             let command = if additional.formula
                 == crate::engine::damage::DamageFormula::ResolvedHitProportionalAdditional
             {
