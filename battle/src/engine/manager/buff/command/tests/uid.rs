@@ -430,6 +430,64 @@ fn triggered_child_allocation_comes_from_the_exact_buff_act_rule() {
 }
 
 #[test]
+fn timed_child_renewal_expires_the_old_instance_before_the_stateful_grant() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    uid: Some(1058),
+                    buff_id: Some(31340007),
+                    from_uid: Some(0),
+                    duration: Some(1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    manager.seed(&fight);
+
+    let changes = manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::RenewTimedChild(BuffGrantChild {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(1053, "AttrByHeatScale"),
+                },
+                source_uid: 0,
+                target_uid: 10,
+                buff_id: 31340007,
+                amount: Some(0),
+                params: None,
+                act_info: Some(vec![BuffActInfo {
+                    act_id: Some(1053),
+                    param: vec![60],
+                    str_param: Some(String::new()),
+                }]),
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(changes.change.removed.len(), 1);
+    assert_eq!(changes.change.removed[0].buff.uid, Some(1058));
+    assert_eq!(changes.change.removed[0].buff.duration, Some(0));
+    assert_eq!(changes.change.added.as_ref().unwrap().buff.uid, Some(1060));
+    assert_eq!(
+        changes.change.added.as_ref().unwrap().buff.act_info[0].param,
+        [60]
+    );
+    assert!(changes.pre_add_markers_before_remove);
+}
+
+#[test]
 fn repeated_grant_is_planned_by_the_manager() {
     crate::test_support::init_config();
     let fight = Fight {

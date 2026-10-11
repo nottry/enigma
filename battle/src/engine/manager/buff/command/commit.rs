@@ -469,6 +469,13 @@ impl BuffManager {
     fn commit_replace_plan(&mut self, hp: &HpManager, plan: ReplacePlan) -> BuffReplaceResult {
         let mut removed = Vec::new();
         for buff_uid in plan.removed_uids {
+            if plan.expire_removed
+                && let Some(active) = self.buffs.iter_mut().find(|active| {
+                    active.owner_uid == plan.target_uid && active.buff.uid == Some(buff_uid)
+                })
+            {
+                active.buff.duration = Some(0);
+            }
             removed.extend(self.delete(plan.target_uid, buff_uid));
         }
         let mut change = self.commit_grant_plan(hp, plan.grant);

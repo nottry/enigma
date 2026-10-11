@@ -39,13 +39,18 @@ pub fn setup_rule_ops(
             .map(|enable| enable.output)
             .collect(),
         ),
-        SetupStage::BuffGate | SetupStage::RoundStart => {
-            Some(lingering_glow::round_start_attribute_rule_ops_for_team(
+        SetupStage::BuffGate => Some(lingering_glow::round_start_attribute_rule_ops_for_team(
+            managers,
+            catalog,
+            feature.team_type,
+        )),
+        SetupStage::RoundStart => Some(
+            lingering_glow::round_transition_attribute_rule_ops_for_team(
                 managers,
                 catalog,
                 feature.team_type,
-            ))
-        }
+            ),
+        ),
         _ => Some(Vec::new()),
     }
 }

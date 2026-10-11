@@ -142,12 +142,15 @@ impl BuffManager {
                     inputs,
                 )?)),
             ),
-            command @ (BuffCommand::GrantChild(_) | BuffCommand::GrantInternalChild(_)) => {
+            command @ (BuffCommand::GrantChild(_)
+            | BuffCommand::GrantInternalChild(_)
+            | BuffCommand::RenewTimedChild(_)) => {
                 let internal = matches!(&command, BuffCommand::GrantInternalChild(_));
+                let renew = matches!(&command, BuffCommand::RenewTimedChild(_));
                 let grant = match command {
-                    BuffCommand::GrantChild(grant) | BuffCommand::GrantInternalChild(grant) => {
-                        grant
-                    }
+                    BuffCommand::GrantChild(grant)
+                    | BuffCommand::GrantInternalChild(grant)
+                    | BuffCommand::RenewTimedChild(grant) => grant,
                     _ => unreachable!(),
                 };
                 let triggered = grant.origin.domain == RuleDomain::BuffAct
@@ -183,14 +186,28 @@ impl BuffManager {
                 if grant.act_info.is_some() {
                     plan.initial_act_info = grant.act_info;
                 }
-                (
-                    grant.origin,
-                    if internal {
-                        BuffPlanAction::GrantInternalChild(Box::new(plan))
-                    } else {
-                        BuffPlanAction::Grant(Box::new(plan))
-                    },
-                )
+                let action = if renew {
+                    let removed_uids = self
+                        .buffs
+                        .iter()
+                        .filter(|active| {
+                            active.owner_uid == grant.target_uid
+                                && active.buff.buff_id == Some(grant.buff_id)
+                        })
+                        .filter_map(|active| active.buff.uid)
+                        .collect();
+                    BuffPlanAction::Replace(Box::new(ReplacePlan {
+                        target_uid: grant.target_uid,
+                        removed_uids,
+                        grant: plan,
+                        expire_removed: true,
+                    }))
+                } else if internal {
+                    BuffPlanAction::GrantInternalChild(Box::new(plan))
+                } else {
+                    BuffPlanAction::Grant(Box::new(plan))
+                };
+                (grant.origin, action)
             }
             BuffCommand::Consume(consume) => (
                 consume.origin,
@@ -1256,6 +1273,7 @@ impl BuffManager {
             target_uid,
             removed_uids,
             grant,
+            expire_removed: false,
         })
     }
 
@@ -1383,6 +1401,7 @@ impl BuffManager {
             target_uid,
             removed_uids,
             grant,
+            expire_removed: false,
         })
     }
 

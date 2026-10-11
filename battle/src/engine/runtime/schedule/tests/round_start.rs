@@ -723,6 +723,100 @@ fn change_round_payload_is_zero_with_a_conduit_area() {
 }
 
 #[test]
+fn round_transition_renews_timed_team_attributes_on_reserves() {
+    init_config();
+    let old_attribute_uid = 22;
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(31340003),
+                        from_uid: Some(10),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(21),
+                        buff_id: Some(31340008),
+                        from_uid: Some(10),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            sub_entitys: vec![FightEntityInfo {
+                uid: Some(11),
+                team_type: Some(1),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    uid: Some(old_attribute_uid),
+                    buff_id: Some(31340007),
+                    from_uid: Some(0),
+                    duration: Some(1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let origin = CommandOrigin {
+        domain: RuleDomain::Lifecycle,
+        key: DefinitionKey::new(0, "TestLingeringGlow"),
+    };
+    managers
+        .execute_gauge(crate::engine::manager::gauge::GaugeCommand::new(
+            origin,
+            crate::engine::mechanic::lingering_glow::key(1),
+            crate::engine::manager::gauge::GaugeOperation::Enable { max: Some(750) },
+        ))
+        .unwrap();
+    managers
+        .execute_gauge(crate::engine::manager::gauge::GaugeCommand::new(
+            origin,
+            crate::engine::mechanic::lingering_glow::key(1),
+            crate::engine::manager::gauge::GaugeOperation::ChangeValue { delta: 45 },
+        ))
+        .unwrap();
+
+    run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        crate::engine::skill::effect::catalog::global(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        0,
+    )
+    .unwrap();
+
+    assert!(managers.buff.snapshot(11, old_attribute_uid).is_none());
+    assert!(
+        managers
+            .buff
+            .active_for(11)
+            .any(|buff| buff.buff_id == Some(31340007) && buff.uid != Some(old_attribute_uid))
+    );
+}
+
+#[test]
 fn version_seven_runs_late_setup_before_priority_three_setup() {
     init_config();
     let fight = Fight {

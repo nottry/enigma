@@ -60,6 +60,12 @@ pub struct LingeringGlowCast {
     pub outputs: Vec<RuleOp>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttributeSnapshotRule {
+    GrantMissing,
+    RenewTeam,
+}
+
 pub const fn key(team: i32) -> GaugeKey {
     GaugeKey {
         kind: GaugeKind::LingeringGlow,
@@ -107,6 +113,28 @@ pub fn round_start_attribute_rule_ops_for_team(
     catalog: &SkillEffectCatalog,
     team: i32,
 ) -> Vec<RuleOp> {
+    attribute_snapshot_rule_ops_for_team(
+        managers,
+        catalog,
+        team,
+        AttributeSnapshotRule::GrantMissing,
+    )
+}
+
+pub fn round_transition_attribute_rule_ops_for_team(
+    managers: &crate::engine::manager::BattleManagers,
+    catalog: &SkillEffectCatalog,
+    team: i32,
+) -> Vec<RuleOp> {
+    attribute_snapshot_rule_ops_for_team(managers, catalog, team, AttributeSnapshotRule::RenewTeam)
+}
+
+fn attribute_snapshot_rule_ops_for_team(
+    managers: &crate::engine::manager::BattleManagers,
+    catalog: &SkillEffectCatalog,
+    team: i32,
+    rule: AttributeSnapshotRule,
+) -> Vec<RuleOp> {
     let features = managers.buff.active_features(&managers.hp);
     let Some(tag) = features.iter().find(|feature| {
         feature.team_type == team && buff_act::is_kind(feature, BuffActKind::HeatScaleTag)
@@ -135,31 +163,41 @@ pub fn round_start_attribute_rule_ops_for_team(
         let buff_origin = attribute_buff.origin;
         let remaining = state.current / 2;
         let depleted = state.current - remaining;
-        let targets = managers
-            .buff
-            .alive_team_uids(create.team, &managers.hp)
+        let team_uids = managers.buff.alive_team_uids(create.team, &managers.hp);
+        let renew_team_snapshot = rule == AttributeSnapshotRule::RenewTeam
+            && team_uids
+                .iter()
+                .any(|target_uid| !managers.buff.has_buff_id(*target_uid, buff_id));
+        let targets = team_uids
             .into_iter()
-            .filter(|target_uid| !managers.buff.has_buff_id(*target_uid, buff_id))
+            .filter(|target_uid| {
+                renew_team_snapshot || !managers.buff.has_buff_id(*target_uid, buff_id)
+            })
             .collect::<Vec<_>>();
         if targets.is_empty() {
             continue;
         }
         outputs.extend(targets.into_iter().map(|target_uid| {
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::GrantChild(
-                BuffGrantChild {
-                    origin: buff_origin,
-                    source_uid: 0,
-                    target_uid,
-                    buff_id,
-                    amount: Some(0),
-                    params: None,
-                    act_info: Some(vec![BuffActInfo {
-                        act_id: Some(act_id),
-                        param: vec![remaining],
-                        str_param: Some(String::new()),
-                    }]),
+            let grant = BuffGrantChild {
+                origin: buff_origin,
+                source_uid: 0,
+                target_uid,
+                buff_id,
+                amount: Some(0),
+                params: None,
+                act_info: Some(vec![BuffActInfo {
+                    act_id: Some(act_id),
+                    param: vec![remaining],
+                    str_param: Some(String::new()),
+                }]),
+            };
+            RuleOp::Command(BattleCommand::Buff(
+                if managers.buff.has_buff_id(target_uid, buff_id) {
+                    BuffCommand::RenewTimedChild(grant)
+                } else {
+                    BuffCommand::GrantChild(grant)
                 },
-            )))
+            ))
         }));
         if depleted == 0 {
             continue;

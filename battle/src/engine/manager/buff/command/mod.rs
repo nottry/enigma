@@ -341,6 +341,7 @@ pub enum BuffCommand {
     GrantUsingNormalUid(BuffGrant),
     GrantChild(BuffGrantChild),
     GrantInternalChild(BuffGrantChild),
+    RenewTimedChild(BuffGrantChild),
     Consume(BuffConsume),
     ConsumeCount(BuffConsume),
     ConsumeEffectCount(BuffConsume),
@@ -535,6 +536,7 @@ struct ReplacePlan {
     target_uid: i64,
     removed_uids: Vec<i64>,
     grant: GrantPlan,
+    expire_removed: bool,
 }
 
 #[derive(Debug, Clone)]
