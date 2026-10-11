@@ -7,13 +7,14 @@ use std::{
 use crate::engine::{
     manager::hp::DeathTransition,
     runtime::record::{FrameOwner, FramePath},
-    skill::target::TargetContext,
+    skill::{rule::DefinitionKey, target::TargetContext},
 };
 
 use super::{DrainBudget, DrainError, QueuedOp};
 
 type FrameGroup = Rc<RefCell<Option<FramePath>>>;
 type DeferredCast = (Option<FrameOwner>, QueuedOp);
+pub(super) type ActionReactionKey = (i64, i32, Option<usize>, DefinitionKey);
 
 #[derive(Default)]
 pub(super) struct ReactionCastState {
@@ -41,6 +42,7 @@ pub(super) struct DrainState {
     // Actions that will publish ActionCompleted and have not yet done so.
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
+    action_reactions: HashMap<FramePath, HashSet<ActionReactionKey>>,
     injuries: HashMap<FramePath, Vec<i64>>,
     deaths: HashMap<FramePath, Vec<DeathTransition>>,
     target_modifiers: HashMap<FramePath, i32>,
@@ -176,6 +178,7 @@ impl DrainState {
     ) -> Vec<(Option<FrameOwner>, QueuedOp)> {
         self.open_actions.remove(action_path);
         self.completed_actions.insert(action_path.clone());
+        self.action_reactions.remove(action_path);
         self.after_action_casts
             .remove(action_path)
             .unwrap_or_default()
@@ -293,6 +296,7 @@ impl DrainState {
         self.injuries.remove(action_path);
         self.deaths.remove(action_path);
         self.target_modifiers.remove(action_path);
+        self.action_reactions.remove(action_path);
         for link in self
             .claimed_action_links
             .remove(action_path)
@@ -335,6 +339,15 @@ impl DrainState {
     // Only an action that will still complete releases held casts; otherwise they run at once.
     pub(super) fn action_in_progress(&self, action_path: &FramePath) -> bool {
         self.open_actions.contains(action_path)
+    }
+
+    pub(super) fn action_reactions(
+        &mut self,
+        action_path: &[usize],
+    ) -> &mut HashSet<ActionReactionKey> {
+        self.action_reactions
+            .entry(action_path.to_vec())
+            .or_default()
     }
 
     pub(super) fn add_target_modifier(&mut self, action_path: FramePath, amount: i32) {

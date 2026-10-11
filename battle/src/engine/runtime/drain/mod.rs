@@ -455,8 +455,11 @@ fn split_active_hit_event_groups(
             matches!(
                 event,
                 BattleEvent::Hit(hit)
-                    if hit.damage_from
-                        == crate::engine::manager::hp::HurtDamageFromType::Skill
+                    if matches!(
+                        hit.damage_from,
+                        crate::engine::manager::hp::HurtDamageFromType::Skill
+                            | crate::engine::manager::hp::HurtDamageFromType::Additional
+                    )
             )
         });
         let (deferred, immediate): (Vec<_>, Vec<_>) = events.into_iter().partition(|event| {
@@ -1184,6 +1187,7 @@ fn drain_queue_with_deferred(
                     managers,
                     catalog,
                     determinism,
+                    state,
                     &event_groups,
                     &event_scope,
                     &frame_path,
@@ -1201,6 +1205,7 @@ fn drain_queue_with_deferred(
                         managers,
                         catalog,
                         determinism,
+                        state,
                         &event_groups,
                         &event_scope,
                         &frame_path,
@@ -1250,6 +1255,7 @@ fn drain_queue_with_deferred(
                         managers,
                         catalog,
                         determinism,
+                        state,
                         hit_event_groups,
                         &event_scope,
                         &frame_path,
@@ -1367,6 +1373,7 @@ fn drain_queue_with_deferred(
                         managers,
                         catalog,
                         determinism,
+                        state,
                         &event_groups,
                         &event_scope,
                         &frame_path,
@@ -1396,6 +1403,7 @@ fn drain_queue_with_deferred(
                         managers,
                         catalog,
                         determinism,
+                        state,
                         hit_event_groups,
                         &event_scope,
                         &frame_path,

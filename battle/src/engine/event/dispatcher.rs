@@ -390,11 +390,11 @@ fn retain_publication(
 
     subscribers.skills.retain(|subscriber| match publication {
         PublicationPhase::BeforePublish => {
-            subscriber.key.timing != ReactionTiming::AfterSkill
+            subscriber.key.timing == ReactionTiming::Immediate
                 && subscriber.key.publication == PublicationPhase::BeforePublish
         }
         PublicationPhase::AfterPublish => {
-            subscriber.key.timing == ReactionTiming::AfterSkill
+            subscriber.key.timing != ReactionTiming::Immediate
                 || subscriber.key.publication == PublicationPhase::AfterPublish
         }
     });

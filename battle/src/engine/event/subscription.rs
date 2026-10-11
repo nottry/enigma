@@ -15,6 +15,7 @@ pub enum ReactionTiming {
     #[default]
     Immediate,
     AfterSkill,
+    AfterHitSkills,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

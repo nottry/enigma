@@ -282,6 +282,11 @@ pub const fn after_skill(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata
 }
 
+pub const fn after_hit_skills(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_timing = ReactionTiming::AfterHitSkills;
+    metadata
+}
+
 pub const fn once_per_action(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_multiplicity = ReactionMultiplicity::OncePerAction;
     metadata
@@ -756,8 +761,8 @@ condition_definitions! {
     [1105] "LifeLess" => parse::hp_less, setup_route(SetupStage::AfterRoundStart, 0, &[]);
     [1203] "LifeLess" => parse::hp_less, predicate(&[]);
     [1204] "LifeLess" => parse::hp_less, incoming_attack_modifier(predicate(&[]));
-    [1304] "LifeLess" => parse::hp_less, predicate(&[EventKind::HpLost]);
-    [1209] "LifeLess" => parse::hp_less, predicate(&[EventKind::HpLost]);
+    [1304] "LifeLess" => parse::hp_less, after_hit_skills(once_per_action(predicate(&[EventKind::HpLost])));
+    [1209] "LifeLess" => parse::hp_less, after_hit_skills(once_per_action(predicate(&[EventKind::HpLost])));
     [2104] "LifeMore" => parse::hp_more, setup_route(SetupStage::RoundStartLate, 0, &[]);
     [2203] "LifeMore" => parse::hp_more, predicate(&[]);
     [2301] "LifeMore" => parse::hp_more, event_trigger(EventKind::SmallRoundEnd, None);
