@@ -1085,15 +1085,14 @@ pub(super) fn queued_reactions(
                     source_uid: subscriber.owner_uid,
                     skill_id: subscriber.skill_id,
                     card_index: 0,
-                    target_uid: reentry_target.or_else(|| {
-                        reaction_skill_target(
-                            pool,
-                            event,
-                            subscriber.owner_uid,
-                            definition.reaction_frame_target,
-                            current_skill_target,
-                        )
-                    }),
+                    target_uid: reaction_skill_target(
+                        pool,
+                        event,
+                        subscriber.owner_uid,
+                        definition.reaction_frame_target,
+                        current_skill_target,
+                    )
+                    .or(reentry_target),
                 }),
                 subscriber_owner_uid: Some(subscriber.owner_uid),
                 caster_frame: None,
