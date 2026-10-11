@@ -734,7 +734,14 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                 team_type: Some(1),
                 current_hp: Some(100),
                 ex_point: Some(0),
-                passive_skill: vec![40, 50],
+                passive_skill: vec![40, 50, 60],
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(2112021),
+                    from_uid: Some(10),
+                    duration: Some(1),
+                    ..Default::default()
+                }],
                 ..Default::default()
             }],
             ..Default::default()
@@ -777,6 +784,21 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
     catalog.insert(ParsedSkillEffect {
         skill_id: 50,
         slots: vec![slot(10411, 2)],
+    });
+    let mut priority_one = slot(103, 1);
+    priority_one.conditions.push(ParsedCondition {
+        opcode: 57100,
+        type_name: "NoBuffId".to_owned(),
+        kind: ParsedConditionKind::BuffId {
+            mode: BuffConditionMode::Absent,
+            buff_ids: vec![2112021],
+        },
+        raw_args: vec!["2112021".to_owned()],
+    });
+    priority_one.compiled_route = ConditionRoute::compile(&priority_one.conditions);
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 60,
+        slots: vec![priority_one],
     });
     let mut managers = BattleManagers::seeded(&fight);
     managers
@@ -830,7 +852,9 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(deltas, [1, 2]);
+    assert_eq!(deltas, [1, 1, 2]);
+    assert_eq!(managers.ex_point.get(10), 4);
+    assert!(!managers.buff.has_buff_id(10, 2112021));
     fn contains_skill(frame: &SemanticFrame, skill_id: i32) -> bool {
         matches!(frame.owner, FrameOwner::Skill { skill_id: current, .. } if current == skill_id)
             || frame.items.iter().any(|item| match item {

@@ -290,6 +290,19 @@ pub fn run_round_start_after_ai_split(
         )?;
         append_round_phase(&mut settlement, duration);
     }
+    if version_seven {
+        append_round_phase(
+            &mut settlement,
+            drain::run(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                round_start_duration_rules(&duration_snapshot),
+            )?,
+        );
+    }
     let event_setup = drain::run_setup_schedule_for_owners_in_round_phase(
         managers,
         pool,
@@ -350,19 +363,6 @@ pub fn run_round_start_after_ai_split(
         append_round_phase(&mut sync_phase, sync_setup);
         Some(sync_phase)
     };
-    let deferred_duration =
-        if setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7) {
-            drain::run(
-                managers,
-                pool,
-                catalog,
-                determinism,
-                context,
-                round_start_duration_rules(&duration_snapshot),
-            )?
-        } else {
-            DrainResult::default()
-        };
     let late_setup = drain::run_setup_stage_for_owners(
         managers,
         pool,
@@ -400,7 +400,6 @@ pub fn run_round_start_after_ai_split(
         defeated_defenders,
     )?;
     if setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7) {
-        append_round_phase(&mut settlement, deferred_duration);
         append_round_phase(&mut settlement, card_cleanup);
         append_round_phase(
             &mut settlement,
