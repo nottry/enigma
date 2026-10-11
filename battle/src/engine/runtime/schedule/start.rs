@@ -682,6 +682,7 @@ pub fn run_start(
     let mut opening_duration_snapshot = None;
     let mut opening_duration_captured = false;
     let mut opening_settlement = None;
+    let mut opening_sync = None;
     let version7_opening =
         crate::engine::fight::versions::round_start_setup_layout(managers.fight_version())
             == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
@@ -943,7 +944,17 @@ pub fn run_start(
                 priority,
             )?
         };
-        if stage == SetupStage::RoundStart && priority == 2 {
+        if version7_opening && stage == SetupStage::BuffSync {
+            let mut sync = begin_round_phase(RoundPhase::RoundStartSync);
+            append_opening_round_phase(&mut sync, stage_result);
+            opening_sync = Some(sync);
+        } else if version7_opening && stage == SetupStage::RoundStartLate {
+            let mut sync = opening_sync
+                .take()
+                .expect("Version7 opens synchronization before late setup");
+            append_opening_round_phase(&mut sync, stage_result);
+            append(&mut result, sync);
+        } else if stage == SetupStage::RoundStart && priority == 2 {
             let settlement = opening_settlement
                 .get_or_insert_with(|| begin_round_phase(RoundPhase::RoundStartSettlement));
             append_opening_settlement(settlement, stage_result, version7_opening);

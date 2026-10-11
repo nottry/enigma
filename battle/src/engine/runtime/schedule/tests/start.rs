@@ -743,6 +743,113 @@ fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skil
 }
 
 #[test]
+fn version_seven_opening_groups_sync_and_late_setup() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                passive_skill: vec![40, 50],
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(31270413),
+                    from_uid: Some(10),
+                    duration: Some(3),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let slot = |condition| {
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![condition];
+        slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+        slot
+    };
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![slot(ParsedCondition {
+            opcode: 19104,
+            type_name: "HasBuffId".to_owned(),
+            kind: ParsedConditionKind::BuffId {
+                mode: BuffConditionMode::Present,
+                buff_ids: vec![31270413],
+            },
+            raw_args: vec!["31270413".to_owned()],
+        })],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![slot(ParsedCondition {
+            opcode: 104,
+            type_name: "None".to_owned(),
+            kind: ParsedConditionKind::None(NoneMode::RoundStart),
+            raw_args: Vec::new(),
+        })],
+    });
+
+    let (start, _) = run_start(
+        managers.catalog(),
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        CardSetup {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            deck_num: 0,
+        },
+        0,
+    )
+    .unwrap();
+
+    fn contains_skill(step: &sonettobuf::FightStep, skill_id: i32) -> bool {
+        step.act_id == Some(skill_id)
+            || step.act_effect.iter().any(|effect| {
+                effect
+                    .fight_step
+                    .as_ref()
+                    .is_some_and(|child| contains_skill(child, skill_id))
+            })
+    }
+    let steps = crate::engine::packet::timeline::project(&start.frames).unwrap();
+    let sync = steps
+        .iter()
+        .position(|step| contains_skill(step, 40))
+        .unwrap();
+    let late = steps
+        .iter()
+        .position(|step| contains_skill(step, 50))
+        .unwrap();
+
+    assert_eq!(sync, late);
+    assert_eq!(
+        steps[sync]
+            .act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+            .flat_map(|step| &step.act_effect)
+            .filter_map(|effect| effect.fight_step.as_ref())
+            .filter_map(|step| step.act_id)
+            .collect::<Vec<_>>(),
+        [40, 50]
+    );
+}
+
+#[test]
 fn start_schedule_finishes_unconditional_setup_before_round_start() {
     init_config();
     let unconditional = START
