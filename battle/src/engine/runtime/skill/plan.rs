@@ -41,6 +41,8 @@ pub(in crate::engine::runtime) struct SkillExecution {
     pub(super) resume_target: usize,
     // SkillEffectStarted subscribers settle before the skill's immediate slots.
     pub(super) effect_started: bool,
+    // Extra-action opening effects settle once after SkillEffectStarted subscribers.
+    pub(super) opening_effects_emitted: bool,
 }
 
 impl SkillExecution {
@@ -90,6 +92,7 @@ impl SkillExecution {
             resume_slot: 0,
             resume_target: 0,
             effect_started: false,
+            opening_effects_emitted: false,
         }
     }
 
@@ -121,6 +124,7 @@ impl SkillExecution {
             resume_slot: 0,
             resume_target: 0,
             effect_started: false,
+            opening_effects_emitted: false,
         }
     }
 

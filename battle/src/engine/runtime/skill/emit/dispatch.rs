@@ -323,7 +323,8 @@ pub(in crate::engine::runtime) fn emit_ops(
             .any(|slot| slot.behavior.spec.kind == BehaviorKind::IgnoreSkillConfigDamageRate);
     // An extra action's Force Field Eureka cost and forced crit open the action, before its own
     // effects; other additional-damage activations follow those effects.
-    if !resuming_phase && active_phase == Some(SkillPhase::Immediate) {
+    if active_phase == Some(SkillPhase::Immediate) && !execution.opening_effects_emitted {
+        execution.opening_effects_emitted = true;
         for activation in plan::LinkedDamagePlan::activations(&invocation, managers, execution) {
             execution.record_unpaid_extra_action_cost_field(&activation.additional);
             if has_row_damage && activation.pays_extra_action_cost {

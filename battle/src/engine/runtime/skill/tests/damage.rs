@@ -2824,4 +2824,16 @@ fn an_extra_action_resolves_its_extra_action_passives_before_the_force_field_cos
             .iter()
             .any(|emission| { matches!(emission.op, RuleOp::Command(BattleCommand::Eureka(_))) })
     );
+    assert_eq!(
+        resumed
+            .ops
+            .iter()
+            .filter(|emission| matches!(
+                emission.op,
+                RuleOp::EffectMarker { effect_type, .. }
+                    if effect_type == sonettobuf::effect_type_enum::EffectType::Mustcrit as i32
+            ))
+            .count(),
+        1
+    );
 }
