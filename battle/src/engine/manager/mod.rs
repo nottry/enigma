@@ -1065,6 +1065,7 @@ impl BattleManagers {
             self.register_entity_state(entity);
         }
         fight.cur_wave = Some(roster.wave);
+        fight.is_record = Some(false);
         self.sync_entities(fight);
         Ok(Some(wave::WaveAdvanced {
             wave: roster.wave,

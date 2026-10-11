@@ -61,6 +61,7 @@ fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
         episode_id: Some(10624),
         version: Some(7),
         cur_wave: Some(1),
+        is_record: Some(true),
         defender: Some(FightTeam {
             entitys,
             sub_entitys,
@@ -91,6 +92,7 @@ fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
         .unwrap();
 
     assert_eq!(third.wave, 3);
+    assert_eq!(third.fight.is_record, Some(false));
     assert!(expected.current_hp.unwrap_or_default() > 0);
     assert_eq!(runtime.entity_info(uid).as_ref(), Some(expected));
     assert_eq!(runtime.reconnect_state().0.cur_wave, Some(3));
