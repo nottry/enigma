@@ -224,6 +224,91 @@ fn a_riposte_completes_as_an_ally_action() {
 }
 
 #[test]
+fn flutterpage_gust_frame_follows_ally_action_target() {
+    fn run(target_uid: i64) -> (i64, bool) {
+        crate::test_support::init_config();
+        let entity = |uid| FightEntityInfo {
+            uid: Some(uid),
+            current_hp: Some(100_000),
+            attr: Some(HeroAttribute {
+                hp: Some(100_000),
+                attack: Some(1_000),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let fight = Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![
+                    entity(10),
+                    FightEntityInfo {
+                        passive_skill: vec![31050141],
+                        ..entity(11)
+                    },
+                ],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![entity(-1)],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pool = TargetPool::from_fight(&fight);
+        let mut managers = BattleManagers::seeded(&fight);
+        const ACTION_SKILL_ID: i32 = 999_999_008;
+        let mut catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31050141], []);
+        catalog.insert(ParsedSkillEffect {
+            skill_id: ACTION_SKILL_ID,
+            slots: Vec::new(),
+        });
+        let mut invocation: SkillInvocation = SkillRequest {
+            source_uid: 10,
+            skill_id: ACTION_SKILL_ID,
+        }
+        .into();
+        invocation.target = SkillTarget::Explicit(target_uid);
+        invocation.mode = SkillExecutionMode::Active;
+        let result = run_action(
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext::default(),
+            [],
+            invocation,
+        )
+        .unwrap();
+
+        let action = crate::engine::packet::timeline::project(&result.frames)
+            .unwrap()
+            .into_iter()
+            .find(|step| step.act_id == Some(ACTION_SKILL_ID))
+            .expect("the action projects a step");
+        let gust = action
+            .act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+            .find(|step| step.act_id == Some(31050141))
+            .expect("Flutterpage reacts to the ally action");
+        let gust_committed = result.events.iter().any(|event| {
+            matches!(
+                event,
+                crate::engine::event::payload::BattleEvent::BuffAdded(buff)
+                    if buff.target_uid == 11 && buff.buff_id == 31050111
+            )
+        });
+        (
+            gust.to_id.expect("the Gust frame has a target"),
+            gust_committed,
+        )
+    }
+
+    assert_eq!(run(11), (11, true));
+    assert_eq!(run(-1), (-1, true));
+}
+
+#[test]
 fn a_riposte_follows_the_attack_inside_its_own_buff_step() {
     crate::test_support::init_config();
     let entity = |uid| FightEntityInfo {
