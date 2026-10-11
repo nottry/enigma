@@ -313,15 +313,19 @@ pub fn run_round_start_after_ai_split(
         );
     }
     append_round_phase(&mut settlement, event_setup);
-    let settlement_setup = drain::run_setup_schedule(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        ROUND_START_SETTLEMENT_SETUP,
-    )?;
-    append_round_phase(&mut settlement, settlement_setup);
+    if !version_seven {
+        append_round_phase(
+            &mut settlement,
+            drain::run_setup_schedule(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                ROUND_START_SETTLEMENT_SETUP,
+            )?,
+        );
+    }
     let sync_schedule = match setup_layout {
         Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7) => {
             ROUND_START_VERSION7_SYNC_SETUP
@@ -369,6 +373,18 @@ pub fn run_round_start_after_ai_split(
         0,
         &setup_owner_uids,
     )?;
+    let deferred_settlement_setup = if version_seven {
+        drain::run_setup_schedule(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            ROUND_START_SETTLEMENT_SETUP,
+        )?
+    } else {
+        DrainResult::default()
+    };
     let defeated_defenders = pool
         .defender_all
         .iter()
@@ -385,13 +401,14 @@ pub fn run_round_start_after_ai_split(
     )?;
     if setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7) {
         append_round_phase(&mut settlement, deferred_duration);
-        append_round_phase(&mut settlement, late_setup);
         append_round_phase(&mut settlement, card_cleanup);
         append_round_phase(
             &mut settlement,
             run_action_phase_start(managers, pool, catalog, determinism, context, 1)?,
         );
         append(&mut fight_steps, settlement);
+        append(&mut fight_steps, late_setup);
+        append(&mut fight_steps, deferred_settlement_setup);
     } else {
         append(&mut fight_steps, settlement);
         append(

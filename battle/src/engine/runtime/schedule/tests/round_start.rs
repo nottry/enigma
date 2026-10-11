@@ -723,6 +723,188 @@ fn version_seven_change_round_payload_names_the_active_round_with_a_conduit_area
 }
 
 #[test]
+fn version_seven_runs_late_setup_before_priority_three_setup() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                team_type: Some(1),
+                current_hp: Some(100),
+                ex_point: Some(0),
+                passive_skill: vec![40, 50],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut catalog = SkillEffectCatalog::default();
+    let slot = |opcode, amount| {
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(20002, "AddExPoint"),
+                vec![amount],
+                Vec::new(),
+            ),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![ParsedCondition {
+            opcode,
+            type_name: "None".to_owned(),
+            kind: ParsedConditionKind::None(NoneMode::RoundStart),
+            raw_args: Vec::new(),
+        }];
+        slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+        slot
+    };
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![slot(104, 1)],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![slot(10411, 2)],
+    });
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_hp(crate::engine::manager::hp::HpCommand::Kill(
+            crate::engine::manager::hp::HpKill {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestDefeat"),
+                },
+                source_uid: 10,
+                target_uid: -1,
+                config_effect: 1,
+            },
+        ))
+        .unwrap();
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+
+    let (round, _, _, _) = run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        0,
+    )
+    .unwrap();
+    let deltas = round
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::ExPoint(crate::engine::manager::ex_point::ExPointChanges::Value {
+                change,
+                ..
+            }) => Some(change.applied_delta),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(deltas, [1, 2]);
+    fn contains_skill(frame: &SemanticFrame, skill_id: i32) -> bool {
+        matches!(frame.owner, FrameOwner::Skill { skill_id: current, .. } if current == skill_id)
+            || frame.items.iter().any(|item| match item {
+                FrameItem::Child(child) => contains_skill(child, skill_id),
+                FrameItem::Change(_) | FrameItem::Cue(_) => false,
+            })
+    }
+    let root_for_skill = |skill_id| {
+        round
+            .frames
+            .iter()
+            .position(|frame| contains_skill(frame, skill_id))
+            .expect("round-start skill has a semantic owner")
+    };
+    let settlement = round
+        .frames
+        .iter()
+        .position(|frame| {
+            matches!(
+                frame.owner,
+                FrameOwner::RoundPhase(RoundPhase::RoundStartSettlement)
+            )
+        })
+        .expect("version seven has a round-start settlement owner");
+    let late = root_for_skill(40);
+    let priority_three = root_for_skill(50);
+    assert!(settlement < late && late < priority_three);
+    assert!(matches!(round.frames[late].owner, FrameOwner::SetupSide(_)));
+    assert!(matches!(
+        round.frames[priority_three].owner,
+        FrameOwner::SetupSide(_)
+    ));
+    fn contains_change(
+        frame: &SemanticFrame,
+        predicate: impl Copy + Fn(&BattleChange) -> bool,
+    ) -> bool {
+        frame.items.iter().any(|item| match item {
+            FrameItem::Child(child) => contains_change(child, predicate),
+            FrameItem::Change(change) => predicate(change),
+            FrameItem::Cue(_) => false,
+        })
+    }
+    assert!(contains_change(
+        &round.frames[settlement],
+        |change| matches!(change, BattleChange::Card(_))
+    ));
+    assert!(contains_change(
+        &round.frames[settlement],
+        |change| matches!(
+            change,
+            BattleChange::Conduit(
+                crate::engine::manager::conduit::ConduitChange::DeviceRestarted { .. }
+            )
+        )
+    ));
+    assert!(round
+        .frames
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != settlement)
+        .all(|(_, frame)| {
+            !contains_change(frame, |change| matches!(change, BattleChange::Card(_)))
+                && !contains_change(frame, |change| {
+                    matches!(
+                        change,
+                        BattleChange::Conduit(
+                            crate::engine::manager::conduit::ConduitChange::DeviceRestarted { .. }
+                        )
+                    )
+                })
+        }));
+}
+
+#[test]
 fn round_start_excludes_before_ap_resolution_from_its_phase_buckets() {
     init_config();
     let fight = Fight {
