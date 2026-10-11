@@ -154,6 +154,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             | crate::engine::skill::action::SkillExecutionMode::Device
             | crate::engine::skill::action::SkillExecutionMode::DeviceCard
     ) {
+        execution.context.active_skill_mode = invocation.mode;
         execution.context.active_skill_is_attack = catalog.is_attack(effect_skill_id);
         if matches!(trigger, SkillOpTrigger::Active) && invocation.card_index > 0 {
             execution.context.active_skill_slot = pool.skill_slot(

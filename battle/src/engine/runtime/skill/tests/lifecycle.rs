@@ -1,6 +1,51 @@
 use super::*;
 
 #[test]
+fn active_invocation_initializes_the_condition_mode() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: Vec::new(),
+    });
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    let mut execution = SkillExecution::new(TargetContext::default());
+
+    emit_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+
+    assert_eq!(
+        execution.context.active_skill_mode,
+        SkillExecutionMode::Active
+    );
+}
+
+#[test]
 fn team_injury_count_is_resynchronized_between_skill_phases() {
     let mut execution = SkillExecution::new(TargetContext::default());
 
