@@ -293,6 +293,47 @@ fn purple_crystal_resolves_visible_lingering_glow_when_damage_is_planned() {
 }
 
 #[test]
+fn crystal_focus_prefers_the_first_enemy_tied_for_the_highest_halo() {
+    crate::test_support::init_config();
+    let enemy = |uid, layer| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(100),
+        buffs: vec![BuffInfo {
+            uid: Some(-uid),
+            buff_id: Some(31340001),
+            from_uid: Some(10),
+            layer: Some(layer),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![enemy(-1, 1), enemy(-2, 2), enemy(-3, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+
+    assert_eq!(
+        first_enemy_with_highest_buff_amount(&pool, &managers, 10, 31340001),
+        Some(-2)
+    );
+}
+
+#[test]
 fn selected_crystal_rank_row_carries_its_fixed_mass_and_focus_damage() {
     assert_eq!(
         crystal_fixed_skill_rates(&[1200, 800, 1]),

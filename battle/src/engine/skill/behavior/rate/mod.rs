@@ -91,12 +91,12 @@ impl BehaviorHandler for Handler {
             }
             if *focus_rate != 0
                 && crystal_count > 0
-                && let Some(target_uid) = context
-                    .pool
-                    .enemies(context.source_uid, false)
-                    .iter()
-                    .map(|enemy| enemy.uid)
-                    .max_by_key(|uid| context.managers.buff.buff_id_amount(*uid, *buff_id))
+                && let Some(target_uid) = first_enemy_with_highest_buff_amount(
+                    context.pool,
+                    context.managers,
+                    context.source_uid,
+                    *buff_id,
+                )
             {
                 context.modifiers.rates.push(SkillRateModifier::new(
                     target_uid,
@@ -852,6 +852,25 @@ pub fn emit(
         ));
     }
     true
+}
+
+fn first_enemy_with_highest_buff_amount(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    source_uid: i64,
+    buff_id: i32,
+) -> Option<i64> {
+    pool.enemies(source_uid, false)
+        .iter()
+        .map(|enemy| (enemy.uid, managers.buff.buff_id_amount(enemy.uid, buff_id)))
+        .reduce(|best, candidate| {
+            if candidate.1 > best.1 {
+                candidate
+            } else {
+                best
+            }
+        })
+        .map(|(uid, _)| uid)
 }
 
 pub(super) fn supports_attr_fix(behavior: &ParsedBehavior) -> bool {
