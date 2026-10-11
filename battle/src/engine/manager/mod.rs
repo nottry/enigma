@@ -1255,6 +1255,40 @@ impl BattleManagers {
             self.project_entity_state(entity);
         }
         self.eureka.sync_fight(fight);
+        let features = self.buff.active_features(&self.hp);
+        if let Some(attacker) = fight.attacker.as_mut() {
+            attacker.heat_scale = self.heat_scale_snapshot(1, &features);
+        }
+        if let Some(defender) = fight.defender.as_mut() {
+            defender.heat_scale = self.heat_scale_snapshot(2, &features);
+        }
+    }
+
+    fn heat_scale_snapshot(
+        &self,
+        team_type: i32,
+        features: &[buff::ActiveBuffFeature],
+    ) -> Option<sonettobuf::FightHeatScale> {
+        let state = self
+            .gauge
+            .get(crate::engine::mechanic::lingering_glow::key(team_type))?;
+        let crystal = features
+            .iter()
+            .find(|feature| {
+                feature.team_type == team_type
+                    && crate::engine::skill::buff_act::is_kind(
+                        feature,
+                        crate::engine::skill::buff_act::registry::BuffActKind::CrystalNotifySelect,
+                    )
+            })
+            .map(|feature| self.emanation.counts(feature.owner_uid))
+            .map(|[blue, purple, green]| blue * 100 + purple * 10 + green)
+            .unwrap_or_default();
+        Some(sonettobuf::FightHeatScale {
+            value: Some(i64::from(state.current)),
+            max: Some(i64::from(state.max.unwrap_or_default())),
+            crystal: Some(crystal),
+        })
     }
 
     pub(crate) fn entity_snapshot(&self, uid: i64) -> Option<FightEntityInfo> {

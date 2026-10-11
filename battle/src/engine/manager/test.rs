@@ -11,6 +11,7 @@ use crate::engine::{
             ExPointChange, ExPointChanges, ExPointCommand, ExPointConfigureSynchronization,
             ExPointRecordSynchronizationAction, SynchronizationDefinition,
         },
+        gauge::{GaugeCommand, GaugeOperation},
         hp::{DamageEffectKind, HpCommand, HpDamage, HurtDamageFromType, HurtInfoData},
     },
     skill::rule::{DefinitionKey, RuleDomain},
@@ -96,6 +97,66 @@ fn hero_sp_attributes_follow_record_conduit_wire_shape() {
             .as_ref()
             .and_then(|attribute| attribute.device_skill_rate),
         Some(0)
+    );
+}
+
+#[test]
+fn fight_snapshot_projects_team_lingering_glow_and_crystals() {
+    crate::test_support::init_config();
+    let mut fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(31340008),
+                    from_uid: Some(10),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    let key = crate::engine::mechanic::lingering_glow::key(1);
+    let origin = CommandOrigin {
+        domain: RuleDomain::Lifecycle,
+        key: DefinitionKey::new(0, "TestLingeringGlow"),
+    };
+    managers
+        .execute_gauge(GaugeCommand::new(
+            origin,
+            key,
+            GaugeOperation::Enable { max: Some(750) },
+        ))
+        .unwrap();
+    managers
+        .execute_gauge(GaugeCommand::new(
+            origin,
+            key,
+            GaugeOperation::ChangeValue { delta: 121 },
+        ))
+        .unwrap();
+    crate::engine::mechanic::heat_scale::HeatScale::select_crystals_from_cloth(
+        &mut managers,
+        10,
+        110,
+    )
+    .unwrap();
+
+    managers.sync_entities(&mut fight);
+
+    assert_eq!(
+        fight.attacker.unwrap().heat_scale,
+        Some(sonettobuf::FightHeatScale {
+            value: Some(121),
+            max: Some(750),
+            crystal: Some(110),
+        })
     );
 }
 
