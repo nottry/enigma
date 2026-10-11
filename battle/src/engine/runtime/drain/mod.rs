@@ -737,7 +737,8 @@ fn drain_queue_with_deferred(
                     &trigger,
                 )?;
                 let configured_target_replaces_selection =
-                    execution.configured_target_replaces(invocation.target);
+                    matches!(trigger, SkillOpTrigger::Active)
+                        && execution.configured_target_replaces(invocation.target);
                 for &(slot_index, condition_key) in &emission.fired_rules {
                     managers.mark_rule_fired(
                         invocation.plan.source_uid,

@@ -1150,7 +1150,14 @@ pub(in crate::engine::runtime) fn emit_ops(
                     crate::engine::skill::action::ActionEvent {
                         source_uid: invocation.plan.source_uid,
                         skill_id: invocation.plan.skill_id,
-                        target_uid: execution.primary_target_uid.unwrap_or_default(),
+                        target_uid: match invocation.target {
+                            SkillTarget::Explicit(selected)
+                                if !execution.configured_target_replaces(invocation.target) =>
+                            {
+                                selected
+                            }
+                            _ => execution.primary_target_uid.unwrap_or_default(),
+                        },
                         target_uids: execution.affected_targets.clone(),
                         skill_slot: pool.skill_slot(
                             managers,

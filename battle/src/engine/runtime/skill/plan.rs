@@ -55,7 +55,7 @@ impl SkillExecution {
         }
         self.configured_targets
             .as_ref()
-            .is_some_and(|targets| !targets.is_empty() && !targets.contains(&selected))
+            .is_some_and(|targets| targets.len() == 1 && targets[0] != selected)
     }
 
     pub(in crate::engine::runtime) fn resumes_phase(&self) -> bool {

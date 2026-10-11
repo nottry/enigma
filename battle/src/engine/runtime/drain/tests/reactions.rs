@@ -17,6 +17,12 @@ fn configured_action_target_owns_the_projected_skill_frame() {
                     current_hp: Some(100),
                     ..Default::default()
                 },
+                FightEntityInfo {
+                    uid: Some(12),
+                    ex_point: Some(2),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
             ],
             ..Default::default()
         }),
@@ -52,6 +58,7 @@ fn configured_action_target_owns_the_projected_skill_frame() {
         }
         .into();
         invocation.target = SkillTarget::Explicit(-1);
+        invocation.mode = SkillExecutionMode::Active;
 
         let result = run(
             &mut managers,
@@ -62,13 +69,27 @@ fn configured_action_target_owns_the_projected_skill_frame() {
             [RuleOp::Skill(invocation)],
         )
         .unwrap();
-        crate::engine::packet::timeline::project(&result.frames).unwrap()[0].to_id
+        let action_target = result
+            .outcomes
+            .iter()
+            .find_map(|outcome| match outcome {
+                crate::engine::runtime::executor::RuleOutcome::SkillLifecycle(
+                    crate::engine::skill::action::SkillLifecycle::ActionCompleted(action),
+                ) => Some(action.target_uid),
+                _ => None,
+            })
+            .expect("the active skill completes its action");
+        (
+            crate::engine::packet::timeline::project(&result.frames).unwrap()[0].to_id,
+            action_target,
+        )
     };
 
-    assert_eq!(run_case(112), Some(11));
+    assert_eq!(run_case(112), (Some(11), 11));
+    assert_eq!(run_case(130), (Some(-1), -1));
     assert_eq!(
         run_case(crate::engine::skill::target::request::SOURCE_TARGET_CODE),
-        Some(-1)
+        (Some(-1), -1)
     );
 }
 
