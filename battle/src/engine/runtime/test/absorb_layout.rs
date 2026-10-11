@@ -26,6 +26,27 @@ fn opening_round(params: &[&str]) -> FightRound {
 }
 
 #[test]
+fn replay_status_selects_the_default_absorb_layout() {
+    let replay = runtime(Fight {
+        is_record: Some(true),
+        ..Default::default()
+    });
+    let normal = runtime(Fight {
+        is_record: Some(false),
+        ..Default::default()
+    });
+
+    assert_eq!(
+        replay.absorb_hurt_map_layout,
+        crate::engine::fight::versions::AbsorbHurtMapLayout::TwoMaps
+    );
+    assert_eq!(
+        normal.absorb_hurt_map_layout,
+        crate::engine::fight::versions::AbsorbHurtMapLayout::ThreeMaps
+    );
+}
+
+#[test]
 fn opening_round_detects_two_map_absorb_layout() {
     let round = opening_round(&[r#"{"reduceTeamShareShieldBuffMap":"","reduceShieldBuffMap":""}"#]);
 

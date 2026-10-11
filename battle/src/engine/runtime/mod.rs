@@ -318,6 +318,11 @@ impl BattleRuntime {
         let determinism =
             RoundDeterminism::with_seed(fight.battle_id.unwrap_or_default().max(0) as u64);
         let skill_catalog = catalog.skill_effects_for_fight(&fight);
+        let absorb_hurt_map_layout = if fight.is_record == Some(true) {
+            AbsorbHurtMapLayout::TwoMaps
+        } else {
+            AbsorbHurtMapLayout::ThreeMaps
+        };
 
         Self {
             catalog_data: Some(catalog),
@@ -331,7 +336,7 @@ impl BattleRuntime {
             wave_entry_condition_uids: Vec::new(),
             cloth_skill_uses: HashMap::new(),
             objectives: Default::default(),
-            absorb_hurt_map_layout: AbsorbHurtMapLayout::default(),
+            absorb_hurt_map_layout,
         }
     }
 }
