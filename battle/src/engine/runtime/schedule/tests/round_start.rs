@@ -624,7 +624,7 @@ fn round_start_resolves_field_with_configured_allied_threshold_modifiers() {
     assert_eq!(field.next_upgrade_progress, 120);
 }
 
-fn scheduled_round_start(version: i32, model_id: Option<i32>) -> DrainResult {
+fn scheduled_round_start(version: i32, model_id: Option<i32>, is_record: bool) -> DrainResult {
     init_config();
     let fight = Fight {
         version: Some(version),
@@ -638,6 +638,7 @@ fn scheduled_round_start(version: i32, model_id: Option<i32>) -> DrainResult {
             }],
             ..Default::default()
         }),
+        is_record: Some(is_record),
         ..Default::default()
     };
     let pool = TargetPool::from_fight(&fight);
@@ -671,9 +672,9 @@ fn change_round_effect_num(round: &DrainResult) -> i32 {
 }
 
 #[test]
-fn change_round_payload_is_zero_without_a_conduit_area() {
-    let round = scheduled_round_start(7, None);
-    assert_eq!(change_round_effect_num(&round), 0);
+fn live_version_seven_change_round_payload_names_the_active_round() {
+    let round = scheduled_round_start(7, None, false);
+    assert_eq!(change_round_effect_num(&round), 3);
     assert!(round.outcomes.iter().all(|outcome| !matches!(
         outcome,
         RuleOutcome::Conduit(
@@ -690,7 +691,7 @@ fn change_round_payload_is_zero_without_a_conduit_area() {
 
 #[test]
 fn change_round_payload_is_zero_when_the_layout_does_not_reset_conduit_power() {
-    let round = scheduled_round_start(6, Some(3149));
+    let round = scheduled_round_start(6, Some(3149), false);
     assert_eq!(change_round_effect_num(&round), 0);
     assert!(round.outcomes.iter().all(|outcome| !matches!(
         outcome,
@@ -699,9 +700,9 @@ fn change_round_payload_is_zero_when_the_layout_does_not_reset_conduit_power() {
 }
 
 #[test]
-fn change_round_payload_is_zero_with_a_conduit_area() {
-    let round = scheduled_round_start(7, Some(3149));
-    assert_eq!(change_round_effect_num(&round), 0);
+fn live_version_seven_change_round_payload_is_independent_of_conduit_power() {
+    let round = scheduled_round_start(7, Some(3149), false);
+    assert_eq!(change_round_effect_num(&round), 3);
     let conduit_changes = round
         .outcomes
         .iter()
@@ -720,6 +721,12 @@ fn change_round_payload_is_zero_with_a_conduit_area() {
             },
         ]
     ));
+}
+
+#[test]
+fn recorded_version_seven_change_round_payload_remains_incremental() {
+    let round = scheduled_round_start(7, None, true);
+    assert_eq!(change_round_effect_num(&round), 0);
 }
 
 #[test]

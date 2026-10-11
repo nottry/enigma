@@ -16,6 +16,18 @@ pub(crate) fn writes_reduce_hp(version: i32) -> bool {
     version == 7
 }
 
+pub(crate) const fn change_round_effect_num(
+    version: i32,
+    is_record: bool,
+    current_round: i32,
+) -> i32 {
+    if version == 7 && !is_record {
+        current_round
+    } else {
+        0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HurtInfoWireLayout {
     Version6,
@@ -84,14 +96,21 @@ pub(crate) const fn redeal_wire_layout(version: i32) -> Option<RedealWireLayout>
 mod tests {
     use super::{
         HeroSpAttributeWireLayout, HurtInfoWireLayout, RedealWireLayout, RoundStartSetupLayout,
-        hero_sp_attribute_wire_layout, hurt_info_wire_layout, redeal_wire_layout,
-        round_start_setup_layout, writes_reduce_hp,
+        change_round_effect_num, hero_sp_attribute_wire_layout, hurt_info_wire_layout,
+        redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
     };
 
     #[test]
     fn reduce_hp_wire_field_is_confirmed_only_for_version_seven() {
         assert!(!writes_reduce_hp(6));
         assert!(writes_reduce_hp(7));
+    }
+
+    #[test]
+    fn change_round_uses_exact_round_only_for_live_version_seven_fights() {
+        assert_eq!(change_round_effect_num(6, false, 3), 0);
+        assert_eq!(change_round_effect_num(7, true, 3), 0);
+        assert_eq!(change_round_effect_num(7, false, 3), 3);
     }
 
     #[test]

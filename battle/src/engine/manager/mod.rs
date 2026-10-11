@@ -54,6 +54,7 @@ use self::{
 pub struct BattleManagers {
     catalog_data: Option<crate::catalog::BattleCatalog>,
     fight_version: i32,
+    recorded_fight: bool,
     terminal_outcome: Option<crate::engine::round::outcome::BattleOutcome>,
     pub attribute: AttributeManager,
     pub battle_rule: battle_rule::BattleRuleManager,
@@ -167,6 +168,10 @@ impl BattleManagers {
 
     pub(crate) fn fight_version(&self) -> i32 {
         self.fight_version
+    }
+
+    pub(crate) fn recorded_fight(&self) -> bool {
+        self.recorded_fight
     }
 
     pub(crate) fn terminal_outcome(&self) -> Option<crate::engine::round::outcome::BattleOutcome> {
@@ -1213,6 +1218,7 @@ impl BattleManagers {
         let mut managers = Self {
             catalog_data: Some(catalog),
             fight_version: fight.version.unwrap_or_default(),
+            recorded_fight: fight.is_record.unwrap_or_default(),
             ..Self::default()
         };
         managers.attribute.seed_with_catalog(catalog, fight);

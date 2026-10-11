@@ -199,7 +199,16 @@ pub fn run_round_start_after_ai_split(
     let setup_layout =
         crate::engine::fight::versions::round_start_setup_layout(managers.fight_version());
     let mut fight_steps = DrainResult::default();
-    push_cue(&mut fight_steps.frames, RoundCue::ChangeRound { round: 0 });
+    push_cue(
+        &mut fight_steps.frames,
+        RoundCue::ChangeRound {
+            round: crate::engine::fight::versions::change_round_effect_num(
+                managers.fight_version(),
+                managers.recorded_fight(),
+                context.current_round,
+            ),
+        },
+    );
     if !entering_uids.is_empty() {
         append(
             &mut fight_steps,
