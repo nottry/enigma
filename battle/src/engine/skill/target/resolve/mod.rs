@@ -643,6 +643,7 @@ fn allies_by_status(
         .unwrap_or(BuffStatus::Unknown);
     pool.allies(source_uid)
         .iter()
+        .filter(|entity| !pool.is_reserve(entity.uid))
         .filter(|entity| entity.has_buff_status(status) == present)
         .map(|entity| entity.uid)
         .collect()
