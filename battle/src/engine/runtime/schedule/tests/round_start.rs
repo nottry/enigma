@@ -1008,6 +1008,21 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                     if result.change.added.iter().any(|added| added.buff.buff_id == Some(31340007))
             ))
     ));
+    assert_eq!(
+        round
+            .outcomes
+            .iter()
+            .filter(|outcome| matches!(
+                outcome,
+                RuleOutcome::Buff(result)
+                    if result.change.added.iter().any(|added| {
+                        added.buff.buff_id == Some(31340007)
+                            && added.buff.act_info.first().is_some_and(|info| info.param == [22])
+                    })
+            ))
+            .count(),
+        2
+    );
     assert!(
         round
             .frames
@@ -1039,6 +1054,119 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                     )
                 })
         }));
+}
+
+#[test]
+fn round_start_event_setup_preserves_stage_then_owner_order_for_each_layout() {
+    init_config();
+    for version in [6, 7] {
+        let fight = Fight {
+            version: Some(version),
+            attacker: Some(FightTeam {
+                entitys: vec![
+                    FightEntityInfo {
+                        uid: Some(10),
+                        team_type: Some(1),
+                        current_hp: Some(100),
+                        passive_skill: vec![100, 101],
+                        ..Default::default()
+                    },
+                    FightEntityInfo {
+                        uid: Some(11),
+                        team_type: Some(1),
+                        current_hp: Some(100),
+                        passive_skill: vec![200, 201],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(-1),
+                    team_type: Some(2),
+                    current_hp: Some(100),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pool = TargetPool::from_fight(&fight);
+        let mut catalog = SkillEffectCatalog::default();
+        let slot = |condition| {
+            let mut slot = SkillEffectSlot::new(
+                ParsedBehavior::from_spec(
+                    BehaviorSpec::new(20002, "AddExPoint"),
+                    vec![1],
+                    Vec::new(),
+                ),
+                TargetRequest::self_only(),
+            );
+            slot.conditions = vec![condition];
+            slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+            slot
+        };
+        let round_start = || ParsedCondition {
+            opcode: 103,
+            type_name: "None".to_owned(),
+            kind: ParsedConditionKind::None(NoneMode::RoundStart),
+            raw_args: Vec::new(),
+        };
+        let transition_start = || ParsedCondition {
+            opcode: 45104,
+            type_name: "HeroRoundInterval".to_owned(),
+            kind: ParsedConditionKind::RoundInterval {
+                start_round: 1,
+                period: 1,
+            },
+            raw_args: vec!["1".to_owned(), "1".to_owned()],
+        };
+        for (skill_id, condition) in [
+            (100, round_start()),
+            (101, transition_start()),
+            (200, round_start()),
+            (201, transition_start()),
+        ] {
+            catalog.insert(ParsedSkillEffect {
+                skill_id,
+                slots: vec![slot(condition)],
+            });
+        }
+        let mut managers = BattleManagers::seeded(&fight);
+
+        let (round, _, _, _) = run_round_start_after_ai_split(
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext {
+                current_round: 3,
+                ..Default::default()
+            },
+            &[],
+            0,
+        )
+        .unwrap();
+
+        fn collect_skills(frame: &SemanticFrame, skills: &mut Vec<i32>) {
+            if let FrameOwner::Skill { skill_id, .. } = frame.owner
+                && [100, 101, 200, 201].contains(&skill_id)
+            {
+                skills.push(skill_id);
+            }
+            for item in &frame.items {
+                if let FrameItem::Child(child) = item {
+                    collect_skills(child, skills);
+                }
+            }
+        }
+        let mut skills = Vec::new();
+        for frame in &round.frames {
+            collect_skills(frame, &mut skills);
+        }
+        assert_eq!(skills, [100, 200, 101, 201], "version {version}");
+    }
 }
 
 #[test]

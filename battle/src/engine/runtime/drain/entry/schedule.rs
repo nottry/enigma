@@ -157,20 +157,22 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
     owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
-    for owner_uid in owner_uids {
-        let owner_result = run_setup_schedule_with_container(
-            managers,
-            pool,
-            catalog,
-            determinism,
-            context,
-            schedule,
-            Some(std::slice::from_ref(owner_uid)),
-            SetupFrameContainer::RoundPhase,
-        )?;
-        result.outcomes.extend(owner_result.outcomes);
-        result.events.extend(owner_result.events);
-        result.frames.extend(owner_result.frames);
+    for &(stage, priority) in schedule {
+        for owner_uid in owner_uids {
+            let owner_result = run_setup_schedule_with_container(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                &[(stage, priority)],
+                Some(std::slice::from_ref(owner_uid)),
+                SetupFrameContainer::RoundPhase,
+            )?;
+            result.outcomes.extend(owner_result.outcomes);
+            result.events.extend(owner_result.events);
+            result.frames.extend(owner_result.frames);
+        }
     }
     Ok(result)
 }
