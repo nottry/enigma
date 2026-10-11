@@ -484,6 +484,10 @@ fn run_player_card_ops(
             });
             continue;
         }
+        let composes_adjacent = matches!(
+            &op,
+            PlayerCardOp::Move { .. } | PlayerCardOp::UseUniversal { .. }
+        );
         let blocked_card_index = match &op {
             PlayerCardOp::Play(play)
                 if play
@@ -600,6 +604,9 @@ fn run_player_card_ops(
         }
         if let Some((owner_uid, delta)) = moved_ex_point {
             pending_rewards.push((owner_uid, delta));
+        }
+        if !composes_adjacent {
+            continue;
         }
         let composed = drain::run(
             managers,
