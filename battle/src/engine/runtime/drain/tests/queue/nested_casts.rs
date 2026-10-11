@@ -194,12 +194,13 @@ fn shell_necklace_cast_follows_the_attack_inside_its_own_step() {
     let last_child = children.last().expect("the attack has reaction steps");
     assert!(ally_reaction < children.len() - 1);
     assert_eq!(last_child.act_id, Some(31090144));
+    assert_eq!(last_child.to_id, Some(11));
     assert!(
         last_child
             .act_effect
             .iter()
             .filter_map(|effect| effect.fight_step.as_ref())
-            .any(|step| step.act_id == Some(31090114))
+            .any(|step| step.act_id == Some(31090114) && step.to_id == Some(-1))
     );
 }
 

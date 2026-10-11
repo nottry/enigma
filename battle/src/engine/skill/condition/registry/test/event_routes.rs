@@ -45,6 +45,16 @@ fn entity_settlement_frames_target_the_settled_owner() {
 }
 
 #[test]
+fn shell_change_reactions_target_the_causing_frame() {
+    for opcode in [214, 215] {
+        assert_eq!(
+            find_key(opcode, "None").map(|definition| definition.reaction_frame_target),
+            Some(ReactionFrameTarget::CausingFrame)
+        );
+    }
+}
+
+#[test]
 fn post_settlement_frames_target_the_passive_owner() {
     assert_eq!(
         find_key(304, "None").map(|definition| definition.reaction_frame_target),

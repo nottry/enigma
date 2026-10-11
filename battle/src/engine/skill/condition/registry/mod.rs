@@ -446,8 +446,8 @@ condition_definitions! {
     [209, 211] "None" => none::attacked, event_trigger(EventKind::BeAttacked, None);
     [212] "None" => none::ally_action, reaction_targets_causing_frame(event_trigger(EventKind::AllyAction, None));
     [52008] "None" => none::ally_action, event_trigger(EventKind::AllyAction, None);
-    [214] "None" => none::shell_deploy, event_trigger(EventKind::ShellDeployed, None);
-    [215] "None" => none::shell_retrieve, event_trigger(EventKind::ShellRetrieved, None);
+    [214] "None" => none::shell_deploy, reaction_targets_causing_frame(event_trigger(EventKind::ShellDeployed, None));
+    [215] "None" => none::shell_retrieve, reaction_targets_causing_frame(event_trigger(EventKind::ShellRetrieved, None));
     [301] "None" => none::small_round_end, event_trigger(EventKind::SmallRoundEnd, None);
     [302] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
     [305, 306] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
