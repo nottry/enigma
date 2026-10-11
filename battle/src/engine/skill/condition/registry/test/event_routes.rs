@@ -723,14 +723,20 @@ fn trigger_families_reject_unconfigured_ids_and_wrong_types() {
         Some(PublicationPhase::BeforePublish)
     );
     assert_eq!(
-        find_key(1001212, "Assassinate")
-            .map(|definition| { (definition.role, definition.skill_action_observer) }),
+        find_key(1001212, "Assassinate").map(|definition| {
+            (
+                definition.role,
+                definition.skill_action_observer,
+                definition.reaction_frame_target,
+            )
+        }),
         Some((
             ConditionRole::Trigger {
                 event: EventKind::AllyAction,
                 phase: None,
             },
             SkillActionObserver::Team,
+            ReactionFrameTarget::Owner,
         ))
     );
     assert_eq!(

@@ -568,6 +568,7 @@ fn a_skill_cast_by_another_skill_keeps_its_step_without_effects() {
         .filter_map(|effect| effect.fight_step.as_ref())
         .find(|step| step.act_id == Some(435211))
         .expect("the psychube reacts");
+    assert_eq!((reaction.from_id, reaction.to_id), (Some(10), Some(10)));
     let cast = reaction
         .act_effect
         .iter()
