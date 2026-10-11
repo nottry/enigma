@@ -108,6 +108,7 @@ pub enum SkillActionTriggerPolicy {
 pub enum ReactionMultiplicity {
     #[default]
     PerEvent,
+    OncePerEventBatch,
     OncePerAction,
 }
 
@@ -289,6 +290,11 @@ pub const fn after_hit_skills(mut metadata: ConditionMetadata) -> ConditionMetad
 
 pub const fn once_per_action(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_multiplicity = ReactionMultiplicity::OncePerAction;
+    metadata
+}
+
+pub const fn once_per_event_batch(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_multiplicity = ReactionMultiplicity::OncePerEventBatch;
     metadata
 }
 
@@ -673,7 +679,7 @@ condition_definitions! {
     [46301, 46303, 46304, 46307] "NoActRound" => trigger::parse_no_action_round, event_trigger(EventKind::NoActionRound, None);
     [22202, 22204, 22209, 22211] "BeAttacked" => trigger::parse_target_attacked, event_trigger(EventKind::TargetAttacked, None);
     [22213] "BeAttacked" => trigger::parse_ally_attacked, before_publish(ally_of_attacked_target_observes(event_trigger(EventKind::SkillAction, Some(SkillPhase::HitPassives))));
-    [695213] "ShareDamage" => trigger::parse_share_damage, once_per_action(event_trigger(EventKind::DamageShared, None));
+    [695213] "ShareDamage" => trigger::parse_share_damage, once_per_event_batch(event_trigger(EventKind::DamageShared, None));
     [1001203] "Assassinate" => trigger::parse_assassinate, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [1001204] "Assassinate" => trigger::parse_assassinate, event_trigger(EventKind::SkillAction, None);
     [1001208] "Assassinate" => trigger::parse_assassinate, in_causing_frame(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage)));

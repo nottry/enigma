@@ -1,10 +1,10 @@
 use super::*;
 
 #[test]
-fn shared_damage_reacts_once_per_action() {
+fn shared_damage_reacts_once_per_event_batch() {
     assert_eq!(
         find_key(695213, "ShareDamage").map(|definition| definition.reaction_multiplicity),
-        Some(ReactionMultiplicity::OncePerAction)
+        Some(ReactionMultiplicity::OncePerEventBatch)
     );
 }
 

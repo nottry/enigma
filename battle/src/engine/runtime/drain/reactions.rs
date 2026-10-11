@@ -174,6 +174,7 @@ pub(super) fn dispatch_event_batch(
 struct EventBatchState {
     queued_attack_consumption: bool,
     fired_once_per_target: std::collections::HashSet<OncePerTargetKey>,
+    fired_once_per_event_batch: std::collections::HashSet<ReactionMultiplicityKey>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -193,7 +194,7 @@ fn dispatch_event_batch_inner(
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
     state: &mut EventBatchState,
-    fired_once_per_action: &mut std::collections::HashSet<OncePerActionKey>,
+    fired_once_per_action: &mut std::collections::HashSet<ReactionMultiplicityKey>,
 ) -> Result<ReactionBatch, DrainError> {
     let scoped_owner_uids = terminal_owner_scope(pool, managers, owner_uids);
     let owner_uids = scoped_owner_uids.as_deref();
@@ -295,7 +296,11 @@ fn dispatch_event_batch_inner(
             Some(publication_phase),
         )?;
         retain_event_multiplicity(&mut dispatched, event, &mut state.fired_once_per_target);
-        retain_reaction_multiplicity(&mut dispatched, fired_once_per_action);
+        retain_reaction_multiplicity(
+            &mut dispatched,
+            &mut state.fired_once_per_event_batch,
+            fired_once_per_action,
+        );
         defer_after_hit_skill_buff_acts(&mut dispatched);
         reactions.before_publish.extend(dispatched.before_publish);
         reactions.after_publish.extend(dispatched.after_publish);
@@ -363,7 +368,7 @@ type OncePerTargetKey = (
     i64,
 );
 
-type OncePerActionKey = (
+type ReactionMultiplicityKey = (
     i64,
     i32,
     Option<usize>,
@@ -419,7 +424,8 @@ fn once_per_target_key(queued: &QueuedOp, event: &BattleEvent) -> Option<OncePer
 
 fn retain_reaction_multiplicity(
     reactions: &mut ReactionBatch,
-    fired: &mut std::collections::HashSet<OncePerActionKey>,
+    fired_once_per_event_batch: &mut std::collections::HashSet<ReactionMultiplicityKey>,
+    fired: &mut std::collections::HashSet<ReactionMultiplicityKey>,
 ) {
     for lane in [
         &mut reactions.before_publish,
@@ -428,25 +434,44 @@ fn retain_reaction_multiplicity(
         &mut reactions.after_hit,
         &mut reactions.after_action,
     ] {
-        lane.retain(|queued| once_per_action_key(queued).is_none_or(|key| fired.insert(key)));
+        lane.retain(|queued| {
+            let Some((multiplicity, key)) = reaction_multiplicity_key(queued) else {
+                return true;
+            };
+            match multiplicity {
+                crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => true,
+                crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
+                    fired_once_per_event_batch.insert(key)
+                }
+                crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
+                    fired.insert(key)
+                }
+            }
+        });
     }
 }
 
-fn once_per_action_key(queued: &QueuedOp) -> Option<OncePerActionKey> {
+fn reaction_multiplicity_key(
+    queued: &QueuedOp,
+) -> Option<(
+    crate::engine::skill::condition::registry::ReactionMultiplicity,
+    ReactionMultiplicityKey,
+)> {
     let RuleOp::Skill(invocation) = &queued.op else {
         return None;
     };
     let key = invocation.condition_key?;
     let definition =
         crate::engine::skill::condition::registry::find_key(key.opcode, key.type_name)?;
-    (definition.reaction_multiplicity
-        == crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction)
-        .then_some((
+    Some((
+        definition.reaction_multiplicity,
+        (
             invocation.plan.source_uid,
             invocation.plan.skill_id,
             invocation.condition_slot,
             key,
-        ))
+        ),
+    ))
 }
 
 pub(super) fn ordered_hit_entities(
