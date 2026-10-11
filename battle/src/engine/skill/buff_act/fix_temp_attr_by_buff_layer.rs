@@ -134,7 +134,7 @@ mod tests {
                 true,
                 &[(31050145, 10)],
             ),
-            0
+            320
         );
         assert_eq!(
             attribute_delta(&feature, AttrId::GenesisDmgBonus, &buffs),

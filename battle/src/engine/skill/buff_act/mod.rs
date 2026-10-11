@@ -927,9 +927,6 @@ pub fn calculated_attack_attribute_delta_for_skill(
             );
         }
         Some(registry::BuffActKind::FixTempAttrByBuffLayer) if performs_extra_action => {
-            if unpaid_extra_action_cost_fields.contains(&(feature.buff_id, feature.source_uid)) {
-                return 0;
-            }
             return attack_attribute_delta_for_skill(
                 feature,
                 attr_id,
