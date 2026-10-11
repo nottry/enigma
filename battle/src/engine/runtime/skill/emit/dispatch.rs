@@ -609,6 +609,10 @@ pub(in crate::engine::runtime) fn emit_ops(
         } else {
             None
         };
+        let targets_are_hits = condition_uses_hit_targets
+            && definition.target_emission_mode != behavior::registry::TargetEmissionMode::Owner
+            && (event_targets.is_some()
+                || active_phase.is_some() && has_row_damage && uses_action_targets);
         let mut targets =
             if definition.target_emission_mode == behavior::registry::TargetEmissionMode::Owner {
                 vec![invocation.plan.source_uid]
@@ -646,7 +650,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                     )
                 })
             };
-        if condition_uses_hit_targets && invocation.phase == Some(SkillPhase::AfterDamage) {
+        if targets_are_hits && invocation.phase == Some(SkillPhase::AfterDamage) {
             targets.retain(|target_uid| managers.hp.current(*target_uid) > 0);
         }
         if per_target_conditions {
