@@ -1054,6 +1054,23 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         round.frames[sync].owner,
         FrameOwner::RoundPhase(RoundPhase::RoundStartSync)
     ));
+    let late_side = round.frames[sync]
+        .items
+        .iter()
+        .find_map(|item| match item {
+            FrameItem::Child(child)
+                if matches!(child.owner, FrameOwner::SetupSide(_)) && contains_skill(child, 40) =>
+            {
+                Some(child)
+            }
+            FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
+        })
+        .expect("late setup has a side owner inside round-start sync");
+    assert!(late_side.items.iter().any(|item| matches!(
+        item,
+        FrameItem::Child(child)
+            if matches!(child.owner, FrameOwner::Skill { skill_id: 40, .. })
+    )));
     assert!(matches!(
         round.frames[priority_three].owner,
         FrameOwner::SetupSide(_)

@@ -359,14 +359,13 @@ pub fn run_round_start_after_ai_split(
     )?;
     let mut sync_phase = begin_round_phase(RoundPhase::RoundStartSync);
     append_round_phase(&mut sync_phase, sync_setup);
-    let late_setup = drain::run_setup_stage_for_owners(
+    let late_setup = drain::run_setup_schedule_for_owners_in_round_phase(
         managers,
         pool,
         catalog,
         determinism,
         context,
-        SetupStage::RoundStartLate,
-        0,
+        &[(SetupStage::RoundStartLate, 0)],
         &setup_owner_uids,
     )?;
     let deferred_settlement_setup = if version_seven {
