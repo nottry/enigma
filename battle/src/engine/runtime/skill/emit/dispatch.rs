@@ -646,6 +646,9 @@ pub(in crate::engine::runtime) fn emit_ops(
                     )
                 })
             };
+        if condition_uses_hit_targets && invocation.phase == Some(SkillPhase::AfterDamage) {
+            targets.retain(|target_uid| managers.hp.current(*target_uid) > 0);
+        }
         if per_target_conditions {
             targets = managers.entity.in_identity_map_order(&targets);
             targets.retain(|target_uid| {

@@ -3105,7 +3105,7 @@ fn active_skill_publishes_hits_between_after_damage_and_after_hit_rows() {
 fn pre_attack_carrier_settles_before_skill_rate_conditions() {
     crate::test_support::init_config();
 
-    let run_case = |starting_burn| {
+    let run_case = |starting_burn, target_hp| {
         let fight = Fight {
             version: Some(7),
             attacker: Some(FightTeam {
@@ -3134,9 +3134,9 @@ fn pre_attack_carrier_settles_before_skill_rate_conditions() {
             defender: Some(FightTeam {
                 entitys: vec![FightEntityInfo {
                     uid: Some(-1),
-                    current_hp: Some(10_000),
+                    current_hp: Some(target_hp),
                     attr: Some(HeroAttribute {
-                        hp: Some(10_000),
+                        hp: Some(target_hp),
                         ..Default::default()
                     }),
                     buffs: vec![BuffInfo {
@@ -3173,15 +3173,16 @@ fn pre_attack_carrier_settles_before_skill_rate_conditions() {
         .unwrap();
         assert!(!managers.buff.has_buff_id(10, 4150002));
         (
-            10_000 - managers.hp.current(-1),
+            target_hp - managers.hp.current(-1),
             managers.buff.buff_id_amount(-1, 4150001),
         )
     };
 
-    let below_threshold = run_case(4);
-    let crosses_threshold = run_case(6);
+    let below_threshold = run_case(4, 10_000);
+    let crosses_threshold = run_case(6, 10_000);
     assert_eq!(below_threshold, (2_000, 10));
     assert_eq!(crosses_threshold, (3_000, 12));
+    assert_eq!(run_case(4, 1_000), (1_000, 7));
 }
 
 #[test]
