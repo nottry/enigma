@@ -354,15 +354,8 @@ pub fn run_round_start_after_ai_split(
         sync_schedule,
         &setup_owner_uids,
     )?;
-    let sync_phase = if version_seven {
-        // Version seven commits synchronization inside the same start-of-round settlement.
-        append_round_phase(&mut settlement, sync_setup);
-        None
-    } else {
-        let mut sync_phase = begin_round_phase(RoundPhase::RoundStartSync);
-        append_round_phase(&mut sync_phase, sync_setup);
-        Some(sync_phase)
-    };
+    let mut sync_phase = begin_round_phase(RoundPhase::RoundStartSync);
+    append_round_phase(&mut sync_phase, sync_setup);
     let late_setup = drain::run_setup_stage_for_owners(
         managers,
         pool,
@@ -405,15 +398,13 @@ pub fn run_round_start_after_ai_split(
             &mut settlement,
             run_action_phase_start(managers, pool, catalog, determinism, context, 1)?,
         );
+        append_round_phase(&mut sync_phase, late_setup);
         append(&mut fight_steps, settlement);
-        append(&mut fight_steps, late_setup);
+        append(&mut fight_steps, sync_phase);
         append(&mut fight_steps, deferred_settlement_setup);
     } else {
         append(&mut fight_steps, settlement);
-        append(
-            &mut fight_steps,
-            sync_phase.expect("non-version-seven round start has a synchronization phase"),
-        );
+        append(&mut fight_steps, sync_phase);
         append(&mut fight_steps, late_setup);
         append(&mut fight_steps, card_cleanup);
     }

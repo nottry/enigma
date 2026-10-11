@@ -734,14 +734,23 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                 team_type: Some(1),
                 current_hp: Some(100),
                 ex_point: Some(0),
-                passive_skill: vec![40, 50, 60],
-                buffs: vec![BuffInfo {
-                    uid: Some(20),
-                    buff_id: Some(2112021),
-                    from_uid: Some(10),
-                    duration: Some(1),
-                    ..Default::default()
-                }],
+                passive_skill: vec![40, 50, 60, 70],
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(2112021),
+                        from_uid: Some(10),
+                        duration: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(21),
+                        buff_id: Some(31270413),
+                        from_uid: Some(10),
+                        duration: Some(3),
+                        ..Default::default()
+                    },
+                ],
                 ..Default::default()
             }],
             ..Default::default()
@@ -800,6 +809,21 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         skill_id: 60,
         slots: vec![priority_one],
     });
+    let mut sync = slot(19104, 1);
+    sync.conditions[0] = ParsedCondition {
+        opcode: 19104,
+        type_name: "HasBuffId".to_owned(),
+        kind: ParsedConditionKind::BuffId {
+            mode: BuffConditionMode::Present,
+            buff_ids: vec![31270413],
+        },
+        raw_args: vec!["31270413".to_owned()],
+    };
+    sync.compiled_route = ConditionRoute::compile(&sync.conditions);
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 70,
+        slots: vec![sync],
+    });
     let mut managers = BattleManagers::seeded(&fight);
     managers
         .execute_hp(crate::engine::manager::hp::HpCommand::Kill(
@@ -852,8 +876,8 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(deltas, [1, 1, 2]);
-    assert_eq!(managers.ex_point.get(10), 4);
+    assert_eq!(deltas, [1, 1, 1, 2]);
+    assert_eq!(managers.ex_point.get(10), 5);
     assert!(!managers.buff.has_buff_id(10, 2112021));
     fn contains_skill(frame: &SemanticFrame, skill_id: i32) -> bool {
         matches!(frame.owner, FrameOwner::Skill { skill_id: current, .. } if current == skill_id)
@@ -879,10 +903,15 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
             )
         })
         .expect("version seven has a round-start settlement owner");
+    let sync = root_for_skill(70);
     let late = root_for_skill(40);
     let priority_three = root_for_skill(50);
-    assert!(settlement < late && late < priority_three);
-    assert!(matches!(round.frames[late].owner, FrameOwner::SetupSide(_)));
+    assert_eq!(sync, late);
+    assert!(settlement < sync && sync < priority_three);
+    assert!(matches!(
+        round.frames[sync].owner,
+        FrameOwner::RoundPhase(RoundPhase::RoundStartSync)
+    ));
     assert!(matches!(
         round.frames[priority_three].owner,
         FrameOwner::SetupSide(_)
