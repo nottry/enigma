@@ -441,7 +441,6 @@ impl LinkedDamagePlan {
         shared: &[(crate::engine::entity::attr::AttrId, i32)],
         action_source_uid: i64,
         credited_source_uid: i64,
-        inherit_action_critical_damage: bool,
     ) -> Vec<(crate::engine::entity::attr::AttrId, i32)> {
         local
             .iter()
@@ -449,7 +448,6 @@ impl LinkedDamagePlan {
             .filter(|(attr, _)| {
                 *attr != crate::engine::entity::attr::AttrId::CriticalDmg
                     || credited_source_uid == action_source_uid
-                    || inherit_action_critical_damage
             })
             .chain(shared.iter().copied())
             .filter(|(attr, _)| {
@@ -752,9 +750,8 @@ pub(super) fn damage_ops(
                 assassination.final_damage_bonus,
             ));
         }
-        let (linked_shell_damage, linked_shell_critical) =
+        let (_, linked_shell_critical) =
             LinkedDamagePlan::shell_attributes(execution.context.extra_skill_kind, false);
-        let mut target_shell_damage = 0;
         for attr_id in [
             crate::engine::entity::attr::AttrId::CriticalDmg,
             crate::engine::entity::attr::AttrId::DmgBonus,
@@ -767,12 +764,9 @@ pub(super) fn damage_ops(
             );
             if delta != 0 {
                 attack_attributes.push((attr_id, delta));
-                if attr_id == crate::engine::entity::attr::AttrId::DmgBonus {
-                    target_shell_damage = delta;
-                }
                 // A linked producer shares the triggering action's damage lane, while its
                 // independently rolled critical hit keeps its own critical-damage lane.
-                if (attr_id == crate::engine::entity::attr::AttrId::DmgBonus && linked_shell_damage)
+                if attr_id == crate::engine::entity::attr::AttrId::DmgBonus
                     || (attr_id == crate::engine::entity::attr::AttrId::CriticalDmg
                         && linked_shell_critical)
                 {
@@ -977,21 +971,7 @@ pub(super) fn damage_ops(
                     &shared_linked_attack_attributes,
                     action_owner_uid,
                     additional.credited_source_uid,
-                    // A naturally rolled linked critical remains part of the triggering
-                    // attack and inherits its temporary critical-damage lane. A field that
-                    // forces the producer's critical owns that lane instead.
-                    !field_forces_critical(additional.credited_source_uid, managers, extra_action),
                 );
-                let (producer_shell_damage, _) = LinkedDamagePlan::shell_attributes(
-                    execution.context.extra_skill_kind,
-                    *uses_extra_lane,
-                );
-                if producer_shell_damage && !linked_shell_damage && target_shell_damage != 0 {
-                    additional_attributes.push((
-                        crate::engine::entity::attr::AttrId::DmgBonus,
-                        target_shell_damage,
-                    ));
-                }
                 let additional_damage_type = pool
                     .entity(additional.credited_source_uid)
                     .map(|entity| entity.damage_type)

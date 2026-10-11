@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine::skill::condition::extra::ExtraSkillKind;
 
 #[test]
 fn target_passive_and_attack_local_attribute_are_applied_to_damage() {
@@ -619,7 +620,11 @@ fn assassination_damage_pair(
     }
     let mut execution = SkillExecution::new(TargetContext {
         active_skill_assassinate: inherent_assassination,
-        extra_skill_kind: 0,
+        extra_skill_kind: if deployed_shell {
+            ExtraSkillKind::Riposte.id()
+        } else {
+            0
+        },
         ..Default::default()
     });
     execution.configured_targets = Some(vec![-1]);
@@ -669,7 +674,7 @@ fn inherent_assassination_keeps_its_bonus_out_of_linked_damage() {
 }
 
 #[test]
-fn target_owned_performed_action_bonuses_apply_to_main_and_linked_damage() {
+fn target_owned_riposte_damage_bonus_applies_to_main_and_linked_damage() {
     let baseline = assassination_damage_pair(true, false, false, false);
     let boosted = assassination_damage_pair(true, false, false, true);
 
@@ -679,7 +684,7 @@ fn target_owned_performed_action_bonuses_apply_to_main_and_linked_damage() {
 }
 
 #[test]
-fn linked_attack_attributes_distinguish_natural_and_producer_forced_critical() {
+fn linked_attack_attributes_keep_temporary_critical_damage_source_owned() {
     let local = vec![
         (AttrId::DmgBonus, 200),
         (AttrId::CriticalDmg, 500),
@@ -688,7 +693,7 @@ fn linked_attack_attributes_distinguish_natural_and_producer_forced_critical() {
     let shared = vec![(AttrId::CriticalDmg, -700)];
 
     assert_eq!(
-        plan::LinkedDamagePlan::attack_attributes(&local, &shared, 10, 10, false),
+        plan::LinkedDamagePlan::attack_attributes(&local, &shared, 10, 10),
         vec![
             (AttrId::DmgBonus, 200),
             (AttrId::CriticalDmg, 500),
@@ -696,16 +701,8 @@ fn linked_attack_attributes_distinguish_natural_and_producer_forced_critical() {
         ]
     );
     assert_eq!(
-        plan::LinkedDamagePlan::attack_attributes(&local, &shared, 10, 11, false),
+        plan::LinkedDamagePlan::attack_attributes(&local, &shared, 10, 11),
         vec![(AttrId::DmgBonus, 200), (AttrId::CriticalDmg, -700)]
-    );
-    assert_eq!(
-        plan::LinkedDamagePlan::attack_attributes(&local, &shared, 10, 11, true),
-        vec![
-            (AttrId::DmgBonus, 200),
-            (AttrId::CriticalDmg, 500),
-            (AttrId::CriticalDmg, -700)
-        ]
     );
 }
 
@@ -820,5 +817,5 @@ fn linked_damage_plan_resolves_committed_credited_source_state() {
     };
 
     assert_eq!(linked.source_uid, 11);
-    assert_eq!(linked.amount, 643);
+    assert_eq!(linked.amount, 493);
 }
