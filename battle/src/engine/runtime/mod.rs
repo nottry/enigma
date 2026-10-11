@@ -8,7 +8,7 @@ use sonettobuf::{
 use crate::{
     catalog::BattleCatalog,
     engine::{
-        fight::versions::AbsorbHurtMapLayout,
+        fight::versions::{AbsorbHurtMapLayout, HeroSpAttributeWireLayout},
         manager::BattleManagers,
         round::{outcome::battle_outcome, state::RoundState},
         skill::effect::SkillEffectCatalog,
@@ -53,6 +53,7 @@ pub struct BattleRuntime {
     cloth_skill_uses: HashMap<i32, usize>,
     objectives: objective::ObjectiveProgress,
     absorb_hurt_map_layout: AbsorbHurtMapLayout,
+    hero_sp_attribute_wire_layout: HeroSpAttributeWireLayout,
 }
 
 impl BattleRuntime {
@@ -323,6 +324,10 @@ impl BattleRuntime {
         } else {
             AbsorbHurtMapLayout::ThreeMaps
         };
+        let hero_sp_attribute_wire_layout =
+            crate::engine::fight::versions::hero_sp_attribute_wire_layout(
+                fight.is_record == Some(true),
+            );
 
         Self {
             catalog_data: Some(catalog),
@@ -337,6 +342,7 @@ impl BattleRuntime {
             cloth_skill_uses: HashMap::new(),
             objectives: Default::default(),
             absorb_hurt_map_layout,
+            hero_sp_attribute_wire_layout,
         }
     }
 }

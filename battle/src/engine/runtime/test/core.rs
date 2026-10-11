@@ -52,6 +52,37 @@ fn entity_info_projects_manager_owned_state() {
 }
 
 #[test]
+fn recorded_hero_special_attribute_layout_survives_record_flag_changes() {
+    crate::test_support::init_config();
+    let mut runtime = runtime(Fight {
+        version: Some(7),
+        is_record: Some(true),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    runtime.fight.is_record = Some(false);
+
+    assert_eq!(
+        runtime
+            .managers
+            .hero_sp_attributes(&runtime.fight, runtime.hero_sp_attribute_wire_layout)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
+        None
+    );
+}
+
+#[test]
 fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
     crate::test_support::init_config();
     let (entitys, sub_entitys) =

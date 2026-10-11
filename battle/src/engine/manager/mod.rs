@@ -1353,7 +1353,11 @@ impl BattleManagers {
             .collect()
     }
 
-    pub fn hero_sp_attributes(&self, fight: &Fight) -> Vec<FightHeroSpAttributeInfo> {
+    pub(crate) fn hero_sp_attributes(
+        &self,
+        fight: &Fight,
+        wire_layout: crate::engine::fight::versions::HeroSpAttributeWireLayout,
+    ) -> Vec<FightHeroSpAttributeInfo> {
         let fight_version = fight.version.unwrap_or_default();
         entities(fight)
             .filter(|entity| entity.team_type == Some(2))
@@ -1382,7 +1386,9 @@ impl BattleManagers {
                 attribute.rebound_dmg = Some(self.origin_attribute(uid, AttrId::ReboundDmg));
                 attribute.extra_dmg = Some(self.origin_attribute(uid, AttrId::ExtraDmg));
                 attribute.reuse_dmg = Some(self.origin_attribute(uid, AttrId::ReuseDmg));
-                attribute.device_skill_rate = (fight_version == 7 && fight.is_record != Some(true))
+                attribute.device_skill_rate = (fight_version == 7
+                    && wire_layout
+                        == crate::engine::fight::versions::HeroSpAttributeWireLayout::LiveBattle)
                     .then(|| self.origin_attribute(uid, AttrId::ConduitMight));
                 Some(FightHeroSpAttributeInfo {
                     uid: Some(uid),

@@ -219,7 +219,9 @@ impl BattleRuntime {
             &mut self.determinism,
             context,
         );
-        self.round_state.hero_sp_attributes = self.managers.hero_sp_attributes(&self.fight);
+        self.round_state.hero_sp_attributes = self
+            .managers
+            .hero_sp_attributes(&self.fight, self.hero_sp_attribute_wire_layout);
         self.round_state.last_change_hero_uid = self.fight.last_change_hero_uid.or(Some(0));
         let attacker = self.fight.attacker.as_ref();
         Ok(FightRound {

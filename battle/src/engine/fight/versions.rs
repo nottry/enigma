@@ -41,6 +41,21 @@ pub(crate) enum RedealWireLayout {
     Version7,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HeroSpAttributeWireLayout {
+    RecordedBattle,
+    #[default]
+    LiveBattle,
+}
+
+pub(crate) const fn hero_sp_attribute_wire_layout(is_record: bool) -> HeroSpAttributeWireLayout {
+    if is_record {
+        HeroSpAttributeWireLayout::RecordedBattle
+    } else {
+        HeroSpAttributeWireLayout::LiveBattle
+    }
+}
+
 pub(crate) const fn hurt_info_wire_layout(version: i32) -> Option<HurtInfoWireLayout> {
     match version {
         6 => Some(HurtInfoWireLayout::Version6),
@@ -68,8 +83,9 @@ pub(crate) const fn redeal_wire_layout(version: i32) -> Option<RedealWireLayout>
 #[cfg(test)]
 mod tests {
     use super::{
-        HurtInfoWireLayout, RedealWireLayout, RoundStartSetupLayout, hurt_info_wire_layout,
-        redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
+        HeroSpAttributeWireLayout, HurtInfoWireLayout, RedealWireLayout, RoundStartSetupLayout,
+        hero_sp_attribute_wire_layout, hurt_info_wire_layout, redeal_wire_layout,
+        round_start_setup_layout, writes_reduce_hp,
     };
 
     #[test]
@@ -103,5 +119,17 @@ mod tests {
         assert_eq!(redeal_wire_layout(6), Some(RedealWireLayout::Version6));
         assert_eq!(redeal_wire_layout(7), Some(RedealWireLayout::Version7));
         assert_eq!(redeal_wire_layout(8), None);
+    }
+
+    #[test]
+    fn hero_special_attribute_layout_is_selected_by_opening_record_mode() {
+        assert_eq!(
+            hero_sp_attribute_wire_layout(true),
+            HeroSpAttributeWireLayout::RecordedBattle
+        );
+        assert_eq!(
+            hero_sp_attribute_wire_layout(false),
+            HeroSpAttributeWireLayout::LiveBattle
+        );
     }
 }
