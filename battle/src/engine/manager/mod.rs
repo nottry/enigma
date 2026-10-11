@@ -1347,8 +1347,8 @@ impl BattleManagers {
                 attribute.rebound_dmg = Some(self.origin_attribute(uid, AttrId::ReboundDmg));
                 attribute.extra_dmg = Some(self.origin_attribute(uid, AttrId::ExtraDmg));
                 attribute.reuse_dmg = Some(self.origin_attribute(uid, AttrId::ReuseDmg));
-                attribute.device_skill_rate =
-                    (fight_version == 7).then(|| self.origin_attribute(uid, AttrId::ConduitMight));
+                attribute.device_skill_rate = (fight_version == 7 && fight.is_record != Some(true))
+                    .then(|| self.origin_attribute(uid, AttrId::ConduitMight));
                 Some(FightHeroSpAttributeInfo {
                     uid: Some(uid),
                     attribute: Some(attribute),

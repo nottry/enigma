@@ -63,6 +63,43 @@ fn hero_sp_attributes_only_include_living_defenders() {
 }
 
 #[test]
+fn hero_sp_attributes_follow_record_conduit_wire_shape() {
+    crate::test_support::init_config();
+    let mut fight = Fight {
+        version: Some(7),
+        is_record: Some(true),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+
+    assert_eq!(
+        managers.hero_sp_attributes(&fight)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
+        None
+    );
+    fight.is_record = Some(false);
+    assert_eq!(
+        managers.hero_sp_attributes(&fight)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
+        Some(0)
+    );
+}
+
+#[test]
 fn hero_sp_attributes_project_active_playmode_immunity_until_removed() {
     crate::test_support::init_config();
     let fight = Fight {
