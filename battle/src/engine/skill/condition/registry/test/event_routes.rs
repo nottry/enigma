@@ -746,7 +746,7 @@ fn trigger_families_reject_unconfigured_ids_and_wrong_types() {
                 phase: None,
             },
             SkillActionObserver::Team,
-            ReactionFrameTarget::Owner,
+            ReactionFrameTarget::CausingFrame,
         ))
     );
     assert_eq!(
