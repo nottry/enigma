@@ -674,7 +674,7 @@ fn change_round_effect_num(round: &DrainResult) -> i32 {
 fn version_seven_change_round_payload_names_the_active_round_without_a_conduit_area() {
     let round = scheduled_round_start(7, None);
     assert_eq!(change_round_effect_num(&round), 3);
-    assert!(round.outcomes.iter().any(|outcome| matches!(
+    assert!(round.outcomes.iter().all(|outcome| !matches!(
         outcome,
         RuleOutcome::Conduit(
             crate::engine::manager::conduit::ConduitChange::PowersReset { team: 1 }

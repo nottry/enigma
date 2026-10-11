@@ -1,6 +1,6 @@
 use super::*;
 use crate::engine::skill::rule::{DefinitionKey, RuleDomain};
-use sonettobuf::{Fight, FightEntityInfo, FightTeam};
+use sonettobuf::{Fight, FightDeviceAreaInfo, FightEntityInfo, FightTeam};
 
 const ORIGIN: CommandOrigin = CommandOrigin {
     domain: RuleDomain::Behavior,
@@ -63,6 +63,28 @@ fn configured_seed_matches_the_borrowed_database_adapter() {
     assert_eq!(
         configured.initialization_errors,
         legacy.initialization_errors
+    );
+}
+
+#[test]
+fn configured_seed_preserves_an_empty_captured_area() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            device_area: Some(FightDeviceAreaInfo::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let manager = ConduitManager::configured(
+        crate::catalog::BattleCatalog::new(crate::test_support::game_data()),
+        &fight,
+    );
+
+    assert_eq!(
+        manager.action_phase_start_commands(1),
+        vec![ConduitCommand::ResetPowers { team: 1 }]
     );
 }
 
@@ -619,12 +641,9 @@ fn opening_reset_clears_power_and_restarts_each_device() {
 }
 
 #[test]
-fn action_phase_start_always_resets_and_restarts_existing_devices() {
+fn action_phase_start_requires_an_existing_area() {
     let mut manager = ConduitManager::default();
-    assert_eq!(
-        manager.action_phase_start_commands(1),
-        vec![ConduitCommand::ResetPowers { team: 1 }]
-    );
+    assert!(manager.action_phase_start_commands(1).is_empty());
 
     manager.areas.insert(
         1,
