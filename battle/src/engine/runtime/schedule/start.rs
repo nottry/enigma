@@ -303,7 +303,7 @@ pub fn run_round_start_after_ai_split(
             )?,
         );
     }
-    let event_setup = drain::run_setup_schedule_for_owners_in_round_phase(
+    let event_setup = drain::run_setup_schedule_in_owner_order_round_phase(
         managers,
         pool,
         catalog,

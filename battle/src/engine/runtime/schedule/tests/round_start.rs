@@ -728,31 +728,42 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
     let fight = Fight {
         version: Some(7),
         attacker: Some(FightTeam {
-            entitys: vec![FightEntityInfo {
-                uid: Some(10),
-                model_id: Some(3149),
-                team_type: Some(1),
-                current_hp: Some(100),
-                ex_point: Some(0),
-                passive_skill: vec![40, 50, 60, 70],
-                buffs: vec![
-                    BuffInfo {
-                        uid: Some(20),
-                        buff_id: Some(2112021),
-                        from_uid: Some(10),
-                        duration: Some(1),
-                        ..Default::default()
-                    },
-                    BuffInfo {
-                        uid: Some(21),
-                        buff_id: Some(31270413),
-                        from_uid: Some(10),
-                        duration: Some(3),
-                        ..Default::default()
-                    },
-                ],
-                ..Default::default()
-            }],
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3149),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ex_point: Some(0),
+                    passive_skill: vec![40, 50, 60, 70],
+                    buffs: vec![
+                        BuffInfo {
+                            uid: Some(20),
+                            buff_id: Some(2112021),
+                            from_uid: Some(10),
+                            duration: Some(1),
+                            ..Default::default()
+                        },
+                        BuffInfo {
+                            uid: Some(21),
+                            buff_id: Some(31270413),
+                            from_uid: Some(10),
+                            duration: Some(3),
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    model_id: Some(3134),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ex_point: Some(0),
+                    passive_skill: vec![80],
+                    ..Default::default()
+                },
+            ],
             ..Default::default()
         }),
         defender: Some(FightTeam {
@@ -824,6 +835,10 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         skill_id: 70,
         slots: vec![sync],
     });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 80,
+        slots: vec![slot(103, 3)],
+    });
     let mut managers = BattleManagers::seeded(&fight);
     managers
         .execute_hp(crate::engine::manager::hp::HpCommand::Kill(
@@ -876,8 +891,9 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(deltas, [1, 1, 1, 2]);
+    assert_eq!(deltas, [1, 3, 1, 1, 2]);
     assert_eq!(managers.ex_point.get(10), 5);
+    assert_eq!(managers.ex_point.get(11), 3);
     assert!(!managers.buff.has_buff_id(10, 2112021));
     fn contains_skill(frame: &SemanticFrame, skill_id: i32) -> bool {
         matches!(frame.owner, FrameOwner::Skill { skill_id: current, .. } if current == skill_id)
@@ -916,6 +932,22 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         round.frames[priority_three].owner,
         FrameOwner::SetupSide(_)
     ));
+    let event_children = round.frames[settlement]
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            FrameItem::Child(child) if contains_skill(child, 60) || contains_skill(child, 80) => {
+                Some(child)
+            }
+            FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(event_children.len(), 2);
+    assert!(
+        event_children
+            .iter()
+            .all(|child| contains_skill(child, 60) != contains_skill(child, 80))
+    );
     fn contains_change(
         frame: &SemanticFrame,
         predicate: impl Copy + Fn(&BattleChange) -> bool,
