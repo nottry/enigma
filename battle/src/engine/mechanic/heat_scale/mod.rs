@@ -191,7 +191,6 @@ pub struct BurnOrHaloAdded {
     pub target_uid: i64,
     pub buff_uid: i64,
     pub added_layers: i32,
-    pub alive_enemy_index: usize,
     pub alive_enemy_count: usize,
 }
 
@@ -569,7 +568,6 @@ pub fn burn_or_halo_gain(
         target_uid,
         buff_uid,
         added_layers,
-        alive_enemy_index: _,
         alive_enemy_count,
     } = added;
     let trigger = features.iter().find(|feature| {

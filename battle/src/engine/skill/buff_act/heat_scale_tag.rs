@@ -131,10 +131,7 @@ pub fn rule_ops(
     let Some(target_team) = managers.buff.team_type(change.target_uid) else {
         return Some(Vec::new());
     };
-    let alive_enemies = managers.entity.alive_combatants(target_team, &managers.hp);
-    let Some(alive_enemy_index) = alive_enemies
-        .iter()
-        .position(|uid| *uid == change.target_uid)
+    let Some(alive_enemy_count) = enemy_count_for_gain(managers, target_team, change.target_uid)
     else {
         return Some(Vec::new());
     };
@@ -147,8 +144,7 @@ pub fn rule_ops(
             target_uid: change.target_uid,
             buff_uid: change.buff_uid,
             added_layers,
-            alive_enemy_index,
-            alive_enemy_count: alive_enemies.len(),
+            alive_enemy_count,
         },
     )
     .and_then(|input| match input.output {
@@ -162,6 +158,21 @@ pub fn rule_ops(
     .map(BuffActRuleOp::causing)
     .collect();
     Some(ops)
+}
+
+fn enemy_count_for_gain(
+    managers: &BattleManagers,
+    team_type: i32,
+    target_uid: i64,
+) -> Option<usize> {
+    if !managers.entity.is_main_combatant(target_uid) {
+        return None;
+    }
+    let count = managers
+        .entity
+        .alive_combatants(team_type, &managers.hp)
+        .len();
+    (count > 0).then_some(count)
 }
 
 #[cfg(test)]
@@ -254,5 +265,51 @@ mod tests {
             managers.buff.snapshot(10, 21).unwrap().act_info[0].param,
             [40]
         );
+    }
+
+    #[test]
+    fn defeated_main_target_uses_the_current_alive_enemy_count() {
+        crate::test_support::init_config();
+        let managers = BattleManagers::seeded(&Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    team_type: Some(1),
+                    position: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![
+                    FightEntityInfo {
+                        uid: Some(-1),
+                        team_type: Some(2),
+                        position: Some(1),
+                        current_hp: Some(0),
+                        ..Default::default()
+                    },
+                    FightEntityInfo {
+                        uid: Some(-2),
+                        team_type: Some(2),
+                        position: Some(2),
+                        current_hp: Some(0),
+                        ..Default::default()
+                    },
+                    FightEntityInfo {
+                        uid: Some(-3),
+                        team_type: Some(2),
+                        position: Some(3),
+                        current_hp: Some(100),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(enemy_count_for_gain(&managers, 2, -1), Some(1));
     }
 }

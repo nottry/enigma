@@ -543,15 +543,19 @@ impl EntityManager {
             .copied()
             .filter(|uid| {
                 self.teams.get(uid) == Some(&team_type)
-                    && self.roster_lanes.get(uid) == Some(&RosterLane::Main)
-                    && self.identities.get(uid).is_some_and(|entity| {
-                        entity
-                            .position
-                            .is_some_and(|position| (1..SPECIAL_POSITION).contains(&position))
-                    })
+                    && self.is_main_combatant(*uid)
                     && hp.current(*uid) > 0
             })
             .collect()
+    }
+
+    pub(crate) fn is_main_combatant(&self, uid: i64) -> bool {
+        self.roster_lanes.get(&uid) == Some(&RosterLane::Main)
+            && self.identities.get(&uid).is_some_and(|entity| {
+                entity
+                    .position
+                    .is_some_and(|position| (1..SPECIAL_POSITION).contains(&position))
+            })
     }
 
     pub fn sync_to_fight(&self, fight: &mut Fight) {

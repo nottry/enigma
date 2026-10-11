@@ -425,7 +425,6 @@ fn halo_addition_increases_lingering_glow() {
                 target_uid: -1,
                 buff_uid: 20,
                 added_layers: 1,
-                alive_enemy_index: 0,
                 alive_enemy_count: 3,
             },
         )
@@ -459,7 +458,6 @@ fn burn_gain_truncates_each_layer_by_enemy_count() {
         target_uid: -1,
         buff_uid,
         added_layers: 2,
-        alive_enemy_index: 0,
         alive_enemy_count: 3,
     };
     let late = burn_or_halo_gain(std::slice::from_ref(&burn), added(90)).unwrap();
