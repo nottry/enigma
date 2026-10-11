@@ -736,6 +736,8 @@ fn drain_queue_with_deferred(
                     &mut execution,
                     &trigger,
                 )?;
+                let configured_target_replaces_selection =
+                    execution.configured_target_replaces(invocation.target);
                 for &(slot_index, condition_key) in &emission.fired_rules {
                     managers.mark_rule_fired(
                         invocation.plan.source_uid,
@@ -748,8 +750,9 @@ fn drain_queue_with_deferred(
                     &mut result.frames,
                     &frame_path,
                     emission.target_uid,
-                    matches!(trigger, SkillOpTrigger::Active)
-                        && invocation.phase == Some(SkillPhase::Damage),
+                    configured_target_replaces_selection
+                        || matches!(trigger, SkillOpTrigger::Active)
+                            && invocation.phase == Some(SkillPhase::Damage),
                 );
                 // Dispatch settles the action mode, so open the action from what it emitted.
                 let completes_action = emission

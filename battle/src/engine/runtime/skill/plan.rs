@@ -3,11 +3,13 @@ use crate::engine::{
     manager::{BattleManagers, buff::ActiveBuffFeature, hp::HpCommand},
     runtime::determinism::RoundDeterminism,
     skill::{
-        action::{SkillInvocation, SkillModifiers},
+        action::{SkillInvocation, SkillModifiers, SkillTarget},
         behavior::rate,
         effect::SkillEffectCatalog,
         rule::{CommandOrigin, DefinitionKey, RuleDomain, output::RuleOp},
-        target::{TargetContext, TargetPool, TargetRequest, TargetResolver},
+        target::{
+            TargetContext, TargetPool, TargetRequest, TargetResolver, request::SOURCE_TARGET_CODE,
+        },
     },
 };
 
@@ -41,6 +43,21 @@ pub(in crate::engine::runtime) struct SkillExecution {
 }
 
 impl SkillExecution {
+    pub(in crate::engine::runtime) fn configured_target_replaces(
+        &self,
+        target: SkillTarget,
+    ) -> bool {
+        let SkillTarget::Explicit(selected) = target else {
+            return false;
+        };
+        if self.context.logic_target == SOURCE_TARGET_CODE {
+            return false;
+        }
+        self.configured_targets
+            .as_ref()
+            .is_some_and(|targets| !targets.is_empty() && !targets.contains(&selected))
+    }
+
     pub(in crate::engine::runtime) fn resumes_phase(&self) -> bool {
         self.resume_slot > 0 || self.resume_target > 0
     }

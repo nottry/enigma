@@ -17,7 +17,7 @@ use crate::engine::{
             output::{BattleCommand, RuleOp},
             route::ConditionDriver,
         },
-        target::{TargetPool, TargetRequest, TargetResolver},
+        target::{TargetPool, TargetRequest, TargetResolver, request::SOURCE_TARGET_CODE},
     },
 };
 
@@ -232,7 +232,8 @@ pub(in crate::engine::runtime) fn emit_ops(
                 ),
             )
         });
-        let configured_targets = if routes_configured_damage && !needs_action_targets {
+        let defers_configured_targets = routes_configured_damage && !needs_action_targets;
+        let configured_targets = if defers_configured_targets {
             Vec::new()
         } else {
             TargetResolver::resolve_action_targets(
@@ -245,6 +246,14 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.context,
             )
         };
+        if !defers_configured_targets
+            && execution.context.logic_target != SOURCE_TARGET_CODE
+            && let SkillTarget::Explicit(selected) = invocation.target
+            && !configured_targets.contains(&selected)
+        {
+            execution.primary_target_uid = None;
+            execution.affected_targets.clear();
+        }
         execution.additional_damage_targets = determinism
             .take_skill_target_choice(
                 invocation.plan.skill_id,
