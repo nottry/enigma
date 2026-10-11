@@ -9,7 +9,7 @@ use battle_preview::{
     array_len_diff_lines, begin_round_inputs, build_metadata_source, canonical_comparison,
     expand_compressed_fight_steps, first_diff_path, normalize_live_json, opening_determinism,
     preview_attributes_with_request, preview_output_text, render_json_with_capture_conventions,
-    seed_round_determinism, tower_plan_id_from_request,
+    seed_round_determinism, tower_plan_id_from_request, value_at_diff_path,
 };
 use sonettobuf::{BeginRoundReply, BeginRoundRequest, Fight, FightRound, FightStep};
 
@@ -167,6 +167,12 @@ fn report_input(
         && let Some(path) = first_diff_path(generated_round, original_round, "/round")
     {
         eprintln!("  first round diff: {path}");
+        if let (Some(generated), Some(captured)) = (
+            value_at_diff_path(generated_round, &path, "/round"),
+            value_at_diff_path(original_round, &path, "/round"),
+        ) {
+            eprintln!("    generated={generated} captured={captured}");
+        }
         for line in array_len_diff_lines(generated_round, original_round, &path, "/round") {
             eprintln!("    {line}");
         }
