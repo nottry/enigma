@@ -761,6 +761,20 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                     current_hp: Some(100),
                     ex_point: Some(0),
                     passive_skill: vec![80],
+                    buffs: vec![
+                        BuffInfo {
+                            uid: Some(30),
+                            buff_id: Some(31340003),
+                            from_uid: Some(11),
+                            ..Default::default()
+                        },
+                        BuffInfo {
+                            uid: Some(31),
+                            buff_id: Some(31340008),
+                            from_uid: Some(11),
+                            ..Default::default()
+                        },
+                    ],
                     ..Default::default()
                 },
             ],
@@ -778,7 +792,7 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         ..Default::default()
     };
     let pool = TargetPool::from_fight(&fight);
-    let mut catalog = SkillEffectCatalog::default();
+    let mut catalog = crate::engine::skill::effect::catalog::global().clone();
     let slot = |opcode, amount| {
         let mut slot = SkillEffectSlot::new(
             ParsedBehavior::from_spec(
@@ -840,6 +854,24 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         slots: vec![slot(103, 3)],
     });
     let mut managers = BattleManagers::seeded(&fight);
+    let gauge_origin = CommandOrigin {
+        domain: RuleDomain::Lifecycle,
+        key: DefinitionKey::new(0, "TestLingeringGlow"),
+    };
+    managers
+        .execute_gauge(crate::engine::manager::gauge::GaugeCommand::new(
+            gauge_origin,
+            crate::engine::mechanic::lingering_glow::key(1),
+            crate::engine::manager::gauge::GaugeOperation::Enable { max: Some(750) },
+        ))
+        .unwrap();
+    managers
+        .execute_gauge(crate::engine::manager::gauge::GaugeCommand::new(
+            gauge_origin,
+            crate::engine::mechanic::lingering_glow::key(1),
+            crate::engine::manager::gauge::GaugeOperation::ChangeValue { delta: 45 },
+        ))
+        .unwrap();
     managers
         .execute_hp(crate::engine::manager::hp::HpCommand::Kill(
             crate::engine::manager::hp::HpKill {
@@ -962,6 +994,26 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         &round.frames[settlement],
         |change| matches!(change, BattleChange::Card(_))
     ));
+    assert!(matches!(
+        round.frames[settlement].items.iter().find_map(|item| match item {
+            FrameItem::Child(child) if matches!(child.owner, FrameOwner::SetupMechanic) => {
+                Some(child)
+            }
+            FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
+        }),
+        Some(frame)
+            if contains_change(frame, |change| matches!(
+                change,
+                BattleChange::Buff(result)
+                    if result.change.added.iter().any(|added| added.buff.buff_id == Some(31340007))
+            ))
+    ));
+    assert!(
+        round
+            .frames
+            .iter()
+            .all(|frame| !matches!(frame.owner, FrameOwner::SetupMechanic))
+    );
     assert!(contains_change(
         &round.frames[settlement],
         |change| matches!(

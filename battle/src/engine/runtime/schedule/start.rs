@@ -326,6 +326,20 @@ pub fn run_round_start_after_ai_split(
         );
     }
     append_round_phase(&mut settlement, event_setup);
+    if version_seven {
+        append_round_phase(
+            &mut settlement,
+            drain::run_buff_act_setup_schedule_for_owners_in_round_phase(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                ROUND_START_SETTLEMENT_SETUP,
+                &setup_owner_uids,
+            )?,
+        );
+    }
     if !version_seven {
         append_round_phase(
             &mut settlement,
@@ -367,7 +381,7 @@ pub fn run_round_start_after_ai_split(
         &setup_owner_uids,
     )?;
     let deferred_settlement_setup = if version_seven {
-        drain::run_setup_schedule(
+        drain::run_skill_setup_schedule(
             managers,
             pool,
             catalog,

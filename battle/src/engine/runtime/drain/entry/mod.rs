@@ -14,7 +14,7 @@ pub use setup::*;
 
 #[cfg(test)]
 use setup::context_for_setup_stage;
-use setup::{SetupFrameContainer, run_setup_stage_filtered};
+use setup::{SetupDispatch, SetupFrameContainer, run_setup_stage_filtered};
 
 #[cfg(test)]
 #[path = "tests.rs"]

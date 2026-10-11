@@ -7,6 +7,23 @@ pub(super) enum SetupFrameContainer {
     OpeningRoundPhase,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SetupDispatch {
+    All,
+    Skills,
+    BuffActs,
+}
+
+impl SetupDispatch {
+    const fn includes_skills(self) -> bool {
+        matches!(self, Self::All | Self::Skills)
+    }
+
+    const fn includes_buff_acts(self) -> bool {
+        matches!(self, Self::All | Self::BuffActs)
+    }
+}
+
 impl SetupFrameContainer {
     pub(super) fn owns_entity_scope(
         self,
@@ -49,6 +66,7 @@ pub fn run_setup_stage(
         |_| Vec::new(),
         None,
         false,
+        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
@@ -76,6 +94,7 @@ pub fn run_setup_stage_for_owners(
         |_| Vec::new(),
         Some(owner_uids),
         false,
+        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
@@ -103,6 +122,7 @@ pub fn run_opening_setup_stage_for_owners(
         |_| Vec::new(),
         Some(player_owner_uids),
         true,
+        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
@@ -120,6 +140,7 @@ pub(super) fn run_setup_stage_filtered(
     postlude: impl FnOnce(&BattleManagers) -> Vec<(SetupSide, RuleOp)>,
     owner_uids: Option<&[i64]>,
     include_both_sides_opening: bool,
+    dispatch: SetupDispatch,
     frame_container: SetupFrameContainer,
 ) -> Result<DrainResult, DrainError> {
     let context = context_for_setup_stage(context, stage);
@@ -160,8 +181,12 @@ pub(super) fn run_setup_stage_filtered(
     )?;
 
     let current_pool = pool.runtime_view(managers);
-    let subscribers =
+    let subscribers = if dispatch.includes_skills() {
         dispatcher::dispatch_compiled_setup(&current_pool, managers, catalog, stage, priority)?
+    } else {
+        Vec::new()
+    };
+    let subscribers = subscribers
             .into_iter()
             .filter(|(subscriber, _)| {
                 owner_uids.is_none_or(|uids| uids.contains(&subscriber.owner_uid))
@@ -287,7 +312,12 @@ pub(super) fn run_setup_stage_filtered(
     result.events.extend(stage_result.events);
     let mut frames = stage_result.frames;
     let mut queue = VecDeque::new();
-    let setup_subscribers = dispatcher::dispatch_buff_act_setup(managers, catalog, stage, priority)
+    let setup_subscribers = if dispatch.includes_buff_acts() {
+        dispatcher::dispatch_buff_act_setup(managers, catalog, stage, priority)
+    } else {
+        Vec::new()
+    };
+    let setup_subscribers = setup_subscribers
         .into_iter()
         .filter(|(subscriber, _)| {
             owner_uids.is_none_or(|uids| uids.contains(&subscriber.feature.owner_uid))

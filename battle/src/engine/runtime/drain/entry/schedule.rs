@@ -176,6 +176,51 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_skill_setup_schedule(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_dispatch(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        None,
+        SetupFrameContainer::Standalone,
+        SetupDispatch::Skills,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_buff_act_setup_schedule_for_owners_in_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_dispatch(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        Some(owner_uids),
+        SetupFrameContainer::RoundPhase,
+        SetupDispatch::BuffActs,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_setup_schedule_with_container(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -185,6 +230,31 @@ fn run_setup_schedule_with_container(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
     frame_container: SetupFrameContainer,
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_dispatch(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        owner_uids,
+        frame_container,
+        SetupDispatch::All,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_setup_schedule_with_dispatch(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+    frame_container: SetupFrameContainer,
+    dispatch: SetupDispatch,
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     for &(stage, priority) in schedule {
@@ -200,6 +270,7 @@ fn run_setup_schedule_with_container(
             |_| Vec::new(),
             owner_uids,
             false,
+            dispatch,
             frame_container,
         )?;
         result.outcomes.extend(stage_result.outcomes);
