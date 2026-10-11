@@ -496,8 +496,19 @@ pub fn is_mapped_target_code(code: i32) -> bool {
     target_rule(code).is_some()
 }
 
-pub(crate) fn preserves_selected_frame_target(code: i32) -> bool {
+pub(crate) fn preserves_selected_frame_target(
+    code: i32,
+    source_uid: i64,
+    selected_uid: i64,
+    pool: &TargetPool,
+    context: TargetContext,
+) -> bool {
     target_rule(code) == Some(TargetRule::AlliesPreservingSelection)
+        || target_rule(code) == Some(TargetRule::SelectedTarget)
+            && context.active_skill_is_attack
+            && pool
+                .team_type(source_uid)
+                .is_some_and(|source_team| pool.team_type(selected_uid) == Some(source_team))
 }
 
 pub fn targets_enemy(code: i32) -> Option<bool> {
@@ -705,7 +716,13 @@ fn event_source(context: TargetContext) -> Vec<i64> {
 
 fn selected_target(pool: &TargetPool, source_uid: i64, context: TargetContext) -> Vec<i64> {
     let selected = runtime_target(context);
-    if !selected.is_empty() || !context.active_skill_is_attack {
+    if !context.active_skill_is_attack
+        || selected.first().is_some_and(|selected_uid| {
+            pool.enemies(source_uid, false)
+                .iter()
+                .any(|enemy| enemy.uid == *selected_uid)
+        })
+    {
         return selected;
     }
     pool.enemies(source_uid, false)

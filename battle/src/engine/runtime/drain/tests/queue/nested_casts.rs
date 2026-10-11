@@ -159,7 +159,7 @@ fn shell_necklace_cast_follows_the_attack_inside_its_own_step() {
         skill_id: 31090111,
     }
     .into();
-    invocation.target = SkillTarget::Explicit(-1);
+    invocation.target = SkillTarget::Explicit(11);
     invocation.mode = SkillExecutionMode::Active;
 
     let result = run_action(
@@ -178,6 +178,10 @@ fn shell_necklace_cast_follows_the_attack_inside_its_own_step() {
         .into_iter()
         .find(|step| step.act_id == Some(31090111))
         .expect("the attack projects a step");
+    assert_eq!(attack.to_id, Some(11));
+    assert!(managers.hp.current(-1) < 100_000);
+    assert!(managers.buff.buff_id_amount(-1, 31090112) > 0);
+    assert_eq!(managers.buff.buff_id_amount(11, 31090112), 0);
     let children = attack
         .act_effect
         .iter()

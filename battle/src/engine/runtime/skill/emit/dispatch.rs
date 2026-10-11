@@ -1153,7 +1153,11 @@ pub(in crate::engine::runtime) fn emit_ops(
                         skill_id: invocation.plan.skill_id,
                         target_uid: match invocation.target {
                             SkillTarget::Explicit(selected)
-                                if !execution.configured_target_replaces(invocation.target) =>
+                                if !execution.configured_target_replaces(
+                                    invocation.target,
+                                    invocation.plan.source_uid,
+                                    pool,
+                                ) =>
                             {
                                 selected
                             }

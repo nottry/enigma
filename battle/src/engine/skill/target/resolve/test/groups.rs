@@ -32,8 +32,27 @@ fn other_allies_anchor_their_shared_skill_frame_to_the_caster() {
 
 #[test]
 fn all_allies_target_preserves_the_selected_skill_frame_target() {
-    assert!(preserves_selected_frame_target(130));
-    assert!(!preserves_selected_frame_target(101));
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity_at(10, 1), entity_at(11, 2)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity_at(-1, 1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let attack = TargetContext {
+        active_skill_is_attack: true,
+        ..Default::default()
+    };
+
+    assert!(preserves_selected_frame_target(130, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(1, 10, 11, &pool, attack));
+    assert!(!preserves_selected_frame_target(1, 10, -1, &pool, attack));
+    assert!(!preserves_selected_frame_target(101, 10, -1, &pool, attack));
 }
 
 #[test]

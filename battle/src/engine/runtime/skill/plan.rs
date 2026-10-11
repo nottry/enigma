@@ -46,15 +46,35 @@ pub(in crate::engine::runtime) struct SkillExecution {
 }
 
 impl SkillExecution {
+    pub(in crate::engine::runtime) fn preserves_selected_frame_target(
+        &self,
+        target: SkillTarget,
+        source_uid: i64,
+        pool: &TargetPool,
+    ) -> bool {
+        let SkillTarget::Explicit(selected) = target else {
+            return false;
+        };
+        preserves_selected_frame_target(
+            self.context.logic_target,
+            source_uid,
+            selected,
+            pool,
+            self.context,
+        )
+    }
+
     pub(in crate::engine::runtime) fn configured_target_replaces(
         &self,
         target: SkillTarget,
+        source_uid: i64,
+        pool: &TargetPool,
     ) -> bool {
         let SkillTarget::Explicit(selected) = target else {
             return false;
         };
         if self.context.logic_target == SOURCE_TARGET_CODE
-            || preserves_selected_frame_target(self.context.logic_target)
+            || self.preserves_selected_frame_target(target, source_uid, pool)
         {
             return false;
         }

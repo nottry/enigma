@@ -129,7 +129,7 @@ fn configured_target_rule_owns_slots_that_use_logic_target() {
     .unwrap();
     assert_eq!(emission.target_uid, Some(11));
     assert_eq!(execution.affected_targets, [11]);
-    assert!(execution.configured_target_replaces(invocation.target));
+    assert!(execution.configured_target_replaces(invocation.target, 10, &pool));
 
     catalog.insert_logic_target(
         100,
@@ -147,7 +147,7 @@ fn configured_target_rule_owns_slots_that_use_logic_target() {
     )
     .unwrap();
     assert_eq!(emission.target_uid, Some(-1));
-    assert!(!execution.configured_target_replaces(invocation.target));
+    assert!(!execution.configured_target_replaces(invocation.target, 10, &pool));
 
     catalog.insert_logic_target(100, 112);
 
