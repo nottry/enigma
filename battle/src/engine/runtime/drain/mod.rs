@@ -794,8 +794,7 @@ fn drain_queue_with_deferred(
                     let op = attach_buff_grant_relation(op, consequence);
                     match op {
                         RuleOp::Skill(child) => {
-                            let after_current_action = child.start
-                                == crate::engine::skill::action::SkillStart::AfterCurrentAction;
+                            let after_current_action = child.start.waits_for_current_action();
                             let mut queued = QueuedOp {
                                 op: RuleOp::Skill(child),
                                 trigger: SkillOpTrigger::Active,
@@ -1548,20 +1547,28 @@ fn drain_queue_with_deferred(
                         )
                     }),
                 );
-                let (after_action, mut held_casts, claimed_casts) = if completes_action {
+                let (after_action, held_casts, claimed_casts) = if completes_action {
                     let casts = state.take_after_action_casts(&frame_path);
                     let claimed = state.take_claimed_reaction_casts(&frame_path);
                     (state.take_after_action(&frame_path), casts, claimed)
                 } else {
                     (Vec::new(), Vec::new(), Vec::new())
                 };
-                let action_reactions = if held_casts.is_empty() {
+                let (mut reaction_casts, held_casts): (Vec<_>, Vec<_>) =
+                    held_casts.into_iter().partition(|(_, queued)| {
+                        matches!(
+                            &queued.op,
+                            RuleOp::Skill(invocation)
+                                if invocation.start.follows_action_reaction()
+                        )
+                    });
+                let action_reactions = if reaction_casts.is_empty() {
                     Vec::new()
                 } else {
                     ally_action_reaction_groups(&after_publish)
                 };
                 if !action_reactions.is_empty() {
-                    let link = DrainState::reaction_cast_link(std::mem::take(&mut held_casts));
+                    let link = DrainState::reaction_cast_link(std::mem::take(&mut reaction_casts));
                     for group in &action_reactions {
                         state.defer_action_reaction_link(group, &link);
                     }
@@ -1574,9 +1581,9 @@ fn drain_queue_with_deferred(
                         &mut result,
                         state,
                     )?;
-                    held_casts = DrainState::take_unclaimed_reaction_casts(&link);
+                    reaction_casts = DrainState::take_unclaimed_reaction_casts(&link);
                 }
-                if !held_casts.is_empty()
+                if !reaction_casts.is_empty()
                     && let Some(group) = after_action
                         .iter()
                         .rev()
@@ -1587,16 +1594,16 @@ fn drain_queue_with_deferred(
                                 .flatten()
                         })
                 {
-                    state.defer_after_reaction_casts(&group, std::mem::take(&mut held_casts));
+                    state.defer_after_reaction_casts(&group, std::mem::take(&mut reaction_casts));
                 }
-                let held_casts =
-                    held_casts
-                        .into_iter()
-                        .chain(claimed_casts)
-                        .map(|(caster, mut queued)| {
-                            queued.caster_frame = caster;
-                            queued
-                        });
+                let held_casts = held_casts
+                    .into_iter()
+                    .chain(reaction_casts)
+                    .chain(claimed_casts)
+                    .map(|(caster, mut queued)| {
+                        queued.caster_frame = caster;
+                        queued
+                    });
 
                 // Manager-produced follow-ups re-enter the same queue. Skills marked
                 // AfterCurrentAction are retained until that action closes.
@@ -1604,9 +1611,7 @@ fn drain_queue_with_deferred(
                 for op in followups {
                     let after_current_action = matches!(
                         &op,
-                        RuleOp::Skill(invocation)
-                            if invocation.start
-                                == crate::engine::skill::action::SkillStart::AfterCurrentAction
+                        RuleOp::Skill(invocation) if invocation.start.waits_for_current_action()
                     );
                     let skill_path = after_current_action
                         .then(|| active_skill_scope_path(&result.frames, &frame_path))

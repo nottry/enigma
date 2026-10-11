@@ -327,7 +327,7 @@ fn accumulate_and_use_skill(
                 .into();
             invocation.target = crate::engine::skill::action::SkillTarget::Explicit(target_uid);
             // Unmendable Cracks follows the triggering action's ally-action reactions.
-            invocation.start = crate::engine::skill::action::SkillStart::AfterCurrentAction;
+            invocation.start = crate::engine::skill::action::SkillStart::AfterCurrentActionReaction;
             invocation.release_progress = Some(rule);
             invocation
         })

@@ -1295,6 +1295,50 @@ fn a_passive_cast_during_an_action_follows_it_inside_one_passive_step() {
 }
 
 #[test]
+fn a_direct_cast_stays_with_its_action_when_an_ally_reaction_starts_an_action() {
+    let result = attack_with_passives(
+        vec![400],
+        vec![500],
+        vec![
+            direct_use_passive(400, 402, 103, 401),
+            ParsedSkillEffect {
+                skill_id: 401,
+                slots: Vec::new(),
+            },
+            direct_use_passive(500, 212, 101, 501),
+            ParsedSkillEffect {
+                skill_id: 501,
+                slots: Vec::new(),
+            },
+        ],
+        None,
+    );
+
+    let attack = crate::engine::packet::timeline::project(&result.frames)
+        .unwrap()
+        .into_iter()
+        .find(|step| step.act_id == Some(31090111))
+        .expect("the attack projects a step");
+    let children = attack
+        .act_effect
+        .iter()
+        .filter_map(|effect| effect.fight_step.as_ref())
+        .collect::<Vec<_>>();
+
+    assert!(children.iter().any(|step| step.act_id == Some(500)));
+    let direct = children
+        .iter()
+        .find(|step| step.act_id == Some(400))
+        .expect("the direct cast stays under its passive");
+    assert!(direct.act_effect.iter().any(|effect| {
+        effect
+            .fight_step
+            .as_ref()
+            .is_some_and(|step| step.act_id == Some(401))
+    }));
+}
+
+#[test]
 fn a_passive_cast_as_a_cast_follow_up_attack_starts_follows_it() {
     assert_passive_cast_follows_the_attack(
         201,

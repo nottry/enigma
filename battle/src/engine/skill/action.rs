@@ -52,7 +52,20 @@ pub(crate) fn performs_extra_action(
 pub enum SkillStart {
     #[default]
     Immediate,
+    /// Runs after the current action and its reactions as a child of that action.
     AfterCurrentAction,
+    /// Follows an action-producing reaction before falling back to the current action.
+    AfterCurrentActionReaction,
+}
+
+impl SkillStart {
+    pub(crate) fn waits_for_current_action(self) -> bool {
+        self != Self::Immediate
+    }
+
+    pub(crate) fn follows_action_reaction(self) -> bool {
+        self == Self::AfterCurrentActionReaction
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
