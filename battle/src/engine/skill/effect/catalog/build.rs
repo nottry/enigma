@@ -420,6 +420,14 @@ impl SkillEffectCatalog {
                         arguments = ?slot.behavior.args,
                         "unsupported behavior arguments in current battle"
                     );
+                } else if !crate::engine::skill::behavior::is_slot_supported(slot) {
+                    tracing::warn!(
+                        skill_effect_id = effect.skill_id,
+                        slot = slot_number,
+                        behavior_opcode = slot.behavior.spec.key.opcode,
+                        behavior_type = %slot.behavior.spec.key.type_name,
+                        "unsupported behavior route in current battle"
+                    );
                 } else if !crate::engine::skill::behavior::has_destination(&slot.behavior) {
                     tracing::warn!(
                         skill_effect_id = effect.skill_id,

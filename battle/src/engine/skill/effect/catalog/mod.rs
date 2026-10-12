@@ -211,6 +211,15 @@ impl SkillEffectCatalog {
         })
     }
 
+    pub fn is_interval(&self, skill_id: i32) -> bool {
+        self.get(skill_id).is_some_and(|effect| {
+            effect
+                .slots
+                .iter()
+                .any(|slot| slot.behavior.spec.kind == BehaviorKind::StopConduitSkill)
+        })
+    }
+
     pub(crate) fn assassination_stack_grants(
         &self,
         field_buff_id: i32,

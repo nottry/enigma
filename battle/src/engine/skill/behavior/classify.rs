@@ -77,6 +77,7 @@ pub enum BehaviorKind {
     ContractEndClearBuff,
     SetConduitSkillGroup,
     StopConduitSkill,
+    ConsumeBuffResetDevice,
     RaspberryAddCount,
     RaspberryBigSkill,
     SkillRateUp,

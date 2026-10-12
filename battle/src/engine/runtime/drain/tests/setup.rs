@@ -94,6 +94,38 @@ fn compiled_setup_schedule_owns_stage_order() {
 }
 
 #[test]
+fn event_required_behavior_does_not_run_from_its_configured_setup_route() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                passive_skill: vec![115380001],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_skill_setup_schedule(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[(SetupStage::RoundStart, 1)],
+    )
+    .unwrap();
+
+    assert!(result.outcomes.is_empty());
+}
+
+#[test]
 fn exact_setup_routes_share_their_skill_activation_frame() {
     crate::test_support::init_config();
     let fight = Fight {

@@ -47,6 +47,15 @@ fn fight_catalog_excludes_unrelated_heroes() {
 }
 
 #[test]
+fn interval_skills_are_identified_by_their_stop_behavior() {
+    init_config();
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31450111, 31450121], []);
+
+    assert!(catalog.is_interval(31450111));
+    assert!(!catalog.is_interval(31450121));
+}
+
+#[test]
 fn fight_catalog_includes_assist_boss_active_skills() {
     init_config();
     let fight = Fight {
@@ -381,6 +390,23 @@ fn deck_top_rank_behavior_keeps_exact_config_identity() {
         crate::engine::skill::behavior::registry::find_key(60116, "CardDeckTopRankCorrect")
             .is_some()
     );
+}
+
+#[test]
+fn consume_buff_reset_device_requires_an_ally_action_route() {
+    init_config();
+    let catalog = SkillEffectCatalog::from_game_db(config::configs::get());
+
+    let everecho = &catalog.get(31450141).unwrap().slots[2];
+    let event_free = &catalog.get(115380001).unwrap().slots[0];
+
+    assert!(crate::engine::skill::behavior::is_slot_supported(everecho));
+    assert!(crate::engine::skill::behavior::is_supported(
+        &event_free.behavior
+    ));
+    assert!(!crate::engine::skill::behavior::is_slot_supported(
+        event_free
+    ));
 }
 
 #[test]

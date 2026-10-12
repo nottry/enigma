@@ -84,6 +84,10 @@ pub(super) fn supports_conduit_counter(behavior: &ParsedBehavior) -> bool {
     )
 }
 
+pub(super) fn supports_consume_buff_reset_device(behavior: &ParsedBehavior) -> bool {
+    matches!(behavior.args.as_slice(), [buff_id, amount] if *buff_id > 0 && *amount > 0)
+}
+
 pub(super) fn supports_buff_owned_charge(behavior: &ParsedBehavior) -> bool {
     matches!(behavior.args.as_slice(), [delta] if *delta > 0)
 }
@@ -218,6 +222,7 @@ impl BehaviorHandler for Handler {
                 buffs.extend(parsed.rewards.into_iter().map(|(buff_id, _)| buff_id));
                 buffs
             }
+            BehaviorKind::ConsumeBuffResetDevice => behavior.arg(0).into_iter().collect(),
             _ => Vec::new(),
         };
 
@@ -615,6 +620,42 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
                 },
             ))]
         }),
+        BehaviorKind::ConsumeBuffResetDevice => {
+            let [buff_id, amount] = behavior.args.as_slice() else {
+                return None;
+            };
+            let Some(crate::engine::event::payload::BattleEvent::AllyAction(action)) =
+                context.event
+            else {
+                return None;
+            };
+            if action.source_uid != context.target_uid
+                || action.mode != SkillExecutionMode::Device
+                || !action.is_interval
+            {
+                return Some(Vec::new());
+            }
+            if context
+                .managers
+                .buff
+                .buff_id_amount(context.target_uid, *buff_id)
+                < *amount
+            {
+                return Some(Vec::new());
+            }
+            Some(vec![
+                RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
+                    origin,
+                    target_uid: context.target_uid,
+                    selector: BuffSelector::IdOrType(*buff_id),
+                    amount: *amount,
+                    depleted: DepletedBuff::Remove,
+                }))),
+                RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
+                    source_uid: context.target_uid,
+                })),
+            ])
+        }
         BehaviorKind::RaspberryAddCount => {
             let [attr_id, rate, _mode] = behavior.args.as_slice() else {
                 return None;

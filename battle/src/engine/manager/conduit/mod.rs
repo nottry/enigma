@@ -168,6 +168,7 @@ pub enum ConduitChange {
         power_id: i32,
         activation_cost: i32,
         spent: i32,
+        generic_spent: i32,
     },
     SkillCostCommitted {
         source_uid: i64,
@@ -394,8 +395,15 @@ impl ConduitManager {
         self.skill(source_uid, skill_id)
             .is_some_and(|(team, skill)| {
                 let cost = skill.cost_after_reduction(cost_reduction);
-                !skill.is_stopped
-                    && (skill.cost_type == 999 || self.power(team, skill.cost_type) >= cost)
+                let generic_available = if skill.cost_type > 0 && skill.cost_type != 999 {
+                    self.power(team, 0)
+                } else {
+                    0
+                };
+                let available = self
+                    .power(team, skill.cost_type)
+                    .saturating_add(generic_available);
+                !skill.is_stopped && (skill.cost_type == 999 || available >= cost)
             })
     }
 

@@ -361,6 +361,110 @@ fn interval_conduit_skill_stops_the_exact_active_skill() {
 }
 
 #[test]
+fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3145),
+                team_type: Some(1),
+                current_hp: Some(1),
+                buffs: vec![sonettobuf::BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(31450142),
+                    from_uid: Some(10),
+                    layer: Some(4),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = crate::engine::skill::target::TargetPool::from_fight(&fight);
+    let mut determinism = crate::engine::runtime::determinism::RoundDeterminism::default();
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+    let mut target = crate::engine::skill::target::TargetContext::default();
+    let behavior = ParsedBehavior::new(60308, "ConsumeBuffResetDevice", vec![31450142, 4]);
+    let other_device = crate::engine::event::payload::BattleEvent::AllyAction(
+        crate::engine::skill::action::ActionEvent {
+            source_uid: 11,
+            mode: SkillExecutionMode::Device,
+            is_interval: true,
+            ..Default::default()
+        },
+    );
+    let owner_active = crate::engine::event::payload::BattleEvent::AllyAction(
+        crate::engine::skill::action::ActionEvent {
+            source_uid: 10,
+            mode: SkillExecutionMode::Active,
+            is_interval: true,
+            ..Default::default()
+        },
+    );
+    let owner_non_interval = crate::engine::event::payload::BattleEvent::AllyAction(
+        crate::engine::skill::action::ActionEvent {
+            source_uid: 10,
+            mode: SkillExecutionMode::Device,
+            ..Default::default()
+        },
+    );
+    let owner_interval = crate::engine::event::payload::BattleEvent::AllyAction(
+        crate::engine::skill::action::ActionEvent {
+            source_uid: 10,
+            mode: SkillExecutionMode::Device,
+            is_interval: true,
+            ..Default::default()
+        },
+    );
+    let mut ops_for = |event| {
+        rule_ops(
+            BehaviorOpContext {
+                source_uid: 10,
+                source_team: 1,
+                target_uid: 10,
+                active_skill_id: 31450141,
+                transfer_count: 1,
+                event,
+                managers: &managers,
+                pool: &pool,
+                determinism: &mut determinism,
+                modifiers: &mut modifiers,
+                target: &mut target,
+            },
+            &behavior,
+        )
+    };
+
+    assert!(ops_for(Some(&other_device)).unwrap().is_empty());
+    assert!(ops_for(Some(&owner_active)).unwrap().is_empty());
+    assert!(ops_for(Some(&owner_non_interval)).unwrap().is_empty());
+    let ops = ops_for(Some(&owner_interval)).unwrap();
+
+    assert!(matches!(
+        ops.as_slice(),
+        [
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
+                target_uid: 10,
+                selector: BuffSelector::IdOrType(31450142),
+                amount: 4,
+                ..
+            }))),
+            RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
+                source_uid: 10,
+            })),
+        ]
+    ));
+    assert!(
+        ops_for(None).is_none(),
+        "event-free variants remain unsupported"
+    );
+}
+
+#[test]
 fn absorb_ex_point_emits_loss_then_actual_gain() {
     let fight = Fight {
         attacker: Some(FightTeam {

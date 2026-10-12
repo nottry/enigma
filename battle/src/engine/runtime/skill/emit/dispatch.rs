@@ -379,6 +379,17 @@ pub(in crate::engine::runtime) fn emit_ops(
                 type_name: slot.behavior.spec.key.type_name.clone(),
             }
         })?;
+        if let Some(required_event) = definition.required_event {
+            let SkillOpTrigger::Event(event) = trigger else {
+                continue;
+            };
+            if !event
+                .subscription_kinds()
+                .any(|published| published == required_event)
+            {
+                continue;
+            }
+        }
         if let Some(phase) = active_phase {
             let routed_phases =
                 slot.active_phases()
@@ -1176,6 +1187,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                         additional_moxie: invocation.additional_moxie,
                         extra_skill_kind: execution.context.extra_skill_kind,
                         mode: invocation.mode,
+                        is_interval: catalog.is_interval(invocation.plan.skill_id),
                         assassinate: execution.context.active_skill_assassinate,
                         damage_amount: execution.context.action_damage_amount,
                         kill_count: execution.context.action_kill_count,

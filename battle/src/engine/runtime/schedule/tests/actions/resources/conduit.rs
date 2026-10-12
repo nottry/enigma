@@ -604,6 +604,261 @@ fn conduit_repeats_a_paid_skill_until_its_energy_is_spent() {
 }
 
 #[test]
+fn conduit_devices_share_power_in_team_turns() {
+    init_config();
+    let entity = |uid, model_id| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(100),
+            ..Default::default()
+        }),
+        ex_skill_level: Some(2),
+        destiny_stone: Some(302502),
+        destiny_rank: Some(4),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 3025), entity(11, 3025)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1001)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::ChangePower(
+                crate::engine::manager::conduit::ConduitPowerChange {
+                    origin: CommandOrigin {
+                        domain: RuleDomain::Behavior,
+                        key: DefinitionKey::new(60291, "AddDevicePower"),
+                    },
+                    source_uid: 10,
+                    team: 1,
+                    power_id: 2,
+                    delta: 4,
+                    kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
+                },
+            ),
+        )
+        .unwrap();
+    let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_conduit_phase(
+        managers.catalog(),
+        &fight,
+        &mut managers,
+        &pool,
+        &mut catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[
+            sonettobuf::FightDeviceOper {
+                uid: Some(10),
+                index: Some(1),
+            },
+            sonettobuf::FightDeviceOper {
+                uid: Some(11),
+                index: Some(1),
+            },
+        ],
+    )
+    .unwrap();
+
+    let sources = result
+        .frames
+        .iter()
+        .filter_map(|frame| match frame.owner {
+            crate::engine::runtime::record::FrameOwner::ConduitAction { source_uid, .. } => {
+                Some(source_uid)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(sources, [10, 11, 10, 11]);
+    assert_eq!(managers.conduit.uses(10), 2);
+    assert_eq!(managers.conduit.uses(11), 2);
+}
+
+#[test]
+fn a_later_device_can_enable_an_earlier_device_on_the_next_team_pass() {
+    init_config();
+    let entity = |uid, model_id| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 3149), entity(11, 3149)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1001)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let origin = CommandOrigin {
+        domain: RuleDomain::Behavior,
+        key: DefinitionKey::new(60294, "StopDeviceSkill"),
+    };
+    for (source_uid, skill_id) in [(10, 31490111), (11, 31490121)] {
+        managers
+            .conduit
+            .execute(crate::engine::manager::conduit::ConduitCommand::StopSkill {
+                origin,
+                source_uid,
+                team: 1,
+                skill_id,
+            })
+            .unwrap();
+    }
+    let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_conduit_phase(
+        managers.catalog(),
+        &fight,
+        &mut managers,
+        &pool,
+        &mut catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[
+            sonettobuf::FightDeviceOper {
+                uid: Some(10),
+                index: Some(1),
+            },
+            sonettobuf::FightDeviceOper {
+                uid: Some(11),
+                index: Some(1),
+            },
+        ],
+    )
+    .unwrap();
+
+    let sources = result
+        .frames
+        .iter()
+        .filter_map(|frame| match frame.owner {
+            crate::engine::runtime::record::FrameOwner::ConduitAction { source_uid, .. } => {
+                Some(source_uid)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(sources, [11, 10]);
+    assert_eq!(managers.conduit.uses(10), 1);
+    assert_eq!(managers.conduit.uses(11), 1);
+}
+
+#[test]
+fn everecho_interval_consumes_mend_and_restarts_only_its_device() {
+    init_config();
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(3145),
+        team_type: Some(1),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(100),
+            ..Default::default()
+        }),
+        passive_skill: vec![31450141],
+        buffs: vec![BuffInfo {
+            uid: Some(uid + 100),
+            buff_id: Some(31450142),
+            from_uid: Some(uid),
+            layer: Some(4),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    for (skill_id, expected_amount, expected_restarts) in
+        [(31450111, 0, vec![10]), (31450121, 4, Vec::new())]
+    {
+        let fight = Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![entity(10), entity(11)],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(-1),
+                    model_id: Some(1001),
+                    current_hp: Some(100_000),
+                    attr: Some(HeroAttribute {
+                        hp: Some(100_000),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pool = TargetPool::from_fight(&fight);
+        let mut managers = BattleManagers::seeded(&fight);
+        let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+        let mut invocation = crate::engine::skill::action::SkillInvocation::from(
+            crate::engine::skill::action::SkillRequest {
+                source_uid: 10,
+                skill_id,
+            },
+        );
+        invocation.mode = SkillExecutionMode::Device;
+        invocation.target = crate::engine::skill::action::SkillTarget::Explicit(-1);
+
+        let result = crate::engine::runtime::drain::run_action(
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext::default(),
+            [],
+            invocation,
+        )
+        .unwrap();
+
+        assert_eq!(managers.buff.buff_id_amount(10, 31450142), expected_amount);
+        assert_eq!(managers.buff.buff_id_amount(11, 31450142), 4);
+        let restarts = result
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                RuleOutcome::Conduit(
+                    crate::engine::manager::conduit::ConduitChange::DeviceRestarted {
+                        source_uid,
+                        ..
+                    },
+                ) => Some(*source_uid),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(restarts, expected_restarts);
+    }
+}
+
+#[test]
 fn conduit_does_not_start_another_device_after_battle_ends() {
     init_config();
     let entity = |uid, model_id, hp| FightEntityInfo {

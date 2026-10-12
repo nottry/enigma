@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 
 /// Allocates configured card energy before the owning action phase begins.
 pub fn run_card_energy_allocation(
@@ -70,25 +71,33 @@ pub fn run_conduit_phase(
     operations: &[sonettobuf::FightDeviceOper],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
-    for operation in operations {
-        if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-            break;
-        }
-        let (Some(source_uid), Some(group)) = (operation.uid, operation.index) else {
-            continue;
-        };
-        let skills = managers
-            .conduit
-            .selected_skills(source_uid)
-            .map_err(|error| DrainError::Command(error.into()))?;
-        battle_catalog.extend_skill_roots(
-            catalog,
-            skills.iter().map(|skill| skill.skill_id),
-            std::iter::empty(),
-        );
-        let mut ran = false;
-        'skills: for (position, skill) in skills.into_iter().enumerate() {
-            loop {
+    let devices = operations
+        .iter()
+        .filter_map(|operation| Some((operation.uid?, operation.index?)))
+        .collect::<Vec<_>>();
+    let mut used_free_skills = HashSet::new();
+    let mut ran_devices = HashSet::new();
+    loop {
+        let mut pass_ran = false;
+        for &(source_uid, group) in &devices {
+            if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+                break;
+            }
+            let skills = managers
+                .conduit
+                .selected_skills(source_uid)
+                .map_err(|error| DrainError::Command(error.into()))?;
+            battle_catalog.extend_skill_roots(
+                catalog,
+                skills.iter().map(|skill| skill.skill_id),
+                std::iter::empty(),
+            );
+            let mut ran = false;
+            for (position, skill) in skills.into_iter().enumerate() {
+                if skill.cost_value <= 0 && used_free_skills.contains(&(source_uid, skill.skill_id))
+                {
+                    continue;
+                }
                 let cost_modifier = crate::engine::skill::buff_act::device_cost_reduce::modifier(
                     managers,
                     source_uid,
@@ -102,7 +111,7 @@ pub fn run_conduit_phase(
                     .conduit
                     .can_begin_skill(source_uid, skill.skill_id, cost_reduction)
                 {
-                    break;
+                    continue;
                 }
                 let invocation: crate::engine::skill::action::SkillInvocation =
                     crate::engine::skill::action::SkillRequest {
@@ -119,7 +128,7 @@ pub fn run_conduit_phase(
                     determinism,
                     context,
                 ) {
-                    break;
+                    continue;
                 }
                 let frame_target_uid = (catalog.logic_target(skill.skill_id)
                     == crate::engine::skill::target::request::SOURCE_TARGET_CODE)
@@ -130,32 +139,56 @@ pub fn run_conduit_phase(
                             .map(|entity| entity.uid)
                     })
                     .flatten();
-                append(
-                    &mut result,
-                    drain::run_conduit_action(
-                        managers,
-                        pool,
-                        catalog,
-                        determinism,
-                        context,
-                        source_uid,
-                        group,
-                        position as i32 + 1,
-                        skill.skill_id,
-                        frame_target_uid,
-                        cost_modifier,
-                    )?,
-                );
+                let action = drain::run_conduit_action(
+                    managers,
+                    pool,
+                    catalog,
+                    determinism,
+                    context,
+                    source_uid,
+                    group,
+                    position as i32 + 1,
+                    skill.skill_id,
+                    frame_target_uid,
+                    cost_modifier,
+                )?;
+                let restarted_devices = action
+                    .outcomes
+                    .iter()
+                    .filter_map(|outcome| match outcome {
+                        RuleOutcome::Conduit(
+                            crate::engine::manager::conduit::ConduitChange::DeviceRestarted {
+                                source_uid,
+                                ..
+                            },
+                        ) => Some(*source_uid),
+                        _ => None,
+                    })
+                    .collect::<HashSet<_>>();
+                used_free_skills.retain(|(uid, _)| !restarted_devices.contains(uid));
+                append(&mut result, action);
                 ran = true;
-                if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-                    break 'skills;
+                if skill.cost_value <= 0 && !restarted_devices.contains(&source_uid) {
+                    used_free_skills.insert((source_uid, skill.skill_id));
                 }
-                if skill.cost_value <= 0 {
+                if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
                     break;
                 }
             }
+            if ran {
+                pass_ran = true;
+                ran_devices.insert((source_uid, group));
+            }
         }
-        if ran {
+        if !pass_ran || crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+            break;
+        }
+    }
+    if !crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+        for (source_uid, group) in devices {
+            if !ran_devices.contains(&(source_uid, group)) {
+                continue;
+            }
             append(
                 &mut result,
                 drain::run_conduit_stop(

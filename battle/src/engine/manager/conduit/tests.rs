@@ -236,6 +236,53 @@ fn device_skill_spends_its_configured_power_and_updates_round_counters() {
 }
 
 #[test]
+fn device_skill_uses_generic_power_for_the_typed_shortfall() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = ConduitManager::seed(&fight);
+    for (power_id, delta) in [(1, 2), (0, 1)] {
+        manager
+            .execute(ConduitCommand::ChangePower(ConduitPowerChange {
+                origin: ORIGIN,
+                source_uid: 10,
+                team: 1,
+                power_id,
+                delta,
+                kind: ConduitPowerChangeKind::Standard,
+            }))
+            .unwrap();
+    }
+
+    assert!(manager.can_begin_skill(10, 31490121, 0));
+    assert!(matches!(
+        manager
+            .execute(ConduitCommand::BeginSkill {
+                source_uid: 10,
+                skill_id: 31490121,
+                cost_reduction: 0,
+            })
+            .unwrap(),
+        ConduitChange::SkillBegan {
+            spent: 3,
+            generic_spent: 1,
+            ..
+        }
+    ));
+    assert_eq!(manager.power(1, 1), 0);
+    assert_eq!(manager.power(1, 0), 0);
+}
+
+#[test]
 fn finish_skill_uses_configured_ownership_after_group_switch() {
     crate::test_support::init_config();
     let fight = Fight {

@@ -83,6 +83,7 @@ fn zero_cost_conduit_activation_projects_zero_markers() {
                     power_id: 1,
                     activation_cost: 0,
                     spent: 0,
+                    generic_spent: 0,
                 },
             ))),
             FrameItem::Change(Box::new(BattleChange::Conduit(
@@ -182,6 +183,7 @@ fn positive_cost_conduit_activation_keeps_markers() {
             power_id: 1,
             activation_cost: 3,
             spent: 3,
+            generic_spent: 0,
         },
         crate::engine::manager::conduit::ConduitChange::SkillCostCommitted {
             source_uid: 10,
@@ -203,6 +205,24 @@ fn positive_cost_conduit_activation_keeps_markers() {
 }
 
 #[test]
+fn conduit_cost_projection_includes_the_generic_shortfall() {
+    let effects = project_change_for_test(&BattleChange::Conduit(
+        crate::engine::manager::conduit::ConduitChange::SkillBegan {
+            source_uid: 10,
+            team: 1,
+            skill_id: 31490121,
+            power_id: 1,
+            activation_cost: 3,
+            spent: 3,
+            generic_spent: 1,
+        },
+    ))
+    .unwrap();
+
+    assert_eq!(effects[0].reserve_str.as_deref(), Some("1#-2|0#-1"));
+}
+
+#[test]
 fn unique_conduit_activation_has_no_cost_projection() {
     for change in [
         crate::engine::manager::conduit::ConduitChange::SkillBegan {
@@ -212,6 +232,7 @@ fn unique_conduit_activation_has_no_cost_projection() {
             power_id: 999,
             activation_cost: 0,
             spent: 0,
+            generic_spent: 0,
         },
         crate::engine::manager::conduit::ConduitChange::SkillCostCommitted {
             source_uid: 10,
@@ -240,6 +261,7 @@ fn positive_cost_reduced_to_zero_suppresses_only_the_begin_marker() {
             power_id: 1,
             activation_cost: 3,
             spent: 0,
+            generic_spent: 0,
         },
     ))
     .unwrap();

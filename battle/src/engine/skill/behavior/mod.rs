@@ -42,7 +42,7 @@ use crate::engine::{
     runtime::determinism::RoundDeterminism,
     skill::{
         action::SkillModifiers,
-        effect::ParsedBehavior,
+        effect::{ParsedBehavior, SkillEffectSlot},
         rule::output::RuleOp,
         target::{TargetContext, TargetPool},
     },
@@ -85,6 +85,17 @@ pub fn is_supported(behavior: &ParsedBehavior) -> bool {
             .supports
             .is_none_or(|supports| supports(behavior))
     })
+}
+
+pub fn is_slot_supported(slot: &SkillEffectSlot) -> bool {
+    let Some(definition) = registry::find(&slot.behavior) else {
+        return false;
+    };
+    is_supported(&slot.behavior)
+        && definition.required_event.is_none_or(|required| {
+            slot.compiled_subscriptions()
+                .is_ok_and(|subscriptions| subscriptions.iter().any(|key| key.event == required))
+        })
 }
 
 pub fn has_destination(behavior: &ParsedBehavior) -> bool {

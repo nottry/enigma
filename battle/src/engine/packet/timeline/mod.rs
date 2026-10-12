@@ -678,9 +678,15 @@ fn project_change(
             power_id,
             activation_cost,
             spent,
+            generic_spent,
             ..
         }) if *power_id != 999 && (*spent > 0 || *activation_cost == 0) => {
-            vec![EffectPacket::conduit_skill_began(*team, *power_id, *spent)]
+            vec![EffectPacket::conduit_skill_began(
+                *team,
+                *power_id,
+                spent.saturating_sub(*generic_spent),
+                *generic_spent,
+            )]
         }
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::SkillBegan {
             ..
