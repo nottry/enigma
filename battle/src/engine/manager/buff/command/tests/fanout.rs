@@ -244,11 +244,23 @@ fn halo_children_keep_the_grant_source_separate_from_the_carrier() {
             .count(),
         2
     );
+    assert_eq!(manager.buff_id_amount(10, 31450143), 1);
+    assert_eq!(manager.buff_id_amount(11, 31450143), 1);
 
-    manager.remove_by_id(10, 31450141);
+    manager.remove_by_id(11, 31450141);
     assert!(manager.has_buff_id(10, 31450143));
     assert!(manager.has_buff_id(11, 31450143));
-    manager.remove_by_id(11, 31450141);
+    assert_eq!(
+        manager
+            .active_features(&hp)
+            .into_iter()
+            .filter(|feature| feature.act_id() == Some(1150))
+            .count(),
+        2
+    );
+    assert_eq!(manager.buff_id_amount(10, 31450143), 1);
+    assert_eq!(manager.buff_id_amount(11, 31450143), 1);
+    manager.remove_by_id(10, 31450141);
     assert!(!manager.has_buff_id(10, 31450143));
     assert!(!manager.has_buff_id(11, 31450143));
 }

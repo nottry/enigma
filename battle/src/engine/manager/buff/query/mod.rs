@@ -40,21 +40,24 @@ pub struct SpecialCountOutput {
 
 impl BuffManager {
     pub fn buff_act_state(&self, owner_uid: i64, kind: BuffActKind) -> Option<(i32, &str)> {
-        self.buffs.iter().find_map(|active| {
-            if active.owner_uid != owner_uid {
-                return None;
-            }
-            let act_id = active
-                .definition
-                .as_ref()?
-                .features()
-                .iter()
-                .find(|feature| feature.kind == Some(kind))?
-                .values
-                .first()
-                .copied()?;
-            Some((act_id, active.buff.act_common_params.as_deref()?))
-        })
+        self.buffs
+            .iter()
+            .filter(|active| active.effective)
+            .find_map(|active| {
+                if active.owner_uid != owner_uid {
+                    return None;
+                }
+                let act_id = active
+                    .definition
+                    .as_ref()?
+                    .features()
+                    .iter()
+                    .find(|feature| feature.kind == Some(kind))?
+                    .values
+                    .first()
+                    .copied()?;
+                Some((act_id, active.buff.act_common_params.as_deref()?))
+            })
     }
 
     pub fn act_common_value(&self, owner_uid: i64, buff_uid: i64, act_id: i32) -> Option<i32> {
@@ -110,6 +113,7 @@ impl BuffManager {
     pub(crate) fn buffs_with_status(&self, owner_uid: i64, status: BuffStatus) -> Vec<(i32, i32)> {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| {
                 active.owner_uid == owner_uid
                     && active
@@ -127,21 +131,25 @@ impl BuffManager {
     }
 
     pub fn buff_act_carrier(&self, owner_uid: i64, kind: BuffActKind) -> Option<(i64, i32, i32)> {
-        self.buffs.iter().find_map(|active| {
-            let feature = active
-                .definition
-                .as_ref()?
-                .features()
-                .iter()
-                .find(|feature| feature.kind == Some(kind))?;
-            Some((active.buff.uid?, *feature.values.first()?, active.team_type))
-                .filter(|_| active.owner_uid == owner_uid)
-        })
+        self.buffs
+            .iter()
+            .filter(|active| active.effective)
+            .find_map(|active| {
+                let feature = active
+                    .definition
+                    .as_ref()?
+                    .features()
+                    .iter()
+                    .find(|feature| feature.kind == Some(kind))?;
+                Some((active.buff.uid?, *feature.values.first()?, active.team_type))
+                    .filter(|_| active.owner_uid == owner_uid)
+            })
     }
 
     pub fn has_buff_act_kind(&self, owner_uid: i64, kind: BuffActKind) -> bool {
         self.buffs.iter().any(|active| {
-            active.owner_uid == owner_uid
+            active.effective
+                && active.owner_uid == owner_uid
                 && active.definition.as_ref().is_some_and(|definition| {
                     definition
                         .features()
@@ -165,7 +173,8 @@ impl BuffManager {
 
     pub fn buff_act_source_uid(&self, owner_uid: i64, kind: BuffActKind) -> Option<i64> {
         self.buffs.iter().find_map(|active| {
-            (active.owner_uid == owner_uid
+            (active.effective
+                && active.owner_uid == owner_uid
                 && active.definition.as_ref().is_some_and(|definition| {
                     definition
                         .features()
@@ -190,6 +199,7 @@ impl BuffManager {
     ) -> i32 {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == owner_uid)
             .filter_map(|active| {
                 let amount = count_or_layer_from(&active.buff, active.definition.as_ref()).max(1);
@@ -217,6 +227,7 @@ impl BuffManager {
         }
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == owner_uid)
             .filter_map(|active| active.definition.as_ref())
             .flat_map(BuffDefinition::features)
@@ -241,6 +252,7 @@ impl BuffManager {
         }
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == source_uid)
             .filter_map(|active| {
                 let amount = count_or_layer_from(&active.buff, active.definition.as_ref()).max(1);
@@ -265,6 +277,7 @@ impl BuffManager {
     pub fn buff_act_amount(&self, owner_uid: i64, kind: BuffActKind) -> i32 {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == owner_uid)
             .filter(|active| {
                 active.definition.as_ref().is_some_and(|definition| {
@@ -281,6 +294,7 @@ impl BuffManager {
     pub fn buff_act_value(&self, owner_uid: i64, kind: BuffActKind) -> i32 {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == owner_uid)
             .filter_map(|active| {
                 let buff_uid = active.buff.uid?;
@@ -314,6 +328,7 @@ impl BuffManager {
     pub fn lost_life_floor_permille(&self, owner_uid: i64) -> i32 {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| active.owner_uid == owner_uid)
             .filter_map(|active| active.definition.as_ref())
             .flat_map(BuffDefinition::features)
@@ -330,7 +345,7 @@ impl BuffManager {
 
     pub fn special_count_outputs(&self, hp: &HpManager) -> Vec<SpecialCountOutput> {
         let mut outputs = Vec::new();
-        for marker in &self.buffs {
+        for marker in self.buffs.iter().filter(|active| active.effective) {
             let count = special_count_value(marker.buff.act_common_params.as_deref());
             if marker.owner_uid == 0 || count <= 0 {
                 continue;
@@ -397,7 +412,8 @@ impl BuffManager {
                     }
             }) {
                 if self.buffs.iter().any(|active| {
-                    active.owner_uid == target.uid
+                    active.effective
+                        && active.owner_uid == target.uid
                         && active.buff.buff_id == Some(*output_buff_id)
                         && active.buff.from_uid == Some(marker.owner_uid)
                 }) {
@@ -419,6 +435,7 @@ impl BuffManager {
     pub fn special_count(&self, owner_uid: i64, marker_ids: &[i32]) -> i32 {
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .filter(|active| {
                 active.owner_uid == owner_uid
                     && marker_ids
@@ -508,7 +525,9 @@ impl BuffManager {
     pub fn buff_id_amount(&self, uid: i64, buff_id: i32) -> i32 {
         self.buffs
             .iter()
-            .filter(|active| active.owner_uid == uid && active.buff.buff_id == Some(buff_id))
+            .filter(|active| {
+                active.effective && active.owner_uid == uid && active.buff.buff_id == Some(buff_id)
+            })
             .map(|active| count_or_layer_from(&active.buff, active.definition.as_ref()))
             .sum()
     }
@@ -517,7 +536,8 @@ impl BuffManager {
         self.buffs
             .iter()
             .filter(|active| {
-                active.owner_uid == uid
+                active.effective
+                    && active.owner_uid == uid
                     && (active.buff.buff_id == Some(buff_id_or_type_id)
                         || active.type_id == buff_id_or_type_id)
             })
@@ -578,7 +598,9 @@ impl BuffManager {
     pub fn buff_type_amount(&self, uid: i64, type_id: i32) -> i32 {
         self.buffs
             .iter()
-            .filter(|active| active.owner_uid == uid && active.type_id == type_id)
+            .filter(|active| {
+                active.effective && active.owner_uid == uid && active.type_id == type_id
+            })
             .map(|active| count_or_layer_from(&active.buff, active.definition.as_ref()))
             .sum()
     }
@@ -586,7 +608,8 @@ impl BuffManager {
     pub fn buff_group_type_count(&self, uid: i64, group_ids: &[i32]) -> i32 {
         let mut type_ids = Vec::new();
         for active in self.buffs.iter().filter(|active| {
-            active.owner_uid == uid
+            active.effective
+                && active.owner_uid == uid
                 && active
                     .definition
                     .as_ref()
@@ -603,7 +626,8 @@ impl BuffManager {
         self.buffs
             .iter()
             .filter(|active| {
-                active.owner_uid == uid
+                active.effective
+                    && active.owner_uid == uid
                     && active
                         .definition
                         .as_ref()
@@ -617,7 +641,8 @@ impl BuffManager {
         self.buffs
             .iter()
             .filter(|active| {
-                active.owner_uid == uid
+                active.effective
+                    && active.owner_uid == uid
                     && active.definition.as_ref().is_some_and(|definition| {
                         status_ids
                             .iter()
@@ -630,7 +655,8 @@ impl BuffManager {
     pub fn team_buff_status_type_count(&self, uids: &[i64], status_ids: &[i32]) -> i32 {
         let mut type_ids = Vec::new();
         for active in self.buffs.iter().filter(|active| {
-            uids.contains(&active.owner_uid)
+            active.effective
+                && uids.contains(&active.owner_uid)
                 && active.definition.as_ref().is_some_and(|definition| {
                     status_ids
                         .iter()
@@ -647,7 +673,8 @@ impl BuffManager {
     pub fn buff_act_type_count(&self, uids: &[i64], kind: BuffActKind) -> i32 {
         let mut type_ids = Vec::new();
         for active in self.buffs.iter().filter(|active| {
-            uids.contains(&active.owner_uid)
+            active.effective
+                && uids.contains(&active.owner_uid)
                 && active.definition.as_ref().is_some_and(|definition| {
                     (!definition.has_effect_count() || active.buff.count.unwrap_or_default() > 0)
                         && definition.features().iter().any(|feature| {
@@ -665,7 +692,9 @@ impl BuffManager {
     pub fn buff_type_layer(&self, uid: i64, type_id: i32) -> i32 {
         self.buffs
             .iter()
-            .filter(|active| active.owner_uid == uid && active.type_id == type_id)
+            .filter(|active| {
+                active.effective && active.owner_uid == uid && active.type_id == type_id
+            })
             .map(|active| active.buff.layer.unwrap_or_default())
             .sum()
     }
@@ -674,7 +703,9 @@ impl BuffManager {
         self.buffs
             .iter()
             .filter(|active| {
-                active.owner_uid == uid && (active.type_id == id || active.buff.buff_id == Some(id))
+                active.effective
+                    && active.owner_uid == uid
+                    && (active.type_id == id || active.buff.buff_id == Some(id))
             })
             .map(|active| active.buff.layer.unwrap_or_default())
             .max()
@@ -687,7 +718,7 @@ impl BuffManager {
             let own = self
                 .buffs
                 .iter()
-                .filter(|active| active.owner_uid == uid)
+                .filter(|active| active.effective && active.owner_uid == uid)
                 .filter_map(|active| {
                     let definition = active.definition.as_ref()?;
                     let delta = definition
@@ -730,7 +761,7 @@ impl BuffManager {
             let team = self
                 .buffs
                 .iter()
-                .filter(|active| Some(active.team_type) == team_type)
+                .filter(|active| active.effective && Some(active.team_type) == team_type)
                 .filter_map(|active| {
                     let buff_uid = active.buff.uid?;
                     let delta = active
@@ -784,14 +815,14 @@ impl BuffManager {
         let active = self
             .buffs
             .iter()
-            .find(|active| active.buff.uid == Some(buff_uid))?;
+            .find(|active| active.effective && active.buff.uid == Some(buff_uid))?;
         fixed_attribute_value(active, attr_id)
     }
 
     pub fn fixed_attribute_delta(&self, uid: i64, attr_id: AttrId) -> i32 {
         self.buffs
             .iter()
-            .filter(|active| active.owner_uid == uid)
+            .filter(|active| active.effective && active.owner_uid == uid)
             .filter(|active| {
                 active.definition.as_ref().is_some_and(|definition| {
                     definition.features().iter().any(|feature| {

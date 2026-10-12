@@ -44,23 +44,6 @@ fn round_start_setup_owner_uids(owner_uids: &[i64], team: i32) -> Vec<i64> {
     setup_owner_uids
 }
 
-fn crystal_buff_uid_reservation_ops(result: &DrainResult) -> Vec<RuleOp> {
-    let mechanic = crate::engine::mechanic::card::CardMechanic;
-    result
-        .outcomes
-        .iter()
-        .filter_map(|outcome| match outcome {
-            RuleOutcome::Card(changes) => mechanic.crystal_buff_uid_reservation(changes),
-            _ => None,
-        })
-        .map(|reservation| {
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(
-                reservation,
-            )))
-        })
-        .collect()
-}
-
 #[cfg(test)]
 pub fn run_round_start_split(
     managers: &mut BattleManagers,
@@ -327,7 +310,6 @@ pub fn run_round_start_after_ai_split(
         ROUND_START_EVENT_SETUP,
         &setup_owner_uids,
     )?;
-    let crystal_uid_reservations = crystal_buff_uid_reservation_ops(&event_setup);
     if setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7) {
         append_round_phase(
             &mut settlement,
@@ -342,17 +324,6 @@ pub fn run_round_start_after_ai_split(
         );
     }
     append_round_phase(&mut settlement, event_setup);
-    append_round_phase(
-        &mut settlement,
-        drain::run(
-            managers,
-            pool,
-            catalog,
-            determinism,
-            context,
-            crystal_uid_reservations,
-        )?,
-    );
     if version_seven {
         append_round_phase(
             &mut settlement,
@@ -718,7 +689,6 @@ pub fn run_start(
     let mut opening_duration_snapshot = None;
     let mut opening_duration_captured = false;
     let mut opening_settlement = None;
-    let mut crystal_uid_reservations = Vec::new();
     let version7_opening =
         crate::engine::fight::versions::round_start_setup_layout(managers.fight_version())
             == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
@@ -781,7 +751,6 @@ pub fn run_start(
                     context,
                     &owner_uids,
                 )?;
-                crystal_uid_reservations.extend(crystal_buff_uid_reservation_ops(&skill_setup));
                 append_opening_round_phase(&mut settlement, skill_setup);
                 append_opening_round_phase(
                     &mut settlement,
@@ -936,24 +905,6 @@ pub fn run_start(
             dealt_cards = Some(managers.card.hand().to_vec());
             push_cue(&mut result.frames, RoundCue::EnterFightDeal);
             opening_deck_counts = Some((initial_deck_num, managers.card.deck_num()));
-        }
-        if stage == SetupStage::RoundStart && priority == 3 && !crystal_uid_reservations.is_empty()
-        {
-            let reservations = drain::run(
-                managers,
-                pool,
-                catalog,
-                determinism,
-                context,
-                std::mem::take(&mut crystal_uid_reservations),
-            )?;
-            append_opening_settlement(
-                opening_settlement
-                    .as_mut()
-                    .expect("opening round has a settlement phase before priority three"),
-                reservations,
-                version7_opening,
-            );
         }
         let stage_result = if matches!(
             stage,

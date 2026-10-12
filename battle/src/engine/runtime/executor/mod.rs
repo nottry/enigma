@@ -646,6 +646,13 @@ pub(crate) fn execute_rule_op_with(
         }
         RuleOp::Command(BattleCommand::Card(command)) => {
             let changes = managers.execute_card(command)?;
+            if let Some(reservation) =
+                crate::engine::mechanic::card::CardMechanic.crystal_buff_uid_reservation(&changes)
+            {
+                managers.execute_buff(
+                    crate::engine::manager::buff::BuffCommand::ReserveChildUids(reservation),
+                )?;
+            }
             for event in changes.events() {
                 events.push(event);
             }

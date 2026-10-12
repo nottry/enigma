@@ -244,6 +244,17 @@ impl BuffManager {
         if let Some(buff_uid) = active.buff.uid {
             self.remove_act_states(buff_uid);
         }
+        if active.effective
+            && active.fanout_emitter_uid.is_some()
+            && let Some(replacement) = self.buffs.iter_mut().find(|candidate| {
+                candidate.fanout_emitter_uid.is_some()
+                    && candidate.owner_uid == active.owner_uid
+                    && candidate.buff.buff_id == active.buff.buff_id
+                    && candidate.buff.from_uid == active.buff.from_uid
+            })
+        {
+            replacement.effective = true;
+        }
         let owner_uid = active.owner_uid;
         let linked_ids = active
             .buff
@@ -278,10 +289,13 @@ impl BuffManager {
             }
         }
 
-        let fixed_max_hp_delta =
+        let fixed_max_hp_delta = if active.effective {
             super::query::fixed_attribute_value(&active, crate::engine::entity::attr::AttrId::Hp)
                 .filter(|delta| *delta != 0)
-                .unwrap_or(recorded_mode_hp_delta);
+                .unwrap_or(recorded_mode_hp_delta)
+        } else {
+            0
+        };
         let mut buff = active.buff;
         if clears_count {
             buff.count = Some(0);

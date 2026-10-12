@@ -333,6 +333,7 @@ fn start_decks_from(
                             captured.uid == candidate.uid && captured.skill_id == candidate.skill_id
                         })?
                         .clone();
+                    // V7 snapshots may retain a defeated roster UID even when skill targeting is source-owned.
                     candidate.target_uid = captured
                         .target_uid
                         .filter(|uid| valid_target_uids.contains(uid))
