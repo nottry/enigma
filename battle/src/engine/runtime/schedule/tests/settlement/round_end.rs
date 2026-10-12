@@ -65,7 +65,6 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
         vec![
             EventKind::RoundEnd,
             EventKind::SmallRoundEnd,
-            EventKind::RoundEnd,
             EventKind::RoundEndEntitySettlement,
             EventKind::RoundEndAfterSettlement,
             EventKind::RoundEndFinalSettlement,

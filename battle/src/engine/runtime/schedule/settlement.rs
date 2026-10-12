@@ -282,14 +282,14 @@ fn run_defender_settlement(
         .collect::<Vec<_>>();
     owners.extend(pool.assist_boss(crate::engine::fight::rules::DEFENDER_SIDE_UID));
     owners.push(crate::engine::fight::rules::DEFENDER_SIDE_UID);
-    let mut result = drain::run_group_event(
+    let mut result = drain::run_group_event_lanes(
         managers,
         pool,
         catalog,
         determinism,
         context,
         BattleEvent::Kind(EventKind::RoundEnd),
-        drain::ReactionLane::BuffActs,
+        &[drain::ReactionLane::BuffActs, drain::ReactionLane::Skills],
         Some(&owners),
     )?;
     append(
@@ -303,19 +303,6 @@ fn run_defender_settlement(
             BattleEvent::Kind(EventKind::SmallRoundEnd),
             &owners,
             drain::ReactionLane::Skills,
-        )?,
-    );
-    append(
-        &mut result,
-        drain::run_group_event(
-            managers,
-            pool,
-            catalog,
-            determinism,
-            context,
-            BattleEvent::Kind(EventKind::RoundEnd),
-            drain::ReactionLane::Skills,
-            Some(&owners),
         )?,
     );
     let settlement = run_entity_settlement(

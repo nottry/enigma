@@ -109,3 +109,123 @@ fn obscurity_break_enters_the_witness_round_on_the_next_round() {
     assert!(managers.buff.has_active_buff_id(-1, 109320002));
     assert!(managers.buff.has_active_buff_id(-1, 109320103));
 }
+
+#[test]
+fn defender_round_end_keeps_buff_acts_and_owner_passives_in_one_frame() {
+    init_config();
+    let burn = |uid| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(4150001),
+        count: Some(1),
+        layer: Some(1),
+        from_uid: Some(10),
+        duration: Some(2),
+        ..Default::default()
+    };
+    let defender = |uid, passive_skill, buff_uid| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(120_000),
+        attr: Some(HeroAttribute {
+            attack: Some(if uid == -1 { 2_000 } else { 1_000 }),
+            hp: Some(120_000),
+            ..Default::default()
+        }),
+        passive_skill,
+        buffs: vec![burn(buff_uid)],
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    attack: Some(1_000),
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                defender(-1, Vec::new(), 31),
+                defender(-2, vec![116330101], 32),
+                defender(-3, vec![116330101], 33),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let result = run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+    )
+    .unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let round_end = steps
+        .iter()
+        .find(|step| {
+            step.act_effect
+                .iter()
+                .filter(|effect| {
+                    effect
+                        .fight_step
+                        .as_ref()
+                        .is_some_and(|step| step.act_id == Some(4150001))
+                })
+                .count()
+                == 3
+        })
+        .unwrap();
+    assert_eq!(round_end.act_effect.len(), 5);
+
+    let passives = round_end.act_effect[3..]
+        .iter()
+        .map(|effect| {
+            effect.fight_step.as_ref().unwrap().act_effect[0]
+                .fight_step
+                .as_ref()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        passives
+            .iter()
+            .map(|step| (step.from_id, step.to_id, step.act_id))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(-2), Some(-2), Some(116330101)),
+            (Some(-3), Some(-3), Some(116330101)),
+        ]
+    );
+    let buffs = passives
+        .iter()
+        .map(|step| {
+            step.act_effect
+                .iter()
+                .find_map(|effect| effect.buff.as_ref())
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        buffs
+            .iter()
+            .map(|buff| (buff.buff_id, buff.layer))
+            .collect::<Vec<_>>(),
+        vec![(Some(116330002), Some(1)), (Some(116330002), Some(2))]
+    );
+    assert_eq!(buffs[0].uid, buffs[1].uid);
+    assert_eq!(managers.buff.buff_id_amount(-1, 116330002), 2);
+    assert_eq!(managers.buff.buff_id_amount(-2, 116330002), 0);
+    assert_eq!(managers.buff.buff_id_amount(-3, 116330002), 0);
+}

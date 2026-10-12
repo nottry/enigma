@@ -48,27 +48,117 @@ pub fn run_group_event(
     lane: ReactionLane,
     owner_uids: Option<&[i64]>,
 ) -> Result<DrainResult, DrainError> {
+    run_group_event_lanes(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        event,
+        &[lane],
+        owner_uids,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_group_event_lanes(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    event: BattleEvent,
+    lanes: &[ReactionLane],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
     let mut frames = Vec::new();
     let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
-    let scope = match lane {
-        ReactionLane::Skills => push_child(
-            &mut frames,
-            &root,
-            FrameOwner::EventRule,
-            FrameTrigger::Event(event.clone()),
-        ),
-        ReactionLane::BuffActs
-        | ReactionLane::BuffActsBeforeSettlement
-        | ReactionLane::BuffActsAfterSettlement => root,
+    let mut result = DrainResult {
+        frames,
+        ..Default::default()
     };
-    let current_pool = subscriber_view(pool, managers, &event);
+    for &lane in lanes {
+        if lane == ReactionLane::Skills
+            && let Some(owner_uids) = owner_uids
+        {
+            for owner_uid in owner_uids {
+                let scope = push_child(
+                    &mut result.frames,
+                    &root,
+                    FrameOwner::EventRule,
+                    FrameTrigger::Event(event.clone()),
+                );
+                let next = drain_group_event_lane(
+                    managers,
+                    pool,
+                    catalog,
+                    determinism,
+                    context,
+                    &event,
+                    lane,
+                    Some(std::slice::from_ref(owner_uid)),
+                    &scope,
+                    std::mem::take(&mut result.frames),
+                )?;
+                result.outcomes.extend(next.outcomes);
+                result.events.extend(next.events);
+                result.frames = next.frames;
+            }
+            continue;
+        }
+        let scope = match lane {
+            ReactionLane::Skills => push_child(
+                &mut result.frames,
+                &root,
+                FrameOwner::EventRule,
+                FrameTrigger::Event(event.clone()),
+            ),
+            ReactionLane::BuffActs
+            | ReactionLane::BuffActsBeforeSettlement
+            | ReactionLane::BuffActsAfterSettlement => root.clone(),
+        };
+        let next = drain_group_event_lane(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            &event,
+            lane,
+            owner_uids,
+            &scope,
+            std::mem::take(&mut result.frames),
+        )?;
+        result.outcomes.extend(next.outcomes);
+        result.events.extend(next.events);
+        result.frames = next.frames;
+    }
+    result.events.insert(0, event);
+
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drain_group_event_lane(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    event: &BattleEvent,
+    lane: ReactionLane,
+    owner_uids: Option<&[i64]>,
+    scope: &FramePath,
+    frames: Vec<SemanticFrame>,
+) -> Result<DrainResult, DrainError> {
+    let current_pool = subscriber_view(pool, managers, event);
     let mut queue = dispatch_reactions(
         &current_pool,
         managers,
         catalog,
         determinism,
-        &event,
-        Some(&scope),
+        event,
+        Some(scope),
         None,
         None,
         None,
@@ -80,7 +170,7 @@ pub fn run_group_event(
     )?
     .into_ordered()
     .into();
-    let mut result = drain_queue_with_frames(
+    drain_queue_with_frames(
         managers,
         pool,
         catalog,
@@ -88,10 +178,7 @@ pub fn run_group_event(
         context,
         &mut queue,
         frames,
-    )?;
-    result.events.insert(0, event);
-
-    Ok(result)
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

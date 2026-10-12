@@ -37,6 +37,14 @@ fn generic_round_end_keys_keep_their_exact_timing() {
 }
 
 #[test]
+fn round_end_frames_target_the_passive_owner() {
+    assert_eq!(
+        find_key(302, "None").map(|definition| definition.reaction_frame_target),
+        Some(ReactionFrameTarget::Owner)
+    );
+}
+
+#[test]
 fn entity_settlement_frames_target_the_settled_owner() {
     assert_eq!(
         find_key(303, "None").map(|definition| definition.reaction_frame_target),

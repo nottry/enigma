@@ -449,7 +449,7 @@ condition_definitions! {
     [214] "None" => none::shell_deploy, reaction_targets_causing_frame(event_trigger(EventKind::ShellDeployed, None));
     [215] "None" => none::shell_retrieve, reaction_targets_causing_frame(event_trigger(EventKind::ShellRetrieved, None));
     [301] "None" => none::small_round_end, event_trigger(EventKind::SmallRoundEnd, None);
-    [302] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
+    [302] "None" => none::round_end, reaction_targets_owner(event_trigger(EventKind::RoundEnd, None));
     [305, 306] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
     [303] "None" => none::round_end_entity_settlement, reaction_targets_owner(event_trigger(EventKind::RoundEndEntitySettlement, None));
     [307] "None" => none::round_end_final_settlement, event_trigger(EventKind::RoundEndFinalSettlement, None);
