@@ -683,6 +683,10 @@ impl BuffDefinition {
         self.has_include_type(BuffIncludeType::Layer)
     }
 
+    pub(super) fn clears_layer_on_depletion(&self) -> bool {
+        self.is_layer_type()
+    }
+
     pub(super) fn uses_typed_count(&self) -> bool {
         (self.has_include_type(BuffIncludeType::Counted)
             || (!self.uses_stack_layer()

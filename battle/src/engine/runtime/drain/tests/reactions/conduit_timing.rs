@@ -42,7 +42,8 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
                 },
             )
             .unwrap();
-        let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [skill_id], []);
+        let catalog =
+            SkillEffectCatalog::from_roots(config::configs::get(), [skill_id, 31450121], []);
         let mut invocation: SkillInvocation = SkillRequest {
             source_uid: 10,
             skill_id,
@@ -110,5 +111,40 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
             managers.conduit.selected_group(10),
             Some(if switches_group { 2 } else { initial_group })
         );
+        if switches_group {
+            let mut invocation: SkillInvocation = SkillRequest {
+                source_uid: 10,
+                skill_id: 31450121,
+            }
+            .into();
+            invocation.mode = SkillExecutionMode::Device;
+            invocation.target = SkillTarget::Explicit(-1);
+            let result = run_action(
+                &mut managers,
+                &pool,
+                &catalog,
+                &mut RoundDeterminism::default(),
+                TargetContext::default(),
+                [],
+                invocation,
+            )
+            .unwrap();
+            let deleted = crate::engine::packet::timeline::project(&result.frames)
+                .unwrap()
+                .into_iter()
+                .find(|step| step.act_id == Some(31450121))
+                .expect("the enabled device skill projects a step")
+                .act_effect
+                .into_iter()
+                .find(|effect| {
+                    effect.effect_type
+                        == Some(sonettobuf::effect_type_enum::EffectType::Buffdel as i32)
+                        && effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31450121)
+                })
+                .expect("the device skill consumes its enabling stack");
+
+            assert_eq!(deleted.buff.and_then(|buff| buff.layer), Some(1));
+            assert!(!managers.buff.has_buff_id(10, 31450121));
+        }
     }
 }
