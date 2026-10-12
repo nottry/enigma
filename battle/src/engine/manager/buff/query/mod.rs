@@ -850,6 +850,7 @@ impl BuffManager {
         let materialized = self
             .buffs
             .iter()
+            .filter(|active| active.effective)
             .filter_map(|active| {
                 Some((
                     active.owner_uid,
@@ -860,6 +861,7 @@ impl BuffManager {
             .collect::<std::collections::HashSet<_>>();
         self.buffs
             .iter()
+            .filter(|active| active.effective)
             .flat_map(|active| {
                 let owner_alive = hp.current(active.owner_uid) > 0;
                 let owner_uid = active.owner_uid;

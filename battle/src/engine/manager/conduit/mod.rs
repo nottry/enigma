@@ -287,10 +287,10 @@ pub struct ConduitManager {
 impl ConduitManager {
     pub fn initialization_commands(&self) -> Vec<ConduitCommand> {
         self.areas
-            .keys()
-            .filter(|team| !self.initialized.contains(team))
-            .copied()
-            .map(|team| ConduitCommand::Initialize { team })
+            .iter()
+            .filter(|(_, area)| !area.devices.is_empty() || !area.powers.is_empty())
+            .filter(|(team, _)| !self.initialized.contains(team))
+            .map(|(team, _)| ConduitCommand::Initialize { team: *team })
             .collect()
     }
 

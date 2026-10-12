@@ -193,8 +193,16 @@ impl EffectPacket {
 
         effects.push(ActEffect {
             target_id: Some(change.target_uid),
-            effect_type: Some(EffectType::Buffadd as i32),
-            effect_num: change.buff.buff_id,
+            effect_type: Some(if change.effective {
+                EffectType::Buffadd as i32
+            } else {
+                EffectType::Buffaddnoeffect as i32
+            }),
+            effect_num: Some(if change.effective {
+                change.buff.buff_id.unwrap_or_default()
+            } else {
+                0
+            }),
             buff: Some(change.buff.clone()),
             config_effect: Some(0),
             buff_act_id: Some(0),

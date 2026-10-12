@@ -1,8 +1,5 @@
 use crate::engine::{
-    manager::{
-        buff::{BuffChildUidReservation, BuffCommand},
-        card::{CardAddCrystal, CardCommand},
-    },
+    manager::card::{CardAddCrystal, CardCommand},
     skill::{
         behavior::{BehaviorOpContext, registry::BehaviorHandler},
         effect::ParsedBehavior,
@@ -53,22 +50,13 @@ impl BehaviorHandler for Handler {
             .collect();
         let card = generated_card(context.managers, context.source_uid, skill_id);
         let origin = super::command_origin(behavior)?;
-        Some(vec![
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(
-                BuffChildUidReservation {
-                    origin,
-                    target_uid: context.source_uid,
-                    count: 2,
-                },
-            ))),
-            RuleOp::Command(BattleCommand::Card(CardCommand::AddCrystal(
-                CardAddCrystal {
-                    origin,
-                    card,
-                    rank_group,
-                },
-            ))),
-        ])
+        Some(vec![RuleOp::Command(BattleCommand::Card(
+            CardCommand::AddCrystal(CardAddCrystal {
+                origin,
+                card,
+                rank_group,
+            }),
+        ))])
     }
 
     fn references(behavior: &ParsedBehavior) -> RuleReferences {
@@ -162,7 +150,7 @@ mod tests {
     }
 
     #[test]
-    fn crystal_card_reserves_its_two_internal_buff_uids() {
+    fn crystal_card_adds_the_captured_owner_bound_card() {
         let managers = BattleManagers::default();
         let pool = TargetPool::default();
         let mut determinism = RoundDeterminism::default();
@@ -206,18 +194,9 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(ops.len(), 1);
         assert!(matches!(
             &ops[0],
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(
-                BuffChildUidReservation {
-                    target_uid: 10,
-                    count: 2,
-                    ..
-                }
-            )))
-        ));
-        assert!(matches!(
-            &ops[1],
             RuleOp::Command(BattleCommand::Card(CardCommand::AddCrystal(add)))
                 if add.rank_group == vec![101, 102, 103]
                     && add.card.uid == Some(10)

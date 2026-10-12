@@ -25,6 +25,7 @@ pub enum EntityOperation {
     SummonCombatant { model_id: i32, position: i32 },
     SummonSpecial { model_id: i32 },
     Transform { model_id: i32, parameters: [i32; 2] },
+    ChangeCareer { career: i32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,7 @@ impl EntityChanges {
                     target_uid: self.target_uid,
                 }]
             }
+            EntityOperation::ChangeCareer { .. } => Vec::new(),
         }
     }
 }
@@ -296,6 +298,20 @@ impl EntityManager {
                 self.replacements.insert(command.target_uid, entity.clone());
                 entity
             }
+            EntityOperation::ChangeCareer { career } => {
+                if !(1..=6).contains(&career) {
+                    return Err(EntityCommandError::InvalidCommand);
+                }
+                let mut entity = self
+                    .identities
+                    .get(&command.target_uid)
+                    .ok_or(EntityCommandError::MissingSource)?
+                    .clone();
+                entity.career = Some(career);
+                self.identities.insert(command.target_uid, entity.clone());
+                self.replacements.insert(command.target_uid, entity.clone());
+                entity
+            }
         };
 
         Ok(EntityChanges {
@@ -425,6 +441,10 @@ impl EntityManager {
 
     pub(crate) fn ordered_uids(&self) -> impl Iterator<Item = i64> + '_ {
         self.order.iter().copied()
+    }
+
+    pub(crate) fn roster_lane(&self, uid: i64) -> Option<RosterLane> {
+        self.roster_lanes.get(&uid).copied()
     }
 
     pub(crate) fn registration_ordered_uids(&self) -> impl Iterator<Item = i64> + '_ {

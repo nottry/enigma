@@ -65,6 +65,30 @@ fn registry_requires_exact_id_and_type() {
     assert!(!has_destination(933, "SubBuff", &[0]));
     assert!(find(1028, "AddToTarget").is_none());
     assert!(find(999, "RealDamageKill").is_none());
+    let device_bank = find(1149, "DeviceExPointOverflowBank").unwrap();
+    assert_eq!(device_bank.kind, BuffActKind::DeviceExPointOverflowBank);
+    assert!(has_destination(1149, "DeviceExPointOverflowBank", &[50]));
+    assert!(!has_destination(1149, "DeviceExPointOverflowBank", &[0]));
+    let device_bank_wire = device_bank.wire.unwrap();
+    assert_eq!(
+        device_bank_wire.markers(super::super::super::wire::WirePhase::Add),
+        &[sonettobuf::effect_type_enum::EffectType::None as i32]
+    );
+    assert_eq!(
+        device_bank_wire.initial_state,
+        Some(super::super::super::wire::InitialStateRule::ZeroInteger)
+    );
+    assert!(!device_bank_wire.initial_state_marker);
+    let fake_hp_wire = find(1150, "LostHpToFakeHp").unwrap().wire.unwrap();
+    assert_eq!(
+        fake_hp_wire.markers(super::super::super::wire::WirePhase::Add),
+        &[sonettobuf::effect_type_enum::EffectType::None as i32]
+    );
+    assert!(
+        fake_hp_wire
+            .markers(super::super::super::wire::WirePhase::Refresh)
+            .is_empty()
+    );
     assert_eq!(
         find(728, "ChangeRemoveBuffUseSkillParam").unwrap().kind,
         BuffActKind::ChangeRemoveBuffUseSkillParam
@@ -691,13 +715,16 @@ fn healing_taken_modifier_is_an_exact_static_consumer() {
     assert!(has_destination(601, "Injury", &[500]));
     assert!(has_destination(601, "Injury", &[-250]));
     assert!(!has_destination(601, "Injury", &[0]));
-    assert_eq!(
-        definition
-            .wire
-            .expect("injury has an add marker")
-            .markers(super::super::super::wire::WirePhase::Add),
-        &[sonettobuf::effect_type_enum::EffectType::Injury as i32]
-    );
+    let wire = definition.wire.expect("injury has wire markers");
+    for phase in [
+        super::super::super::wire::WirePhase::Add,
+        super::super::super::wire::WirePhase::Refresh,
+    ] {
+        assert_eq!(
+            wire.markers(phase),
+            &[sonettobuf::effect_type_enum::EffectType::Injury as i32]
+        );
+    }
     assert!(find(601, "InjuryAbsorb").is_none());
 }
 

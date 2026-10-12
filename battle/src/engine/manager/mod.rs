@@ -808,7 +808,12 @@ impl BattleManagers {
             self.buff.sync_entity(&mut changes.entity);
             self.entity.update(changes.entity.clone());
         }
-        self.register_entity(&changes.entity);
+        if !matches!(
+            changes.operation,
+            entity::EntityOperation::ChangeCareer { .. }
+        ) {
+            self.register_entity(&changes.entity);
+        }
         if matches!(changes.operation, entity::EntityOperation::Transform { .. }) {
             self.project_primary_attributes(&mut changes.entity);
             self.entity.update(changes.entity.clone());

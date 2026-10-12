@@ -149,6 +149,58 @@ pub fn run_skill_setup_schedule_in_opening_round_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_opening_settlement_skills_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    const SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::RoundStart, 1), (SetupStage::BuffGate, 0)];
+
+    let mut result = DrainResult::default();
+    for owner_uid in owner_uids {
+        let owner_result = run_setup_schedule_with_dispatch(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            SCHEDULE,
+            Some(std::slice::from_ref(owner_uid)),
+            SetupFrameContainer::OpeningRoundPhase,
+            SetupDispatch::Skills,
+        )?;
+        result.outcomes.extend(owner_result.outcomes);
+        result.events.extend(owner_result.events);
+        result.frames.extend(owner_result.frames);
+    }
+
+    let remaining = run_setup_stage_filtered(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        SetupStage::RoundStart,
+        1,
+        std::iter::empty(),
+        |_| Vec::new(),
+        None,
+        owner_uids,
+        false,
+        SetupDispatch::Skills,
+        SetupFrameContainer::OpeningRoundPhase,
+    )?;
+    result.outcomes.extend(remaining.outcomes);
+    result.events.extend(remaining.events);
+    result.frames.extend(remaining.frames);
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_buff_act_setup_schedule_in_opening_round_phase(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -211,6 +263,47 @@ pub fn run_opening_sync_setup_in_owner_order(
     context: TargetContext,
     owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
+    run_sync_setup_in_owner_order(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        owner_uids,
+        SetupFrameContainer::Standalone,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_sync_setup_in_owner_order(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        owner_uids,
+        SetupFrameContainer::RoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+    frame_container: SetupFrameContainer,
+) -> Result<DrainResult, DrainError> {
     const SCHEDULE: &[(SetupStage, i32)] =
         &[(SetupStage::BuffSync, 0), (SetupStage::RoundStartLate, 0)];
 
@@ -231,7 +324,7 @@ pub fn run_opening_sync_setup_in_owner_order(
                 &[],
                 false,
                 SetupDispatch::All,
-                SetupFrameContainer::Standalone,
+                frame_container,
             )?;
             result.outcomes.extend(owner_result.outcomes);
             result.events.extend(owner_result.events);
@@ -254,7 +347,7 @@ pub fn run_opening_sync_setup_in_owner_order(
             owner_uids,
             stage == SetupStage::RoundStartLate,
             SetupDispatch::All,
-            SetupFrameContainer::Standalone,
+            frame_container,
         )?;
         result.outcomes.extend(remaining.outcomes);
         result.events.extend(remaining.events);

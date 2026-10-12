@@ -269,7 +269,10 @@ impl BuffManager {
             }
             while let Some(child_index) = self.buffs.iter().position(|candidate| {
                 candidate.buff.buff_id == Some(linked_id)
-                    && candidate.buff.from_uid == Some(owner_uid)
+                    && candidate
+                        .fanout_emitter_uid
+                        .unwrap_or_else(|| candidate.buff.from_uid.unwrap_or(candidate.owner_uid))
+                        == owner_uid
             }) {
                 removed.extend(self.remove_at(child_index, config_effect));
             }

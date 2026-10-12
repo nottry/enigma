@@ -1,6 +1,16 @@
 use super::*;
 
 impl EffectPacket {
+    pub fn career_change(target_uid: i64, career: i32, config_effect: i32) -> ActEffect {
+        ActEffect {
+            target_id: Some(target_uid),
+            effect_type: Some(EffectType::Changecareer as i32),
+            effect_num: Some(career),
+            config_effect: Some(config_effect),
+            ..Default::default()
+        }
+    }
+
     pub fn contract_offer(owner_uid: i64, config_effect: i32, candidates: &[i64]) -> ActEffect {
         ActEffect {
             target_id: Some(owner_uid),

@@ -648,7 +648,7 @@ fn version_seven_opening_orders_immunity_duration_and_buff_gate() {
 }
 
 #[test]
-fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skills() {
+fn version_seven_opening_interleaves_round_start_and_buff_gate_skills_by_owner() {
     init_config();
     let fight = Fight {
         version: Some(7),
@@ -660,12 +660,6 @@ fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skil
                     team_type: Some(1),
                     current_hp: Some(100),
                     passive_skill: vec![40],
-                    buffs: vec![BuffInfo {
-                        uid: Some(2),
-                        buff_id: Some(30810305),
-                        from_uid: Some(10),
-                        ..Default::default()
-                    }],
                     ..Default::default()
                 },
                 FightEntityInfo {
@@ -673,12 +667,21 @@ fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skil
                     position: Some(2),
                     team_type: Some(1),
                     current_hp: Some(100),
+                    passive_skill: vec![50],
                     buffs: vec![BuffInfo {
-                        uid: Some(4),
-                        buff_id: Some(31270416),
+                        uid: Some(2),
+                        buff_id: Some(30810305),
                         from_uid: Some(20),
                         ..Default::default()
                     }],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(30),
+                    position: Some(3),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![60],
                     ..Default::default()
                 },
             ],
@@ -688,24 +691,41 @@ fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skil
     };
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
-    let mut stored_value = SkillEffectSlot::new(
-        ParsedBehavior::new(1, "AddBuff", vec![30810301, 1]),
-        TargetRequest::self_only(),
-    );
-    stored_value.conditions = vec![ParsedCondition {
-        opcode: 19103,
-        type_name: "HasBuffId".to_owned(),
-        kind: ParsedConditionKind::BuffId {
-            mode: BuffConditionMode::Present,
-            buff_ids: vec![30810101],
-        },
-        raw_args: vec!["30810101".to_owned()],
-    }];
-    stored_value.compiled_route = ConditionRoute::compile(&stored_value.conditions);
-    let mut catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31270151], []);
+    let slot = |condition| {
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![condition];
+        slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+        slot
+    };
+    let round_start = || ParsedCondition {
+        opcode: 103,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    };
+    let mut catalog = SkillEffectCatalog::default();
     catalog.insert(ParsedSkillEffect {
         skill_id: 40,
-        slots: vec![stored_value],
+        slots: vec![slot(round_start())],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![slot(ParsedCondition {
+            opcode: 19103,
+            type_name: "HasBuffId".to_owned(),
+            kind: ParsedConditionKind::BuffId {
+                mode: BuffConditionMode::Present,
+                buff_ids: vec![30810305],
+            },
+            raw_args: vec!["30810305".to_owned()],
+        })],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 60,
+        slots: vec![slot(round_start())],
     });
 
     let (start, _) = run_start(
@@ -727,19 +747,19 @@ fn version_seven_opening_commits_buff_gate_skills_before_linked_round_start_skil
     )
     .unwrap();
 
-    let added_buff_ids = start
+    let target_uids = start
         .outcomes
         .iter()
         .filter_map(|outcome| match outcome {
-            RuleOutcome::Buff(change) => Some(&change.change.added),
+            RuleOutcome::ExPoint(crate::engine::manager::ex_point::ExPointChanges::Value {
+                change,
+                ..
+            }) => Some(change.target_uid),
             _ => None,
         })
-        .flatten()
-        .filter_map(|added| added.buff.buff_id)
-        .filter(|buff_id| matches!(buff_id, 30810301 | 31270407))
         .collect::<Vec<_>>();
 
-    assert_eq!(added_buff_ids, [30810301, 31270407, 31270407]);
+    assert_eq!(target_uids, [10, 20, 30]);
 }
 
 #[test]

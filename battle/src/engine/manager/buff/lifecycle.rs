@@ -474,6 +474,8 @@ impl BuffManager {
                 team_type,
                 type_id,
                 definition,
+                fanout_emitter_uid: None,
+                effective: true,
                 buff,
             });
         }

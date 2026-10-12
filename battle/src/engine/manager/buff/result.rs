@@ -9,6 +9,7 @@ use crate::engine::{
 pub struct BuffApplyResult {
     pub source_uid: i64,
     pub target_uid: i64,
+    pub effective: bool,
     pub buff: BuffInfo,
     pub pre_markers: Vec<BuffActInfoMarkerResult>,
     pub pre_effects: Vec<BuffWireEffectResult>,

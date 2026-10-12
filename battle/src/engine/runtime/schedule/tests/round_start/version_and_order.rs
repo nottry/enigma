@@ -1,6 +1,99 @@
 use super::*;
 
 #[test]
+fn version_seven_sync_interleaves_buff_sync_and_late_setup_by_owner() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    position: Some(1),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![40],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(20),
+                    position: Some(2),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![50],
+                    buffs: vec![BuffInfo {
+                        uid: Some(30),
+                        buff_id: Some(31270413),
+                        from_uid: Some(20),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let slot = |condition| {
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![condition];
+        slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+        slot
+    };
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![slot(ParsedCondition {
+            opcode: 104,
+            type_name: "None".to_owned(),
+            kind: ParsedConditionKind::None(NoneMode::RoundStart),
+            raw_args: Vec::new(),
+        })],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![slot(ParsedCondition {
+            opcode: 19104,
+            type_name: "HasBuffId".to_owned(),
+            kind: ParsedConditionKind::BuffId {
+                mode: BuffConditionMode::Present,
+                buff_ids: vec![31270413],
+            },
+            raw_args: vec!["31270413".to_owned()],
+        })],
+    });
+
+    let (round, _, _, _) = run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        0,
+    )
+    .unwrap();
+    let targets = round
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::ExPoint(crate::engine::manager::ex_point::ExPointChanges::Value {
+                change,
+                ..
+            }) => Some(change.target_uid),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(targets, [10, 20]);
+}
+
+#[test]
 fn version_seven_runs_late_setup_before_priority_three_setup() {
     init_config();
     let fight = Fight {

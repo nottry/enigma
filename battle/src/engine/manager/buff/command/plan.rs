@@ -890,10 +890,12 @@ impl BuffManager {
         let fanout_specs = if matches!(action, GrantAction::Add | GrantAction::ReplaceExisting) {
             self.fanout_specs(
                 hp,
-                route.target_uid,
-                route.buff_id,
-                stack_layer,
-                definition.count(args.count),
+                route,
+                BuffAddArgs {
+                    layer: stack_layer,
+                    count: definition.count(args.count),
+                    layer_specified: true,
+                },
                 policy.lifetime.duration,
             )
         } else {
@@ -980,29 +982,13 @@ impl BuffManager {
                 buff_uid,
                 next_layer,
                 next_duration,
-            }) => self.fanout_refresh_specs(
-                hp,
-                route.target_uid,
-                route.buff_id,
-                buff_uid,
-                next_layer,
-                next_duration,
-            ),
+            }) => self.fanout_refresh_specs(hp, route, buff_uid, next_layer, next_duration),
             Some(LayerRefreshPlan::PromoteRestored {
                 next_layer,
                 next_duration,
                 ..
             }) => layer_refresh_uid
-                .map(|uid| {
-                    self.fanout_refresh_specs(
-                        hp,
-                        route.target_uid,
-                        route.buff_id,
-                        uid.uid,
-                        next_layer,
-                        next_duration,
-                    )
-                })
+                .map(|uid| self.fanout_refresh_specs(hp, route, uid.uid, next_layer, next_duration))
                 .unwrap_or_default(),
             _ if action == GrantAction::RefreshExisting => self
                 .buffs
@@ -1014,8 +1000,7 @@ impl BuffManager {
                 .and_then(|active| {
                     Some(self.fanout_refresh_specs(
                         hp,
-                        route.target_uid,
-                        route.buff_id,
+                        route,
                         active.buff.uid?,
                         active.buff.layer.unwrap_or(stack_layer),
                         active.buff.duration.unwrap_or(policy.lifetime.duration),
@@ -1049,8 +1034,7 @@ impl BuffManager {
                 .and_then(|active| {
                     Some(self.fanout_refresh_specs(
                         hp,
-                        route.target_uid,
-                        route.buff_id,
+                        route,
                         active.buff.uid?,
                         active.buff.layer.unwrap_or(stack_layer),
                         active.buff.duration.unwrap_or(policy.lifetime.duration),

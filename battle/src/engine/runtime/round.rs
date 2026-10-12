@@ -194,6 +194,10 @@ impl BattleRuntime {
             current_round: self.round_state.cur_round,
             ..Default::default()
         };
+        let settlement_context = crate::engine::skill::target::TargetContext {
+            current_round: active_round,
+            ..context
+        };
         let commands = commands_from_opers(&request.opers);
         let fight_version = self.fight.version.unwrap_or_default();
         let absorb_hurt_map_layout = self.absorb_hurt_map_layout;
@@ -320,7 +324,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
         } else {
             schedule::run_attacker_round_end(
@@ -328,7 +332,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
         }
         .map_err(|error| format!("{error:?}"))?;
@@ -455,7 +459,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
             .map_err(|error| format!("{error:?}"))?;
             fight_steps.extend(project_result(

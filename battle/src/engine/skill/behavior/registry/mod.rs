@@ -707,6 +707,7 @@ behavior_definitions! {
     [60016] "AddIndicator" => super::general::AddIndicatorHandler, AddIndicator, Immediate, destination;
     [60268] "ChangeScene" => super::scene::Handler, ChangeScene, Immediate, destination;
     [60058] "CareerRatioFix" => super::career::Handler, CareerRatioFix, Immediate, modifier;
+    [50013] "ChangeCareer" => super::career::Handler, ChangeCareer, Immediate, destination;
     [100036] "SkillChangeAttackCareer" => super::career::Handler, ChangeAttackCareer, Immediate, modifier;
     [60299] "SetCareerRestraint" => super::career::Handler, SetCareerRestraint, Immediate, modifier, arguments::none;
     [40003] "AddAct" => super::action_point::Handler, AddAct, Immediate, round_modifier_only;

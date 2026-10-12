@@ -210,6 +210,7 @@ pub enum BuffActKind {
     ExPointMaxAdd,
     SpExPointMaxAdd,
     ExPointOverflowBank,
+    DeviceExPointOverflowBank,
     FixAttrBySubBuffLayer,
     FixAttrByTeammateInjuryCountNotReset,
     FixAttrTeamEnergy,
@@ -803,7 +804,7 @@ buff_act_definitions! {
     (522, "RealHarmSkillEffectFix") => RealHarmSkillEffectFix, effect_time_subscription: false, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(522, "RealHarmSkillEffectFix"), &[EffectType::Realharmskilleffectfix as i32]));
     (601, "Injury") => Injury, effect_time_subscription: false,
         supports: |args| matches!(args, [value] if *value != 0), state_consumer: true,
-        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(601, "Injury"), &[EffectType::Injury as i32]));
+        wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(601, "Injury"), &[EffectType::Injury as i32]));
     (703, "ExPointMaxAdd") => ExPointMaxAdd,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
         frame: CausingFrame,
@@ -1016,6 +1017,12 @@ buff_act_definitions! {
         events: [EventKind::ExPointChanged],
         scoped_runtime: |context| super::ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(806, "ExPointOverflowBank"), &[EffectType::Expointoverflowbank as i32]));
+    (1149, "DeviceExPointOverflowBank") => DeviceExPointOverflowBank,
+        events: [EventKind::ExPointChanged],
+        scoped_runtime: |context| super::device_ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
+        supports: |args| matches!(args, [capacity] if *capacity > 0),
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1149, "DeviceExPointOverflowBank"), &[EffectType::None as i32])
+            .with_embedded_initial_state(super::wire::InitialStateRule::ZeroInteger));
     (1008, "BanLostLife") => BanLostLife,
         supports: |args| matches!(args, [150] | [160]),
         state_consumer: true,
@@ -1435,7 +1442,7 @@ buff_act_definitions! {
     (1150, "LostHpToFakeHp") => LostHpToFakeHp,
         effect_time_subscription: false,
         supports: super::lost_hp_to_fake_hp::supports, state_consumer: true,
-        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1150, "LostHpToFakeHp"), &[])
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1150, "LostHpToFakeHp"), &[EffectType::None as i32])
             .with_embedded_initial_state(super::wire::InitialStateRule::SourceAttackCapacity));
 }
 

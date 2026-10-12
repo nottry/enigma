@@ -229,3 +229,66 @@ fn defender_round_end_keeps_buff_acts_and_owner_passives_in_one_frame() {
     assert_eq!(managers.buff.buff_id_amount(-2, 116330002), 0);
     assert_eq!(managers.buff.buff_id_amount(-3, 116330002), 0);
 }
+
+#[test]
+fn defender_round_end_replaces_the_defeated_third_add() {
+    init_config();
+    let defender = |uid, model_id, position, current_hp, passive_skill| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        team_type: Some(2),
+        position: Some(position),
+        current_hp: Some(current_hp),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            ..Default::default()
+        }),
+        passive_skill,
+        ..Default::default()
+    };
+    let fight = Fight {
+        battle_id: Some(116330001),
+        cur_wave: Some(1),
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                position: Some(1),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                defender(-1, 116330001, 1, 100_000, vec![116330031]),
+                defender(-2, 116330100, 2, 100_000, Vec::new()),
+                defender(-3, 116330100, 3, 0, Vec::new()),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+    )
+    .unwrap();
+
+    let summoned = managers.entity.snapshot(-4).unwrap();
+    assert_eq!(summoned.model_id, Some(116330100));
+    assert_eq!(summoned.position, Some(3));
+    assert!(managers.entity.snapshot(-5).is_none());
+}

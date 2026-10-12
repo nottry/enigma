@@ -170,6 +170,90 @@ fn halo_fanout_targets_and_child_uids_are_planned() {
 }
 
 #[test]
+fn halo_children_keep_the_grant_source_separate_from_the_carrier() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: [10, 11]
+                .into_iter()
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    let mut hp = HpManager::default();
+    manager.seed(&fight);
+    hp.seed(&fight);
+
+    let changes = manager
+        .execute(
+            &hp,
+            BuffCommand::Grant(BuffGrant {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(1, "AddBuff"),
+                },
+                source_uid: 10,
+                target_uid: 11,
+                buff_id: 31450141,
+                amount: None,
+                occurrences: 1,
+                child_uid_reservations: 0,
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(changes.fanout[0].emitter_uid, 11);
+    assert!(
+        changes.fanout[0]
+            .added
+            .iter()
+            .all(|child| child.buff.from_uid == Some(10))
+    );
+
+    let standby = manager
+        .execute(
+            &hp,
+            BuffCommand::Grant(BuffGrant {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(1, "AddBuff"),
+                },
+                source_uid: 10,
+                target_uid: 10,
+                buff_id: 31450141,
+                amount: None,
+                occurrences: 1,
+                child_uid_reservations: 0,
+            }),
+        )
+        .unwrap();
+    assert!(standby.fanout[0].added.iter().all(|child| !child.effective));
+    assert_eq!(
+        manager
+            .active_features(&hp)
+            .into_iter()
+            .filter(|feature| feature.act_id() == Some(1150))
+            .count(),
+        2
+    );
+
+    manager.remove_by_id(10, 31450141);
+    assert!(manager.has_buff_id(10, 31450143));
+    assert!(manager.has_buff_id(11, 31450143));
+    manager.remove_by_id(11, 31450141);
+    assert!(!manager.has_buff_id(10, 31450143));
+    assert!(!manager.has_buff_id(11, 31450143));
+}
+
+#[test]
 fn base_halo_regrant_refreshes_the_same_team_instances() {
     crate::test_support::init_config();
     let fight = Fight {

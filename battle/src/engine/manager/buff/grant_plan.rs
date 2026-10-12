@@ -43,6 +43,7 @@ pub(super) enum LayerRefreshPlan {
 
 #[derive(Debug, Clone)]
 pub(super) struct FanoutSpec {
+    pub(super) emitter_uid: i64,
     pub(super) route: BuffRoute,
     pub(super) definition: BuffDefinition,
     pub(super) args: BuffAddArgs,
@@ -94,6 +95,7 @@ impl BuffManager {
             })
             .flat_map(|active| {
                 let emitter_uid = active.owner_uid;
+                let source_uid = active.buff.from_uid.unwrap_or(emitter_uid);
                 let carrier_buff_id = active.buff.buff_id.unwrap_or_default();
                 let carrier_buff_uid = active.buff.uid.unwrap_or_default();
                 let layer = active.buff.layer.unwrap_or_default();
@@ -105,6 +107,7 @@ impl BuffManager {
                     .map(move |carrier| {
                         (
                             emitter_uid,
+                            source_uid,
                             carrier_buff_uid,
                             carrier_buff_id,
                             layer,
@@ -119,8 +122,16 @@ impl BuffManager {
         let mut seen = std::collections::HashSet::new();
         let mut plans = Vec::new();
 
-        for (emitter_uid, carrier_buff_uid, carrier_buff_id, layer, count, duration, carrier) in
-            carriers
+        for (
+            emitter_uid,
+            source_uid,
+            carrier_buff_uid,
+            carrier_buff_id,
+            layer,
+            count,
+            duration,
+            carrier,
+        ) in carriers
         {
             let Some(emitter_team) = self.team_type(emitter_uid) else {
                 continue;
@@ -149,7 +160,7 @@ impl BuffManager {
                 };
                 if !in_scope
                     || hp.current(target_uid) <= 0
-                    || self.has_source_buff(target_uid, fanout_buff_id, emitter_uid)
+                    || self.has_fanout_buff(target_uid, fanout_buff_id, emitter_uid)
                 {
                     continue;
                 }
@@ -180,7 +191,8 @@ impl BuffManager {
                     carrier_buff_id,
                     fanout: PlannedFanout {
                         spec: FanoutSpec {
-                            route: BuffRoute::new(emitter_uid, target_uid, fanout_buff_id),
+                            emitter_uid,
+                            route: BuffRoute::new(source_uid, target_uid, fanout_buff_id),
                             definition: definition.clone(),
                             args: BuffAddArgs {
                                 layer,
@@ -447,13 +459,16 @@ impl BuffManager {
     pub(super) fn fanout_specs(
         &self,
         hp: &HpManager,
-        source_uid: i64,
-        buff_id: i32,
-        layer: i32,
-        count: i32,
+        route: BuffRoute,
+        args: BuffAddArgs,
         duration: i32,
     ) -> Vec<FanoutSpec> {
-        let Some(team_type) = self.team_type(source_uid) else {
+        let BuffRoute {
+            source_uid,
+            target_uid: emitter_uid,
+            buff_id,
+        } = route;
+        let Some(team_type) = self.team_type(emitter_uid) else {
             return Vec::new();
         };
         let mut specs = Vec::new();
@@ -475,17 +490,18 @@ impl BuffManager {
                     HaloScope::OpposingTeam => entity.team_type != team_type,
                 })
                 .filter(|entity| hp.current(entity.uid) > 0)
-                .filter(|entity| include_owner || entity.uid != source_uid)
+                .filter(|entity| include_owner || entity.uid != emitter_uid)
             {
-                if self.has_source_buff(target.uid, fanout_buff_id, source_uid) {
+                if self.has_fanout_buff(target.uid, fanout_buff_id, emitter_uid) {
                     continue;
                 }
                 specs.push(FanoutSpec {
+                    emitter_uid,
                     route: BuffRoute::new(source_uid, target.uid, fanout_buff_id),
                     definition: definition.clone(),
                     args: BuffAddArgs {
-                        layer,
-                        count,
+                        layer: args.layer,
+                        count: args.count,
                         layer_specified: true,
                     },
                     duration,
@@ -503,12 +519,16 @@ impl BuffManager {
     pub(super) fn fanout_refresh_specs(
         &self,
         hp: &HpManager,
-        emitter_uid: i64,
-        carrier_buff_id: i32,
+        route: BuffRoute,
         carrier_buff_uid: i64,
         layer: i32,
         duration: i32,
     ) -> Vec<PlannedFanoutRefresh> {
+        let BuffRoute {
+            source_uid,
+            target_uid: emitter_uid,
+            buff_id: carrier_buff_id,
+        } = route;
         let Some(team_type) = self.team_type(emitter_uid) else {
             return Vec::new();
         };
@@ -539,15 +559,19 @@ impl BuffManager {
                 let Some(buff_uid) = self.buffs.iter().find_map(|active| {
                     (active.owner_uid == target.uid
                         && active.buff.buff_id == Some(fanout_buff_id)
-                        && active.buff.from_uid == Some(emitter_uid))
-                    .then_some(active.buff.uid)
-                    .flatten()
+                        && active
+                            .fanout_emitter_uid
+                            .unwrap_or_else(|| active.buff.from_uid.unwrap_or(active.owner_uid))
+                            == emitter_uid)
+                        .then_some(active.buff.uid)
+                        .flatten()
                 }) else {
                     continue;
                 };
                 specs.push(PlannedFanoutRefresh {
                     spec: FanoutSpec {
-                        route: BuffRoute::new(emitter_uid, target.uid, fanout_buff_id),
+                        emitter_uid,
+                        route: BuffRoute::new(source_uid, target.uid, fanout_buff_id),
                         definition: definition.clone(),
                         args: BuffAddArgs {
                             layer,
@@ -566,5 +590,16 @@ impl BuffManager {
             }
         }
         specs
+    }
+
+    fn has_fanout_buff(&self, owner_uid: i64, buff_id: i32, emitter_uid: i64) -> bool {
+        self.buffs.iter().any(|active| {
+            active.owner_uid == owner_uid
+                && active.buff.buff_id == Some(buff_id)
+                && active
+                    .fanout_emitter_uid
+                    .unwrap_or_else(|| active.buff.from_uid.unwrap_or(active.owner_uid))
+                    == emitter_uid
+        })
     }
 }

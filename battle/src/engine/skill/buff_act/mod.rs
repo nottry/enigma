@@ -59,6 +59,7 @@ pub mod damage_not_more_than;
 pub mod damage_over_time;
 pub mod deadly_poison;
 pub mod device_cost_reduce;
+pub mod device_ex_point_overflow_bank;
 pub mod disarm;
 pub mod disperse_by_tag;
 pub mod dodge_spec_skill;

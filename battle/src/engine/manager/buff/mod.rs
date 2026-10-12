@@ -214,6 +214,8 @@ struct ActiveBuff {
     team_type: i32,
     type_id: i32,
     definition: Option<BuffDefinition>,
+    fanout_emitter_uid: Option<i64>,
+    effective: bool,
     buff: BuffInfo,
 }
 

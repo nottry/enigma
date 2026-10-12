@@ -86,6 +86,7 @@ fn configured_seed_preserves_an_empty_captured_area() {
         manager.action_phase_start_commands(1),
         vec![ConduitCommand::ResetPowers { team: 1 }]
     );
+    assert!(manager.initialization_commands().is_empty());
 }
 
 #[test]

@@ -1210,6 +1210,13 @@ fn project_change(
                     changes.origin.key.opcode,
                 )]
             }
+            crate::engine::manager::entity::EntityOperation::ChangeCareer { career } => {
+                vec![EffectPacket::career_change(
+                    changes.target_uid,
+                    career,
+                    changes.origin.key.opcode,
+                )]
+            }
         },
         BattleChange::ToughnessRecovered(change) => {
             vec![EffectPacket::toughness_recover(*change)]

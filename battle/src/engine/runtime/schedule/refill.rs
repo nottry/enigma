@@ -334,7 +334,8 @@ pub fn run_post_action_refill_settlement(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
 ) -> Result<DrainResult, DrainError> {
-    let replenishment = buff_act::ex_point_overflow_bank::replenishment_rule_ops(managers);
+    let mut replenishment = buff_act::ex_point_overflow_bank::replenishment_rule_ops(managers);
+    replenishment.extend(buff_act::device_ex_point_overflow_bank::replenishment_rule_ops(managers));
     if replenishment.is_empty() {
         Ok(DrainResult::default())
     } else {

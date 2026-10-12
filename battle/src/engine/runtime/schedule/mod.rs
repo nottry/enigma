@@ -79,8 +79,6 @@ const HAND_LIMIT_CLEANUP_ORIGIN: CommandOrigin = CommandOrigin {
 const ROUND_START_VERSION6_SYNC_SETUP: &[(SetupStage, i32)] =
     &[(SetupStage::RoundStart, 4), (SetupStage::BuffSync, 0)];
 
-const ROUND_START_VERSION7_SYNC_SETUP: &[(SetupStage, i32)] = &[(SetupStage::BuffSync, 0)];
-
 mod player;
 mod refill;
 mod resolution;
