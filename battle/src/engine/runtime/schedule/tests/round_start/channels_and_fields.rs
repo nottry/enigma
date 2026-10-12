@@ -388,6 +388,7 @@ fn round_start_capacity_uses_only_exact_raspberry_loss_instances() {
                 source_uid: 10,
                 target_uid: 10,
                 damage: None,
+                fake_hp_absorbed: None,
                 team_shared_shield_absorbed: None,
                 team_shared_shield_removed: None,
                 shared_hurt: None,

@@ -372,7 +372,10 @@ pub fn run_ai_actions(
             }
             .into();
         invocation.card_index = card_index;
-        if choice.target_uid != 0 {
+        if choice.target_uid != 0
+            && catalog.logic_target(choice.skill_id)
+                != crate::engine::skill::target::request::SOURCE_TARGET_CODE
+        {
             invocation.target =
                 crate::engine::skill::action::SkillTarget::Explicit(choice.target_uid);
         }

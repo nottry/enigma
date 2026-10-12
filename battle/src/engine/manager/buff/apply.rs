@@ -660,6 +660,9 @@ impl BuffManager {
         uid: uid_policy::UidAllocationPlan,
     ) -> Option<BuffApplyResult> {
         let grant_values = self.plan_grant_values(&spec.definition, spec.route.source_uid);
+        let initial_act_info = spec
+            .definition
+            .initial_planned_act_info(spec.source_attack, &grant_values);
         let mut child = self.add_one_with_uid(
             hp,
             spec.route,
@@ -668,6 +671,14 @@ impl BuffManager {
             spec.route.source_uid,
             uid,
         )?;
+        if let Some(initial_act_info) = initial_act_info {
+            child.buff.act_info.extend(initial_act_info);
+            if let Some(active) = self.buffs.iter_mut().find(|active| {
+                active.owner_uid == child.target_uid && active.buff.uid == child.buff.uid
+            }) {
+                active.buff.act_info = child.buff.act_info.clone();
+            }
+        }
         if let Some(buff_uid) = child.buff.uid {
             self.commit_grant_values(buff_uid, &grant_values);
         }

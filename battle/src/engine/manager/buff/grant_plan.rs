@@ -48,6 +48,7 @@ pub(super) struct FanoutSpec {
     pub(super) args: BuffAddArgs,
     pub(super) duration: i32,
     pub(super) rule: crate::engine::skill::rule::DefinitionKey,
+    pub(super) source_attack: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +189,7 @@ impl BuffManager {
                             },
                             duration,
                             rule,
+                            source_attack: None,
                         },
                         uid,
                     },
@@ -491,6 +493,7 @@ impl BuffManager {
                         carrier.opcode,
                         carrier.type_name,
                     ),
+                    source_attack: None,
                 });
             }
         }
@@ -553,6 +556,7 @@ impl BuffManager {
                         },
                         duration,
                         rule,
+                        source_attack: None,
                     },
                     buff_uid,
                     carrier_buff_uid,

@@ -90,6 +90,7 @@ pub struct BattleManagers {
 
 struct HpPlan {
     command: hp::HpCommand,
+    fake_hp: Option<hp::FakeHpAbsorption>,
     team_shared: Option<hp::TeamSharedShieldPlan>,
     team_shared_buff: Option<BuffPlan>,
     share: Option<ShareHurtPlan>,
@@ -304,44 +305,7 @@ impl BattleManagers {
             BuffCommand::ChangeDuration(change) => Some(change.target_uid),
             _ => None,
         };
-        let source_attack = source_uid.map(|uid| {
-            let base = self
-                .attribute
-                .base(uid, crate::engine::entity::attr::AttrId::Attack);
-            let active_features = self.buff.active_features(&self.hp);
-            let dynamic = active_features
-                .iter()
-                .filter(|feature| feature.owner_uid == uid)
-                .map(|feature| {
-                    crate::engine::skill::buff_act::attack_attribute_delta(
-                        feature,
-                        crate::engine::entity::attr::AttrId::Attack,
-                        &self.buff,
-                        &self.hp,
-                    )
-                })
-                .sum::<i32>();
-            let flat = active_features
-                .iter()
-                .filter(|feature| feature.owner_uid == uid)
-                .map(|feature| {
-                    crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
-                        feature,
-                        crate::engine::entity::attr::AttrId::Attack,
-                        &self.buff,
-                    )
-                })
-                .sum::<i32>();
-            let rate = 1000
-                + self
-                    .attribute
-                    .get(uid, crate::engine::entity::attr::AttrId::Attack)
-                + self
-                    .buff
-                    .attribute_delta(uid, crate::engine::entity::attr::AttrId::Attack)
-                + dynamic;
-            base * rate.max(0) / 1000 + flat
-        });
+        let source_attack = source_uid.map(|uid| self.attack(uid));
         let mut plan = self.buff.plan_with_source_attack(
             &self.hp,
             command,
@@ -350,6 +314,12 @@ impl BattleManagers {
                 resist_roll,
             },
         )?;
+        let fanout_attacks = plan
+            .fanout_source_uids()
+            .into_iter()
+            .map(|uid| (uid, self.attack(uid)))
+            .collect();
+        plan.initialize_fanout_source_attacks(&fanout_attacks);
         if let Some((source_uid, features)) = plan.source_relative_attribute_features() {
             let act_info = features
                 .into_iter()
@@ -369,6 +339,35 @@ impl BattleManagers {
             plan.initialize_added_act_info_without_markers(act_info);
         }
         Ok(plan)
+    }
+
+    fn attack(&self, uid: i64) -> i32 {
+        let attack = crate::engine::entity::attr::AttrId::Attack;
+        let base = self.attribute.base(uid, attack);
+        let active_features = self.buff.active_features(&self.hp);
+        let dynamic = active_features
+            .iter()
+            .filter(|feature| feature.owner_uid == uid)
+            .map(|feature| {
+                crate::engine::skill::buff_act::attack_attribute_delta(
+                    feature, attack, &self.buff, &self.hp,
+                )
+            })
+            .sum::<i32>();
+        let flat = active_features
+            .iter()
+            .filter(|feature| feature.owner_uid == uid)
+            .map(|feature| {
+                crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
+                    feature, attack, &self.buff,
+                )
+            })
+            .sum::<i32>();
+        let rate = 1000
+            + self.attribute.get(uid, attack)
+            + self.buff.attribute_delta(uid, attack)
+            + dynamic;
+        base * rate.max(0) / 1000 + flat
     }
 
     pub(crate) fn commit_buff(&mut self, plan: BuffPlan) -> BuffChanges {
@@ -562,6 +561,18 @@ impl BattleManagers {
                 }),
             _ => None,
         };
+        let fake_hp = match command {
+            hp::HpCommand::Damage(damage)
+                if damage.amount > 0 && damage.effect_kind != hp::DamageEffectKind::Avoided =>
+            {
+                crate::engine::skill::buff_act::lost_hp_to_fake_hp::zero_reserve(
+                    &self.buff,
+                    hp,
+                    damage.target_uid,
+                )?
+            }
+            _ => None,
+        };
         let team_shared_buff = if let hp::HpCommand::Damage(damage) = command
             && let Some(absorption) = team_shared.and_then(|plan| plan.absorption(damage.amount))
         {
@@ -573,6 +584,7 @@ impl BattleManagers {
         };
         Ok(HpPlan {
             command,
+            fake_hp,
             team_shared,
             team_shared_buff,
             share,
@@ -609,6 +621,7 @@ impl BattleManagers {
         let mut changes = self
             .hp
             .commit_validated_command_with_team_shared(plan.command, plan.team_shared);
+        changes.fake_hp_absorbed = plan.fake_hp;
         changes.toughness = toughness;
         changes.team_shared_shield_removed = team_shared_shield_removed;
         changes.shared_hurt = shared_hurt;

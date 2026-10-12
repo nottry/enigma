@@ -45,6 +45,7 @@ pub enum InitialStateRule {
     CurrentHpPermille,
     SourceAttackThreshold,
     SourceAttackAttribute,
+    SourceAttackCapacity,
     FirstArgument,
     SecondArgument,
     StringCounter,

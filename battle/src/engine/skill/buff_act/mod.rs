@@ -91,6 +91,7 @@ pub mod injury_bank;
 pub mod life_attack_fix_rate;
 pub mod lost_hp_add_extra_blood_pool_value;
 pub mod lost_hp_count_add_buff;
+pub mod lost_hp_to_fake_hp;
 pub mod modify_attr_by_buff_layer;
 pub mod monitor_continue_channel;
 pub mod must_crit_and_fix_temp_attr;

@@ -453,7 +453,8 @@ impl BuffDefinition {
                         0,
                     ),
                     InitialStateRule::SourceAttackThreshold
-                    | InitialStateRule::SourceAttackAttribute => return None,
+                    | InitialStateRule::SourceAttackAttribute
+                    | InitialStateRule::SourceAttackCapacity => return None,
                     InitialStateRule::FirstArgument => (
                         vec![feature.values.get(1).copied().unwrap_or_default()],
                         String::new(),
@@ -544,6 +545,14 @@ impl BuffDefinition {
                             str_param: Some(format!("{}#{value}", attr_id.id())),
                         })
                     }
+                    InitialStateRule::SourceAttackCapacity => Some(sonettobuf::BuffActInfo {
+                        act_id: Some(act_id),
+                        param: crate::engine::skill::buff_act::lost_hp_to_fake_hp::initial_state(
+                            source_attack?,
+                            feature.values.get(1..)?,
+                        )?,
+                        str_param: Some(String::new()),
+                    }),
                     InitialStateRule::GrantValue => {
                         let value = grant_values
                             .iter()

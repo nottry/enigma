@@ -241,6 +241,7 @@ pub enum BuffActKind {
     LayerMasterHalo,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
+    LostHpToFakeHp,
     LifeAttackFixRate,
     MonitorContinueChannel,
     BuffOwnedCharge,
@@ -1431,6 +1432,11 @@ buff_act_definitions! {
         effect_time_subscription: false,
         supports: |args| args.is_empty(), state_consumer: true,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1140, "SkillNoUseActPoint"), &[]));
+    (1150, "LostHpToFakeHp") => LostHpToFakeHp,
+        effect_time_subscription: false,
+        supports: super::lost_hp_to_fake_hp::supports, state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1150, "LostHpToFakeHp"), &[])
+            .with_embedded_initial_state(super::wire::InitialStateRule::SourceAttackCapacity));
 }
 
 pub fn definitions() -> impl Iterator<Item = &'static BuffActDefinition> {

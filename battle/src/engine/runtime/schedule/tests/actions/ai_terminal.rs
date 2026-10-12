@@ -1,6 +1,57 @@
 use super::*;
 
 #[test]
+fn ai_self_target_skills_ignore_the_selected_opponent() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-2),
+                current_hp: Some(100),
+                team_type: Some(-1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [116330112], []);
+
+    let result = run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [AiSkillChoice {
+            source_uid: -2,
+            skill_id: 116330112,
+            target_uid: 10,
+        }],
+    )
+    .unwrap();
+
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find(|step| step.act_id == Some(116330112))
+        .unwrap();
+    assert_eq!((skill.from_id, skill.to_id), (Some(-2), Some(-2)));
+    assert_eq!(skill.act_effect[0].target_id, Some(-2));
+}
+
+#[test]
 fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resource() {
     init_config();
     let fight = Fight {

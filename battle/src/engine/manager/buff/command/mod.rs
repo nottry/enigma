@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sonettobuf::BuffActInfo;
 
 use crate::engine::{
@@ -380,6 +382,38 @@ pub(crate) struct BuffPlan {
 type SourceRelativeAttributeFeatures = (i64, Vec<(i32, i32, i32, i32)>);
 
 impl BuffPlan {
+    pub(crate) fn fanout_source_uids(&self) -> Vec<i64> {
+        match &self.action {
+            BuffPlanAction::Grant(plan) => plan
+                .fanout
+                .iter()
+                .map(|fanout| fanout.spec.route.source_uid)
+                .collect(),
+            BuffPlanAction::FanoutMasterHalo(plans) => plans
+                .iter()
+                .map(|plan| plan.fanout.spec.route.source_uid)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub(crate) fn initialize_fanout_source_attacks(&mut self, attacks: &HashMap<i64, i32>) {
+        let fanouts: &mut [PlannedFanout] = match &mut self.action {
+            BuffPlanAction::Grant(plan) => &mut plan.fanout,
+            BuffPlanAction::FanoutMasterHalo(plans) => {
+                for plan in plans {
+                    plan.fanout.spec.source_attack =
+                        attacks.get(&plan.fanout.spec.route.source_uid).copied();
+                }
+                return;
+            }
+            _ => return,
+        };
+        for fanout in fanouts {
+            fanout.spec.source_attack = attacks.get(&fanout.spec.route.source_uid).copied();
+        }
+    }
+
     pub(crate) fn planned_reservation_uids(&self) -> Option<Vec<i64>> {
         let BuffPlanAction::ReserveChildUids(plan) = &self.action else {
             return None;
