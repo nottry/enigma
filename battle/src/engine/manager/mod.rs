@@ -780,7 +780,13 @@ impl BattleManagers {
         command: entity::EntityCommand,
     ) -> Result<entity::EntityChanges, entity::EntityCommandError> {
         let catalog = self.catalog();
-        let mut changes = self.entity.execute_command(catalog, command, &self.hp)?;
+        let combat_capacity = self.combat_capacity(command.source_uid);
+        let mut changes = self.entity.execute_command_with_capacity(
+            catalog,
+            command,
+            &self.hp,
+            combat_capacity,
+        )?;
         if matches!(changes.operation, entity::EntityOperation::Transform { .. }) {
             changes.entity.ex_point = Some(self.ex_point.get(changes.target_uid));
             changes.entity.shield_value = Some(self.hp.shield(changes.target_uid));
@@ -805,7 +811,31 @@ impl BattleManagers {
     }
 
     pub(crate) fn first_open_combat_position(&self, source_uid: i64) -> Option<i32> {
-        self.entity.first_open_combat_position(source_uid, &self.hp)
+        self.entity.first_open_combat_position(
+            source_uid,
+            &self.hp,
+            self.combat_capacity(source_uid),
+        )
+    }
+
+    pub(crate) fn combat_position_available(&self, source_uid: i64, position: i32) -> bool {
+        self.entity.combat_position_available(
+            source_uid,
+            position,
+            &self.hp,
+            self.combat_capacity(source_uid),
+        )
+    }
+
+    fn combat_capacity(&self, source_uid: i64) -> i32 {
+        match self.entity.team_type(source_uid) {
+            Some(2) => match self.wave.combat_capacity() {
+                Some(capacity) => capacity,
+                None => entity::MAX_COMBAT_POSITION,
+            },
+            Some(1) => entity::MAX_COMBAT_POSITION,
+            _ => 0,
+        }
     }
 
     pub(crate) fn execute_gauge(

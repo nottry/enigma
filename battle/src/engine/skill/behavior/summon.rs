@@ -80,7 +80,13 @@ impl BehaviorHandler for Handler {
                         .managers
                         .first_open_combat_position(context.source_uid),
                 ),
-                [model_id, position] => (*model_id, Some(*position)),
+                [model_id, position] => (
+                    *model_id,
+                    context
+                        .managers
+                        .combat_position_available(context.source_uid, *position)
+                        .then_some(*position),
+                ),
                 _ => return None,
             };
             let Some(position) = position else {
@@ -216,18 +222,21 @@ mod tests {
     #[test]
     fn summon_uses_the_configured_or_first_open_combat_position() {
         let fight = Fight {
+            battle_id: Some(1407),
             defender: Some(FightTeam {
-                entitys: vec![FightEntityInfo {
-                    uid: Some(-1),
-                    team_type: Some(2),
-                    position: Some(1),
-                    current_hp: Some(100),
-                    attr: Some(HeroAttribute {
-                        hp: Some(100),
+                entitys: (1..=3)
+                    .map(|position| FightEntityInfo {
+                        uid: Some(-i64::from(position)),
+                        team_type: Some(2),
+                        position: Some(position),
+                        current_hp: Some(100),
+                        attr: Some(HeroAttribute {
+                            hp: Some(100),
+                            ..Default::default()
+                        }),
                         ..Default::default()
-                    }),
-                    ..Default::default()
-                }],
+                    })
+                    .collect(),
                 ..Default::default()
             }),
             ..Default::default()
@@ -238,8 +247,8 @@ mod tests {
         let mut modifiers = SkillModifiers::default();
         let mut target = TargetContext::default();
         for (args, raw_args, expected_position) in [
-            (vec![30111003], vec!["30111003".into()], 2),
-            (vec![30111003, 3], vec!["30111003".into(), "3".into()], 3),
+            (vec![30111003], vec!["30111003".into()], 4),
+            (vec![30111003, 4], vec!["30111003".into(), "4".into()], 4),
         ] {
             let behavior =
                 ParsedBehavior::from_spec(BehaviorSpec::new(60008, "Summon"), args, raw_args);
@@ -277,11 +286,12 @@ mod tests {
     }
 
     #[test]
-    fn summon_is_a_valid_noop_when_all_combat_positions_are_occupied() {
+    fn summon_is_a_valid_noop_at_the_configured_combat_capacity() {
         crate::test_support::init_config();
         let fight = Fight {
+            battle_id: Some(116330001),
             defender: Some(FightTeam {
-                entitys: (1..=4)
+                entitys: (1..=3)
                     .map(|position| FightEntityInfo {
                         uid: Some(-i64::from(position)),
                         team_type: Some(2),
@@ -303,30 +313,31 @@ mod tests {
         let mut determinism = RoundDeterminism::default();
         let mut modifiers = SkillModifiers::default();
         let mut target = TargetContext::default();
-        let behavior = ParsedBehavior::from_spec(
-            BehaviorSpec::new(60008, "Summon"),
-            vec![900110102],
-            vec!["900110102".into()],
-        );
+        for args in [vec![900110102], vec![900110102, 4]] {
+            let behavior = ParsedBehavior::from_spec(
+                BehaviorSpec::new(60008, "Summon"),
+                args.clone(),
+                args.into_iter().map(|value| value.to_string()).collect(),
+            );
+            let ops = Handler::emit_ops(
+                BehaviorOpContext {
+                    source_uid: -1,
+                    source_team: 2,
+                    target_uid: -1,
+                    active_skill_id: 23390171,
+                    transfer_count: 1,
+                    event: None,
+                    managers: &managers,
+                    pool: &pool,
+                    determinism: &mut determinism,
+                    modifiers: &mut modifiers,
+                    target: &mut target,
+                },
+                &behavior,
+            )
+            .unwrap();
 
-        let ops = Handler::emit_ops(
-            BehaviorOpContext {
-                source_uid: -1,
-                source_team: 2,
-                target_uid: -1,
-                active_skill_id: 23390171,
-                transfer_count: 1,
-                event: None,
-                managers: &managers,
-                pool: &pool,
-                determinism: &mut determinism,
-                modifiers: &mut modifiers,
-                target: &mut target,
-            },
-            &behavior,
-        )
-        .unwrap();
-
-        assert!(ops.is_empty());
+            assert!(ops.is_empty());
+        }
     }
 }

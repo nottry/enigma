@@ -469,6 +469,27 @@ fn combatant_summon_joins_the_active_team_at_the_allocated_position() {
     assert_eq!(changes.entity.position, Some(2));
     assert_eq!(changes.entity.model_id, Some(30111003));
     assert_eq!(fight.defender.unwrap().entitys[1], changes.entity);
+
+    let error = manager
+        .execute_command_with_capacity(
+            catalog(),
+            EntityCommand {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(60008, "Summon"),
+                },
+                source_uid: -1,
+                target_uid: -1,
+                operation: EntityOperation::SummonCombatant {
+                    model_id: 30111003,
+                    position: 4,
+                },
+            },
+            &HpManager::default(),
+            3,
+        )
+        .unwrap_err();
+    assert_eq!(error, EntityCommandError::InvalidCommand);
 }
 
 #[test]

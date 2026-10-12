@@ -96,6 +96,10 @@ impl WaveManager {
     pub fn has_next_wave(&self) -> bool {
         self.current_index.saturating_add(1) < self.group_ids.len()
     }
+
+    pub(crate) fn combat_capacity(&self) -> Option<i32> {
+        (!self.group_ids.is_empty()).then_some(self.monster_max.min(4) as i32)
+    }
 }
 
 fn ids(value: &str) -> Vec<i32> {

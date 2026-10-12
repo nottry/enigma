@@ -10,6 +10,7 @@ use crate::engine::{
 };
 
 const SPECIAL_POSITION: i32 = 5;
+pub(crate) const MAX_COMBAT_POSITION: i32 = SPECIAL_POSITION - 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RosterLane {
@@ -174,18 +175,36 @@ impl EntityManager {
         Self::seed_with_game_data(crate::test_support::game_data(), fight)
     }
 
+    #[cfg(test)]
     pub(crate) fn execute_command(
         &mut self,
         catalog: crate::catalog::BattleCatalog,
         command: EntityCommand,
         hp: &HpManager,
     ) -> Result<EntityChanges, EntityCommandError> {
+        self.execute_command_with_capacity(catalog, command, hp, MAX_COMBAT_POSITION)
+    }
+
+    pub(crate) fn execute_command_with_capacity(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        command: EntityCommand,
+        hp: &HpManager,
+        combat_capacity: i32,
+    ) -> Result<EntityChanges, EntityCommandError> {
         if command.source_uid == 0 || command.target_uid == 0 {
             return Err(EntityCommandError::InvalidCommand);
         }
         let entity = match command.operation {
             EntityOperation::SummonCombatant { model_id, position } => {
-                if model_id <= 0 || !(1..SPECIAL_POSITION).contains(&position) {
+                if model_id <= 0
+                    || !self.combat_position_available(
+                        command.source_uid,
+                        position,
+                        hp,
+                        combat_capacity,
+                    )
+                {
                     return Err(EntityCommandError::InvalidCommand);
                 }
                 let team_type = self
@@ -519,18 +538,34 @@ impl EntityManager {
         &self,
         source_uid: i64,
         hp: &crate::engine::manager::hp::HpManager,
+        combat_capacity: i32,
     ) -> Option<i32> {
-        let team_type = self.teams.get(&source_uid)?;
-        (1..SPECIAL_POSITION).find(|position| {
-            !self
-                .roster_uids(*team_type, RosterLane::Main)
-                .into_iter()
-                .filter_map(|uid| self.identities.get(&uid))
-                .any(|entity| {
-                    entity.position == Some(*position)
-                        && entity.uid.is_some_and(|uid| hp.current(uid) > 0)
-                })
+        (1..=combat_capacity).find(|position| {
+            self.combat_position_available(source_uid, *position, hp, combat_capacity)
         })
+    }
+
+    pub(crate) fn combat_position_available(
+        &self,
+        source_uid: i64,
+        position: i32,
+        hp: &crate::engine::manager::hp::HpManager,
+        combat_capacity: i32,
+    ) -> bool {
+        let Some(team_type) = self.teams.get(&source_uid).copied() else {
+            return false;
+        };
+        if !(1..=combat_capacity).contains(&position) {
+            return false;
+        }
+        !self
+            .roster_uids(team_type, RosterLane::Main)
+            .into_iter()
+            .filter_map(|uid| self.identities.get(&uid))
+            .any(|entity| {
+                entity.position == Some(position)
+                    && entity.uid.is_some_and(|uid| hp.current(uid) > 0)
+            })
     }
 
     pub(crate) fn alive_combatants(
