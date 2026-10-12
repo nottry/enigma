@@ -15,10 +15,10 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
         }),
         ..Default::default()
     };
-    for (skill_id, initial_group, switches_group) in [
-        (31450181, 1, true),
-        (31450182, 1, true),
-        (31450181, 2, false),
+    for (skill_id, enabled_skill_id, initial_group, switches_group) in [
+        (31450181, 31450121, 1, true),
+        (31450182, 31450122, 1, true),
+        (31450181, 31450121, 2, false),
     ] {
         let fight = Fight {
             attacker: Some(FightTeam {
@@ -42,8 +42,11 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
                 },
             )
             .unwrap();
-        let catalog =
-            SkillEffectCatalog::from_roots(config::configs::get(), [skill_id, 31450121], []);
+        let catalog = SkillEffectCatalog::from_roots(
+            config::configs::get(),
+            [skill_id, enabled_skill_id],
+            [],
+        );
         let mut invocation: SkillInvocation = SkillRequest {
             source_uid: 10,
             skill_id,
@@ -114,7 +117,7 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
         if switches_group {
             let mut invocation: SkillInvocation = SkillRequest {
                 source_uid: 10,
-                skill_id: 31450121,
+                skill_id: enabled_skill_id,
             }
             .into();
             invocation.mode = SkillExecutionMode::Device;
@@ -129,22 +132,37 @@ fn configured_device_group_change_follows_its_after_hit_effects() {
                 invocation,
             )
             .unwrap();
-            let deleted = crate::engine::packet::timeline::project(&result.frames)
+            let effects = crate::engine::packet::timeline::project(&result.frames)
                 .unwrap()
                 .into_iter()
-                .find(|step| step.act_id == Some(31450121))
+                .find(|step| step.act_id == Some(enabled_skill_id))
                 .expect("the enabled device skill projects a step")
-                .act_effect
-                .into_iter()
-                .find(|effect| {
+                .act_effect;
+            let deleted = effects
+                .iter()
+                .position(|effect| {
                     effect.effect_type
                         == Some(sonettobuf::effect_type_enum::EffectType::Buffdel as i32)
                         && effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31450121)
                 })
                 .expect("the device skill consumes its enabling stack");
+            let last_heal = effects
+                .iter()
+                .rposition(|effect| effect.config_effect == Some(20001))
+                .expect("the device skill applies its configured healing");
+            let group_change = effects
+                .iter()
+                .position(|effect| effect.config_effect == Some(60293))
+                .expect("the device skill returns to its first group");
 
-            assert_eq!(deleted.buff.and_then(|buff| buff.layer), Some(1));
+            assert_eq!(
+                effects[deleted].buff.as_ref().and_then(|buff| buff.layer),
+                Some(1)
+            );
+            assert!(deleted < last_heal);
+            assert!(last_heal < group_change);
             assert!(!managers.buff.has_buff_id(10, 31450121));
+            assert_eq!(managers.conduit.selected_group(10), Some(1));
         }
     }
 }
