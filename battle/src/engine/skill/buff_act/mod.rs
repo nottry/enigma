@@ -26,6 +26,7 @@ pub mod attr_by_lost_hp;
 pub mod attr_by_shield;
 pub mod attr_by_skill_target_count;
 pub mod attr_from_entity;
+pub mod attr_from_entity_no_layer;
 pub mod attr_only_cal_damage_attack;
 pub mod attr_only_cal_damage_hp_replace_attack;
 pub mod attr_only_cal_damage_replace_attr_ad_creator;
@@ -967,6 +968,9 @@ pub fn dynamic_attribute_delta(
         }
         Some(registry::BuffActKind::AttrByLostHp) => {
             attr_by_lost_hp::attribute_delta(feature, attr_id, hp)
+        }
+        Some(registry::BuffActKind::AttrFromEntityNoLayer) => {
+            attr_from_entity_no_layer::attribute_delta(feature, attr_id, buffs)
         }
         Some(registry::BuffActKind::FixAttrByTeammateInjuryCountNotReset) => {
             fix_attr_by_teammate_injury_count::attribute_delta(

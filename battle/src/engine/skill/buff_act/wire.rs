@@ -44,6 +44,7 @@ pub enum InitialStateRule {
     HeatScale,
     CurrentHpPermille,
     SourceAttackThreshold,
+    SourceAttackAttribute,
     FirstArgument,
     SecondArgument,
     StringCounter,

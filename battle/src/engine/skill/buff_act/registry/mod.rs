@@ -120,6 +120,7 @@ pub enum BuffActKind {
     AssassinateCreateAdditionalDamage,
     AttrByHeatScale,
     AttrFromEntity,
+    AttrFromEntityNoLayer,
     AttrOnlyCalDamageAttack,
     AttrOnlyCalDamageAttackBigSkill,
     AttrOnlyCalDamageBeAttacked,
@@ -1062,6 +1063,9 @@ buff_act_definitions! {
         },
         supports: |_| true, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(815, "AddSpTempCard"), &[EffectType::None as i32]));
     (820, "AttrFromEntity") => AttrFromEntity, effect_time_subscription: false, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(820, "AttrFromEntity"), &[EffectType::Attr as i32]));
+    (1152, "AttrFromEntityNoLayer") => AttrFromEntityNoLayer, effect_time_subscription: false,
+        supports: super::attr_from_entity_no_layer::supports, state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1152, "AttrFromEntityNoLayer"), &[EffectType::Attr as i32]).with_initial_state(super::wire::InitialStateRule::SourceAttackAttribute));
     (822, "LayerMasterHalo") => LayerMasterHalo, state_consumer: true, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(822, "LayerMasterHalo"), &[EffectType::Layermasterhalo as i32]));
     (825, "ConsumeBuffContinueChannel") => ConsumeBuffContinueChannel, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(825, "ConsumeBuffContinueChannel"), &[EffectType::None as i32]));
     (827, "Bullet") => Bullet,
