@@ -1058,6 +1058,7 @@ pub(super) fn card_play_resource_delta(
     if crate::engine::mechanic::card::CardMechanic
         .boss_ultimate_power(managers, source_uid)
         .is_some()
+        || !managers.ex_point.gains_card_play_ex_point(source_uid)
     {
         return None;
     }

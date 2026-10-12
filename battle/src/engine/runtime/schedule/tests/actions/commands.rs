@@ -433,6 +433,28 @@ fn named_boss_power_does_not_gain_card_moxie() {
 }
 
 #[test]
+fn monster_without_an_ultimate_resource_does_not_gain_card_moxie() {
+    init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(116_330_100),
+                level: Some(85),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+
+    assert!(!managers.ex_point.gains_composition_ex_point(-1));
+    assert_eq!(card_play_resource_delta(&managers, -1, true, false), None);
+}
+
+#[test]
 fn rewritten_card_executes_for_its_resolved_caster() {
     init_config();
     let fight = Fight {

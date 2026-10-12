@@ -68,12 +68,25 @@ impl ExPointKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExPointState {
     pub current: i32,
     pub max: i32,
     pub kind: i32,
     pub recent_decrement: i32,
+    pub gains_card_play: bool,
+}
+
+impl Default for ExPointState {
+    fn default() -> Self {
+        Self {
+            current: 0,
+            max: ExPointKind::Common.default_max(),
+            kind: ExPointKind::Common.as_wire(),
+            recent_decrement: 0,
+            gains_card_play: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -475,7 +488,11 @@ impl ExPointManager {
     fn register_from(&mut self, entity: &FightEntityInfo, base_max: Option<i32>) {
         let Some(uid) = entity.uid else { return };
         let kind = ExPointKind::from_wire(entity.ex_point_type.unwrap_or_default());
-        let base_max = base_max.unwrap_or_else(|| kind.default_max());
+        let gains_card_play =
+            kind == ExPointKind::Common && base_max.unwrap_or_else(|| kind.default_max()) > 0;
+        let base_max = base_max
+            .filter(|max| *max > 0)
+            .unwrap_or_else(|| kind.default_max());
         self.states.insert(
             uid,
             Self::normalize(ExPointState {
@@ -483,6 +500,7 @@ impl ExPointManager {
                 max: base_max + entity.expoint_max_add.unwrap_or_default(),
                 kind: kind.as_wire(),
                 recent_decrement: 0,
+                gains_card_play,
             }),
         );
     }
@@ -514,7 +532,15 @@ impl ExPointManager {
     }
 
     pub fn gains_composition_ex_point(&self, uid: i64) -> bool {
-        self.kind(uid) == ExPointKind::Common.as_wire()
+        self.states
+            .get(&uid)
+            .is_some_and(|state| state.gains_card_play)
+    }
+
+    pub fn gains_card_play_ex_point(&self, uid: i64) -> bool {
+        self.states
+            .get(&uid)
+            .is_some_and(|state| state.gains_card_play)
     }
 
     pub fn synchronization_definition(&self, uid: i64) -> Option<SynchronizationDefinition> {
@@ -592,7 +618,9 @@ impl ExPointManager {
         let Some(uid) = entity.uid else { return };
         let state = self.states.get(&uid).copied().unwrap_or_default();
         entity.ex_point = Some(state.current);
-        let base_max = base_max.unwrap_or_else(|| ExPointKind::from_wire(state.kind).default_max());
+        let base_max = base_max
+            .filter(|max| *max > 0)
+            .unwrap_or_else(|| ExPointKind::from_wire(state.kind).default_max());
         entity.expoint_max_add = Some((self.cap_for(state) - base_max).max(0));
         entity.ex_point_type = Some(state.kind);
     }

@@ -1308,7 +1308,7 @@ pub(crate) fn configured_ex_point_max(
         .monster_skill_template
         .get(monster.skill_template)?
         .unique_skill_point;
-    (max > 0).then_some(max)
+    Some(max.max(0))
 }
 
 pub(crate) fn configured_monster_toughness(
