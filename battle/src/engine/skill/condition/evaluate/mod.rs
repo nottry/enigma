@@ -1094,6 +1094,11 @@ fn condition_kind_matches(
         ParsedConditionKind::DamageTargetCountKind(kind) => {
             context.damage_target_count_kind == *kind
         }
+        ParsedConditionKind::ReceivedDamageTargetCountKind(kind) => {
+            context.damage_target_count_kind == *kind
+                && context.hit_target_uid != 0
+                && condition_targets.contains(&context.hit_target_uid)
+        }
         ParsedConditionKind::SourceDamageType(damage_type) => pool
             .entity(source_uid)
             .is_some_and(|source| source.damage_type == *damage_type),

@@ -63,3 +63,27 @@ fn buff_category_condition_matches_only_the_added_status() {
     assert!(matches(4));
     assert!(!matches(6));
 }
+
+#[test]
+fn received_target_count_kind_matches_only_the_passive_owner() {
+    init_config();
+    let condition = exact_condition(53209, "HurtNumType", &["2"]);
+    let pool = target_pool();
+    let matches = |hit_target_uid| {
+        conditions_match(
+            std::slice::from_ref(&condition),
+            -1,
+            &[-1],
+            None,
+            &pool,
+            TargetContext {
+                damage_target_count_kind: 2,
+                hit_target_uid,
+                ..Default::default()
+            },
+        )
+    };
+
+    assert!(matches(-1));
+    assert!(!matches(-2));
+}

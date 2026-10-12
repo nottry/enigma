@@ -19,6 +19,7 @@ fn field_level_activates_added_field_conditions_but_progress_does_not() {
     let mut level_context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut level_context,
         &field_event(crate::engine::manager::field::FieldChangeKind::Level),
     );
@@ -28,6 +29,7 @@ fn field_level_activates_added_field_conditions_but_progress_does_not() {
     let mut progress_context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut progress_context,
         &field_event(crate::engine::manager::field::FieldChangeKind::Progress),
     );
@@ -127,6 +129,7 @@ fn buff_feature_event_preserves_the_exact_act_identity() {
     let mut context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut context,
         &BattleEvent::BuffFeatureTriggered(
             crate::engine::event::payload::BuffFeatureTriggeredEvent {

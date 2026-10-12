@@ -167,9 +167,11 @@ fn committed_conduit_hit_satisfies_attack_conditions() {
         .unwrap();
 
     let mut context = TargetContext::default();
-    super::super::super::invoke::apply_event_context(&managers, &mut context, &hit);
+    let catalog = SkillEffectCatalog::from_game_db(config::configs::get());
+    super::super::super::invoke::apply_event_context(&managers, &catalog, &mut context, &hit);
     assert!(context.active_skill_is_attack);
     assert_eq!(context.active_skill_mode, SkillExecutionMode::Device);
+    assert_eq!(context.damage_target_count_kind, 2);
 
     for (opcode, type_name) in [(501209, "UseHurtSkill"), (792209, "UseDeviceSkill")] {
         let condition = ParsedCondition {

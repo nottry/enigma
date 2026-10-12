@@ -755,6 +755,7 @@ condition_definitions! {
     [47204] "HurtNotRestraint" => parse::hurt_not_restrained, incoming_attack_modifier(predicate(&[]));
     [47209] "HurtNotRestraint" => parse::hurt_not_restrained, predicate(&[EventKind::TargetAttacked]);
     [53201] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
+    [53209] "HurtNumType" => parse::received_damage_target_count_kind, predicate(&[EventKind::TargetAttacked]);
     [53210] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [20202] "HurtReal" => parse::reality_damage, incoming_attack_modifier(predicate(&[]));
     [20204] "HurtReal" => parse::reality_damage, incoming_attack_modifier(predicate(&[]));

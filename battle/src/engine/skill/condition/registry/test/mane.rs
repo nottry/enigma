@@ -31,6 +31,17 @@ fn attack_conditions_keep_their_exact_routes() {
 }
 
 #[test]
+fn mass_attack_received_keeps_its_target_attacked_route() {
+    assert_eq!(
+        parse(53209, "HurtNumType", &["2".into()]),
+        Some(ParsedConditionKind::ReceivedDamageTargetCountKind(2))
+    );
+    let definition = find_key(53209, "HurtNumType").unwrap();
+    assert_eq!(definition.role, ConditionRole::Predicate);
+    assert_eq!(definition.dependencies, &[EventKind::TargetAttacked]);
+}
+
+#[test]
 fn buff_and_obscurity_conditions_keep_their_exact_routes() {
     assert_eq!(
         parse(88, "BuffTypeAdd", &["4".into()]),
