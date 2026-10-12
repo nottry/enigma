@@ -801,7 +801,8 @@ buff_act_definitions! {
         supports: |args| matches!(args, [value] if *value != 0), state_consumer: true, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(520, "RealHarmFix"), &[EffectType::Realharmfix as i32]));
     (522, "RealHarmSkillEffectFix") => RealHarmSkillEffectFix, effect_time_subscription: false, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(522, "RealHarmSkillEffectFix"), &[EffectType::Realharmskilleffectfix as i32]));
     (601, "Injury") => Injury, effect_time_subscription: false,
-        supports: |args| matches!(args, [value] if *value != 0), state_consumer: true;
+        supports: |args| matches!(args, [value] if *value != 0), state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(601, "Injury"), &[EffectType::Injury as i32]));
     (703, "ExPointMaxAdd") => ExPointMaxAdd,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
         frame: CausingFrame,

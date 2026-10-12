@@ -691,6 +691,13 @@ fn healing_taken_modifier_is_an_exact_static_consumer() {
     assert!(has_destination(601, "Injury", &[500]));
     assert!(has_destination(601, "Injury", &[-250]));
     assert!(!has_destination(601, "Injury", &[0]));
+    assert_eq!(
+        definition
+            .wire
+            .expect("injury has an add marker")
+            .markers(super::super::super::wire::WirePhase::Add),
+        &[sonettobuf::effect_type_enum::EffectType::Injury as i32]
+    );
     assert!(find(601, "InjuryAbsorb").is_none());
 }
 
