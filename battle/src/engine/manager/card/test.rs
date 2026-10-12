@@ -187,6 +187,11 @@ fn enemy_ai_selects_boss_ultimate_from_full_named_power() {
 
 #[test]
 fn generated_ai_targets_follow_configured_skill_side() {
+    use crate::engine::{
+        manager::hp::{HpCommand, HpKill},
+        skill::rule::{CommandOrigin, DefinitionKey, RuleDomain},
+    };
+
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![
@@ -220,7 +225,7 @@ fn generated_ai_targets_follow_configured_skill_side() {
         }),
         ..Default::default()
     };
-    let managers = crate::engine::manager::BattleManagers::seeded(&fight);
+    let mut managers = crate::engine::manager::BattleManagers::seeded(&fight);
     let mut catalog = crate::engine::skill::effect::SkillEffectCatalog::default();
     for skill_id in [301, 401] {
         catalog.insert(crate::engine::skill::effect::slot::ParsedSkillEffect {
@@ -290,6 +295,36 @@ fn generated_ai_targets_follow_configured_skill_side() {
     )
     .unwrap_err();
     assert!(error.contains("has no configured target"));
+
+    managers
+        .execute_hp(HpCommand::Kill(HpKill {
+            origin: CommandOrigin {
+                domain: RuleDomain::Lifecycle,
+                key: DefinitionKey::new(0, "TestOwnerDeath"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            config_effect: 1,
+        }))
+        .unwrap();
+    catalog.insert_logic_target(301, 103);
+    let mut cards = [CardInfo {
+        uid: Some(-1),
+        skill_id: Some(301),
+        target_uid: Some(10),
+        ..Default::default()
+    }];
+
+    ai::resolve_configured_targets(
+        &fight,
+        &managers,
+        &catalog,
+        &crate::engine::runtime::determinism::RoundDeterminism::default(),
+        &mut cards,
+    )
+    .unwrap();
+
+    assert_eq!(cards[0].target_uid, Some(-1));
 }
 
 #[test]
