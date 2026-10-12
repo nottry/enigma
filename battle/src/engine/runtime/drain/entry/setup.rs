@@ -65,6 +65,7 @@ pub fn run_setup_stage(
         std::iter::empty(),
         |_| Vec::new(),
         None,
+        &[],
         false,
         SetupDispatch::All,
         SetupFrameContainer::Standalone,
@@ -93,6 +94,7 @@ pub fn run_setup_stage_for_owners(
         std::iter::empty(),
         |_| Vec::new(),
         Some(owner_uids),
+        &[],
         false,
         SetupDispatch::All,
         SetupFrameContainer::Standalone,
@@ -121,6 +123,7 @@ pub fn run_opening_setup_stage_for_owners(
         std::iter::empty(),
         |_| Vec::new(),
         Some(player_owner_uids),
+        &[],
         true,
         SetupDispatch::All,
         SetupFrameContainer::Standalone,
@@ -139,6 +142,7 @@ pub(super) fn run_setup_stage_filtered(
     prelude: impl IntoIterator<Item = (SetupSide, RuleOp)>,
     postlude: impl FnOnce(&BattleManagers) -> Vec<(SetupSide, RuleOp)>,
     owner_uids: Option<&[i64]>,
+    excluded_owner_uids: &[i64],
     include_both_sides_opening: bool,
     dispatch: SetupDispatch,
     frame_container: SetupFrameContainer,
@@ -189,16 +193,17 @@ pub(super) fn run_setup_stage_filtered(
     let subscribers = subscribers
             .into_iter()
             .filter(|(subscriber, _)| {
-                owner_uids.is_none_or(|uids| uids.contains(&subscriber.owner_uid))
-                    || (include_both_sides_opening
-                        && crate::engine::skill::condition::registry::opening_owner_eligibility(
-                            subscriber.key.opcode,
-                            subscriber.key.type_name,
-                        )
-                        .is_some_and(|eligibility| {
-                            eligibility
-                                == crate::engine::skill::condition::registry::OpeningOwnerEligibility::BothSides
-                        }))
+                !excluded_owner_uids.contains(&subscriber.owner_uid)
+                    && (owner_uids.is_none_or(|uids| uids.contains(&subscriber.owner_uid))
+                        || (include_both_sides_opening
+                            && crate::engine::skill::condition::registry::opening_owner_eligibility(
+                                subscriber.key.opcode,
+                                subscriber.key.type_name,
+                            )
+                            .is_some_and(|eligibility| {
+                                eligibility
+                                    == crate::engine::skill::condition::registry::OpeningOwnerEligibility::BothSides
+                            })))
             });
     let subscribers = subscribers.collect::<Vec<_>>();
     let mut frames = std::mem::take(&mut result.frames);
@@ -320,7 +325,8 @@ pub(super) fn run_setup_stage_filtered(
     let setup_subscribers = setup_subscribers
         .into_iter()
         .filter(|(subscriber, _)| {
-            owner_uids.is_none_or(|uids| uids.contains(&subscriber.feature.owner_uid))
+            !excluded_owner_uids.contains(&subscriber.feature.owner_uid)
+                && owner_uids.is_none_or(|uids| uids.contains(&subscriber.feature.owner_uid))
         })
         .map(|(subscriber, ops)| {
             let definition = required_buff_act_definition(

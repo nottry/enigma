@@ -30,6 +30,132 @@ fn start_schedule_finishes_unconditional_setup_before_round_start() {
     assert!(sync < late && late < settlement);
 }
 
+#[test]
+fn opening_sync_runs_marsha_and_isolde_in_position_order() {
+    init_config();
+
+    fn run(marsha_position: i32, isolde_position: i32) -> (Vec<i64>, Vec<i64>) {
+        let mut attackers = vec![
+            FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3127),
+                position: Some(marsha_position),
+                team_type: Some(1),
+                current_hp: Some(100),
+                passive_skill: vec![31270145],
+                ..Default::default()
+            },
+            FightEntityInfo {
+                uid: Some(20),
+                model_id: Some(3081),
+                position: Some(isolde_position),
+                team_type: Some(1),
+                current_hp: Some(100),
+                passive_skill: vec![30810311],
+                buffs: vec![BuffInfo {
+                    uid: Some(1002),
+                    buff_id: Some(30810101),
+                    from_uid: Some(20),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ];
+        attackers.sort_by_key(|entity| entity.position);
+        let fight = Fight {
+            version: Some(7),
+            attacker: Some(FightTeam {
+                entitys: attackers,
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: [-1_i64, -2, -3]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(position, uid)| FightEntityInfo {
+                        uid: Some(uid),
+                        position: Some(position as i32 + 1),
+                        team_type: Some(2),
+                        current_hp: Some(100),
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pool = TargetPool::from_fight(&fight);
+        let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+        let mut managers = BattleManagers::seeded(&fight);
+        let (opening, _) = run_start(
+            managers.catalog(),
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext {
+                current_round: 1,
+                ..Default::default()
+            },
+            CardSetup {
+                hand: Vec::new(),
+                draw_pile: Vec::new(),
+                deck_num: 0,
+            },
+            0,
+        )
+        .unwrap();
+
+        fn collect_owners(frame: &SemanticFrame, owners: &mut Vec<i64>) {
+            if let FrameOwner::Skill {
+                source_uid,
+                skill_id,
+                ..
+            } = frame.owner
+                && [31270145, 30810311].contains(&skill_id)
+                && owners.last() != Some(&source_uid)
+            {
+                owners.push(source_uid);
+            }
+            for item in &frame.items {
+                if let FrameItem::Child(child) = item {
+                    collect_owners(child, owners);
+                }
+            }
+        }
+
+        let mut owners = Vec::new();
+        collect_owners(
+            opening
+                .frames
+                .iter()
+                .find(|frame| frame.owner == FrameOwner::RoundPhase(RoundPhase::RoundStartSync))
+                .expect("opening has a synchronization phase"),
+            &mut owners,
+        );
+        let mut preignition_uids = [10_i64, 20]
+            .into_iter()
+            .flat_map(|owner_uid| {
+                managers
+                    .buff
+                    .active_for(owner_uid)
+                    .filter(|buff| buff.buff_id == Some(4150002))
+                    .filter_map(|buff| buff.uid)
+            })
+            .collect::<Vec<_>>();
+        preignition_uids.sort_unstable();
+        (owners, preignition_uids)
+    }
+
+    let marsha_first = run(1, 2);
+    let isolde_first = run(2, 1);
+
+    assert_eq!(marsha_first.0, [10, 20]);
+    assert_eq!(isolde_first.0, [20, 10]);
+    assert_eq!(marsha_first.1, [1016, 1017]);
+    assert_eq!(isolde_first.1, [1013, 1014]);
+}
+
 fn collect_effects_of_type<'a>(
     effect: &'a sonettobuf::ActEffect,
     effect_type: i32,

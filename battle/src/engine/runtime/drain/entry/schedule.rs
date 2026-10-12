@@ -203,6 +203,67 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn run_opening_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    const SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::BuffSync, 0), (SetupStage::RoundStartLate, 0)];
+
+    let mut result = DrainResult::default();
+    for owner_uid in owner_uids {
+        for &(stage, priority) in SCHEDULE {
+            let owner_result = run_setup_stage_filtered(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                stage,
+                priority,
+                std::iter::empty(),
+                |_| Vec::new(),
+                Some(std::slice::from_ref(owner_uid)),
+                &[],
+                false,
+                SetupDispatch::All,
+                SetupFrameContainer::Standalone,
+            )?;
+            result.outcomes.extend(owner_result.outcomes);
+            result.events.extend(owner_result.events);
+            result.frames.extend(owner_result.frames);
+        }
+    }
+
+    for &(stage, priority) in SCHEDULE {
+        let remaining = run_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            std::iter::empty(),
+            |_| Vec::new(),
+            (stage == SetupStage::RoundStartLate).then_some([].as_slice()),
+            owner_uids,
+            stage == SetupStage::RoundStartLate,
+            SetupDispatch::All,
+            SetupFrameContainer::Standalone,
+        )?;
+        result.outcomes.extend(remaining.outcomes);
+        result.events.extend(remaining.events);
+        result.frames.extend(remaining.frames);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn run_skill_setup_schedule(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -296,6 +357,7 @@ fn run_setup_schedule_with_dispatch(
             std::iter::empty(),
             |_| Vec::new(),
             owner_uids,
+            &[],
             false,
             dispatch,
             frame_container,
