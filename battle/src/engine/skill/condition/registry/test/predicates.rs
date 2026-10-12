@@ -780,14 +780,17 @@ fn round_start_power_gate_keeps_its_exact_phase_and_payload_order() {
 }
 
 #[test]
-fn active_device_group_gate_is_an_exact_static_predicate() {
+fn active_device_group_gate_keeps_its_exact_after_hit_route() {
     assert_eq!(
         parse(794210, "DeviceSkillIndex", &["1".into()]),
         Some(ParsedConditionKind::ConduitSkillGroup { group: 1 })
     );
     assert_eq!(
         find_key(794210, "DeviceSkillIndex").map(|definition| definition.role),
-        Some(ConditionRole::Predicate)
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::AfterHit),
+        })
     );
     assert!(find_key(794209, "DeviceSkillIndex").is_none());
 }
