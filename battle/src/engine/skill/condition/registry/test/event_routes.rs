@@ -180,6 +180,42 @@ fn round_incantation_rank_count_keeps_its_exact_post_settlement_route() {
 }
 
 #[test]
+fn team_career_thresholds_keep_their_exact_post_settlement_routes() {
+    for (opcode, type_name, compare, threshold) in [
+        (
+            562304,
+            "CareerGroupHeroCountGE",
+            ConditionCompare::GreaterThanOrEqual,
+            2,
+        ),
+        (
+            560304,
+            "CareerGroupHeroCountLE",
+            ConditionCompare::LessThanOrEqual,
+            1,
+        ),
+    ] {
+        assert_eq!(
+            parse(opcode, type_name, &["4".into(), threshold.to_string()]),
+            Some(ParsedConditionKind::TeamCareerCount {
+                careers: vec![4],
+                compare,
+                threshold,
+            })
+        );
+        let definition = find_key(opcode, type_name).unwrap();
+        assert_eq!(
+            definition.role,
+            ConditionRole::Trigger {
+                event: EventKind::RoundEndAfterSettlement,
+                phase: None,
+            }
+        );
+        assert_eq!(definition.reaction_frame_target, ReactionFrameTarget::Owner);
+    }
+}
+
+#[test]
 fn full_moxie_keeps_its_exact_post_settlement_route() {
     assert_eq!(
         parse(745304, "ExPointMax", &[]),

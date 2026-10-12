@@ -656,7 +656,9 @@ condition_definitions! {
     [621002] "CareerNatureHeroNum" => career::natural_ally_count, setup_route(SetupStage::EnterFight, 0, &[]);
     [562002] "CareerGroupHeroCountGE" => career::team_career_count_at_least, setup_route(SetupStage::EnterFight, 0, &[]);
     [562101] "CareerGroupHeroCountGE" => career::team_career_count_at_least, setup_route(SetupStage::RoundStartCondition, 101, &[]);
+    [562304] "CareerGroupHeroCountGE" => career::team_career_count_at_least, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [560100] "CareerGroupHeroCountLE" => career::team_career_count_at_most, setup_route(SetupStage::RoundStartCondition, 100, &[]);
+    [560304] "CareerGroupHeroCountLE" => career::team_career_count_at_most, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [573002] "PerTeamOtherEntityDmgType" => entity_count::other_ally_damage_type, setup_route(SetupStage::EnterFight, 0, &[]);
     [17] "TeammateDead" => entity_count::teammate_dead, event_trigger(EventKind::EntityDied, None);
     [17012] "TeammateDead" => entity_count::teammate_dead, event_trigger(EventKind::EntityDied, None);
