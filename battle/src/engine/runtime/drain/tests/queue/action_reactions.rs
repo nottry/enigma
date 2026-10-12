@@ -552,6 +552,75 @@ fn allied_assassination_reactions_follow_the_attacks_after_hit_reactions() {
 }
 
 #[test]
+fn skill_effect_tag_reactions_follow_source_after_hit_effects() {
+    crate::test_support::init_config();
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(1_000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                passive_skill: vec![116330011],
+                ..entity(10)
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31340121, 116330011], []);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 31340121,
+    }
+    .into();
+    invocation.target = SkillTarget::Explicit(10);
+    invocation.mode = SkillExecutionMode::Active;
+
+    let result = run_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [],
+        invocation,
+    )
+    .unwrap();
+    let action = crate::engine::packet::timeline::project(&result.frames)
+        .unwrap()
+        .into_iter()
+        .find(|step| step.act_id == Some(31340121))
+        .expect("the source skill projects a step");
+    let source_effect = action
+        .act_effect
+        .iter()
+        .position(|effect| effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31340002))
+        .expect("the source skill applies its own buff");
+    let reaction = action
+        .act_effect
+        .iter()
+        .position(|effect| {
+            effect.fight_step.as_ref().and_then(|step| step.act_id) == Some(116330011)
+        })
+        .expect("the effect-tag reaction projects a nested step");
+
+    assert!(source_effect < reaction);
+}
+
+#[test]
 fn a_skill_cast_by_another_skill_keeps_its_step_without_effects() {
     // "When any ally triggers an [Assassination], if the carrier owns [Force Field], ...":
     // without a Force Field the cast skill changes nothing but still shows its step.

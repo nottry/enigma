@@ -615,12 +615,15 @@ fn active_skill_filters_share_the_exact_skill_action_driver() {
 
     let subscriptions = catalog.compiled_subscriptions(435011).unwrap();
     assert!(
-        subscriptions.contains(&SubscriptionKey::at_phase_and_publication(
-            crate::engine::event::kind::EventKind::SkillAction,
-            crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag"),
-            Some(crate::engine::skill::action::SkillPhase::HitPassives),
-            crate::engine::event::subscription::PublicationPhase::BeforePublish,
-        ))
+        subscriptions.contains(
+            &SubscriptionKey::at_phase_and_publication(
+                crate::engine::event::kind::EventKind::SkillAction,
+                crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag"),
+                Some(crate::engine::skill::action::SkillPhase::HitPassives),
+                crate::engine::event::subscription::PublicationPhase::BeforePublish,
+            )
+            .with_timing(crate::engine::event::subscription::ReactionTiming::AfterSkill)
+        )
     );
     assert!(!subscriptions.iter().any(|subscription| {
         subscription.event == crate::engine::event::kind::EventKind::SkillAction
@@ -679,6 +682,7 @@ fn target_count_and_effect_tag_share_the_effect_tag_driver() {
         subscription.definition
             == crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag")
             && subscription.phase == Some(crate::engine::skill::action::SkillPhase::HitPassives)
+            && subscription.timing == crate::engine::event::subscription::ReactionTiming::AfterSkill
     }));
     assert!(
         !subscriptions

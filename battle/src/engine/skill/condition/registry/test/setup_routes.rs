@@ -475,7 +475,7 @@ fn conduit_meter_and_group_conditions_keep_their_setup_stages() {
 }
 
 #[test]
-fn actor_post_hit_filter_publishes_before_team_observers() {
+fn actor_post_hit_filter_runs_after_the_source_skill() {
     let definition = find_key(34210, "UseSkillEffectTag").unwrap();
 
     assert_eq!(
@@ -486,6 +486,7 @@ fn actor_post_hit_filter_publishes_before_team_observers() {
         }
     );
     assert_eq!(definition.publication, PublicationPhase::BeforePublish);
+    assert_eq!(definition.reaction_timing, ReactionTiming::AfterSkill);
 }
 
 #[test]
