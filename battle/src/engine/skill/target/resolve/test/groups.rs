@@ -50,9 +50,9 @@ fn all_allies_target_preserves_the_selected_skill_frame_target() {
     };
 
     assert!(preserves_selected_frame_target(130, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(101, 10, -1, &pool, attack));
     assert!(preserves_selected_frame_target(1, 10, 11, &pool, attack));
     assert!(!preserves_selected_frame_target(1, 10, -1, &pool, attack));
-    assert!(!preserves_selected_frame_target(101, 10, -1, &pool, attack));
 }
 
 #[test]

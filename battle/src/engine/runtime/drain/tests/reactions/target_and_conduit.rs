@@ -85,12 +85,89 @@ fn configured_action_target_owns_the_projected_skill_frame() {
         )
     };
 
-    assert_eq!(run_case(101), (Some(10), 10));
+    assert_eq!(run_case(101), (Some(-1), -1));
     assert_eq!(run_case(112), (Some(11), 11));
     assert_eq!(run_case(130), (Some(-1), -1));
     assert_eq!(
         run_case(crate::engine::skill::target::request::SOURCE_TARGET_CODE),
         (Some(-1), -1)
+    );
+}
+
+#[test]
+fn main_ally_effects_keep_the_selected_target_on_reaction_frames() {
+    crate::test_support::init_config();
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(1_000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    passive_skill: vec![116330011],
+                    ..entity(10)
+                },
+                entity(11),
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31270121, 116330011], []);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 31270121,
+    }
+    .into();
+    invocation.target = SkillTarget::Explicit(-1);
+    invocation.mode = SkillExecutionMode::Active;
+
+    let result = run_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [],
+        invocation,
+    )
+    .unwrap();
+    let action = crate::engine::packet::timeline::project(&result.frames)
+        .unwrap()
+        .into_iter()
+        .find(|step| step.act_id == Some(31270121))
+        .expect("the source skill projects a step");
+    assert_eq!(action.to_id, Some(-1));
+    let reaction = action
+        .act_effect
+        .iter()
+        .filter_map(|effect| effect.fight_step.as_ref())
+        .find(|step| step.act_id == Some(116330011))
+        .expect("the effect-tag reaction projects a nested step");
+    assert_eq!(reaction.to_id, Some(-1));
+    assert_eq!(
+        reaction
+            .act_effect
+            .iter()
+            .filter(|effect| {
+                effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(116330004)
+            })
+            .filter_map(|effect| effect.target_id)
+            .collect::<Vec<_>>(),
+        vec![10, 11]
     );
 }
 

@@ -487,6 +487,10 @@ fn actor_post_hit_filter_runs_after_the_source_skill() {
     );
     assert_eq!(definition.publication, PublicationPhase::BeforePublish);
     assert_eq!(definition.reaction_timing, ReactionTiming::AfterSkill);
+    assert_eq!(
+        definition.reaction_frame_target,
+        ReactionFrameTarget::CausingFrame
+    );
 }
 
 #[test]

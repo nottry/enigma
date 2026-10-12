@@ -503,12 +503,14 @@ pub(crate) fn preserves_selected_frame_target(
     pool: &TargetPool,
     context: TargetContext,
 ) -> bool {
-    target_rule(code) == Some(TargetRule::AlliesPreservingSelection)
-        || target_rule(code) == Some(TargetRule::SelectedTarget)
-            && context.active_skill_is_attack
-            && pool
-                .team_type(source_uid)
-                .is_some_and(|source_team| pool.team_type(selected_uid) == Some(source_team))
+    matches!(
+        target_rule(code),
+        Some(TargetRule::AlliesPreservingSelection | TargetRule::MainAllies)
+    ) || target_rule(code) == Some(TargetRule::SelectedTarget)
+        && context.active_skill_is_attack
+        && pool
+            .team_type(source_uid)
+            .is_some_and(|source_team| pool.team_type(selected_uid) == Some(source_team))
 }
 
 pub fn targets_enemy(code: i32) -> Option<bool> {
