@@ -154,7 +154,6 @@ fn refill_and_all_compositions_grant_cloth_power() {
             &power,
             15,
             crate::engine::manager::card::CardChangeKind::Refilled,
-            false,
             1,
         ),
         17
@@ -164,7 +163,6 @@ fn refill_and_all_compositions_grant_cloth_power() {
             &power,
             15,
             crate::engine::manager::card::CardChangeKind::Composed,
-            false,
             1,
         ),
         17
@@ -174,20 +172,9 @@ fn refill_and_all_compositions_grant_cloth_power() {
             &power,
             15,
             crate::engine::manager::card::CardChangeKind::Played,
-            false,
             0,
         ),
         15
-    );
-    assert_eq!(
-        round::cloth_power_after_card_change(
-            &power,
-            15,
-            crate::engine::manager::card::CardChangeKind::Played,
-            true,
-            0,
-        ),
-        19
     );
 }
 

@@ -776,7 +776,6 @@ pub(super) fn apply_cloth_power(
                     &power,
                     state.power,
                     changes.kind,
-                    false,
                     eligible_composition_count(managers, &changes.composed_owners),
                 );
             }
@@ -810,14 +809,10 @@ pub(super) fn cloth_power_after_card_change(
     power: &ClothPower,
     current: i32,
     kind: crate::engine::manager::card::CardChangeKind,
-    has_played: bool,
     composed_count: usize,
 ) -> i32 {
     match kind {
         crate::engine::manager::card::CardChangeKind::Moved => power.card_moved(current),
-        crate::engine::manager::card::CardChangeKind::Played if has_played => {
-            power.card_used(current)
-        }
         crate::engine::manager::card::CardChangeKind::Refilled
         | crate::engine::manager::card::CardChangeKind::Composed
             if composed_count > 0 =>
