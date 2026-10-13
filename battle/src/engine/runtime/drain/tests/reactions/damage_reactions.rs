@@ -742,7 +742,7 @@ fn damage_based_rebound_routes_once_and_removes_the_counter() {
 }
 
 #[test]
-fn shared_damage_subscription_queues_once_per_event_batch() {
+fn shared_damage_subscription_carries_event_batch_ownership() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -874,6 +874,7 @@ fn shared_damage_subscription_queues_once_per_event_batch() {
                 queued.trigger,
                 invocation.condition_key,
                 invocation.condition_slot,
+                invocation.reaction_batch_id,
             )),
             _ => None,
         })
@@ -881,13 +882,24 @@ fn shared_damage_subscription_queues_once_per_event_batch() {
     assert_eq!(
         casts
             .iter()
-            .filter(|(trigger, _, _)| matches!(
+            .filter(|(trigger, _, _, _)| matches!(
                 trigger,
                 SkillOpTrigger::Event(BattleEvent::DamageShared { .. })
             ))
             .count(),
-        2,
+        4,
         "{casts:#?}"
+    );
+    assert_eq!(
+        casts
+            .iter()
+            .filter(|(trigger, _, _, _)| matches!(
+                trigger,
+                SkillOpTrigger::Event(BattleEvent::DamageShared { .. })
+            ))
+            .map(|(_, _, _, batch_id)| *batch_id)
+            .collect::<Vec<_>>(),
+        vec![Some(0), Some(0), Some(1), Some(1)]
     );
 }
 

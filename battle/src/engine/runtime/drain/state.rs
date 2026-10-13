@@ -44,6 +44,8 @@ pub(super) struct DrainState {
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
     action_reactions: HashMap<FramePath, HashSet<ActionReactionKey>>,
+    event_batch_reactions: HashMap<u64, HashSet<ActionReactionKey>>,
+    next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
     deaths: HashMap<FramePath, Vec<DeathTransition>>,
     target_modifiers: HashMap<FramePath, i32>,
@@ -369,6 +371,19 @@ impl DrainState {
         self.action_reactions
             .entry(action_path.to_vec())
             .or_default()
+    }
+
+    pub(super) fn next_event_batch_id(&mut self) -> u64 {
+        let id = self.next_event_batch_id;
+        self.next_event_batch_id += 1;
+        id
+    }
+
+    pub(super) fn event_batch_reactions(
+        &mut self,
+        batch_id: u64,
+    ) -> &mut HashSet<ActionReactionKey> {
+        self.event_batch_reactions.entry(batch_id).or_default()
     }
 
     pub(super) fn add_target_modifier(&mut self, action_path: FramePath, amount: i32) {

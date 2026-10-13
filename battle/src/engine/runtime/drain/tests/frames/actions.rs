@@ -586,6 +586,7 @@ fn queued_reactions_preserve_dispatch_pass_order() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 

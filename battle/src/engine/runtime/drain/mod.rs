@@ -419,6 +419,74 @@ fn flatten_event_groups(event_groups: &[Vec<BattleEvent>]) -> Vec<BattleEvent> {
         .collect()
 }
 
+fn reaction_already_fired(
+    state: &mut DrainState,
+    invocation: &crate::engine::skill::action::SkillInvocation,
+) -> bool {
+    let Some(condition_key) = invocation.condition_key else {
+        return false;
+    };
+    let Some(definition) = crate::engine::skill::condition::registry::find_key(
+        condition_key.opcode,
+        condition_key.type_name,
+    ) else {
+        return false;
+    };
+    let key = (
+        invocation.plan.source_uid,
+        invocation.plan.skill_id,
+        invocation.condition_slot,
+        condition_key,
+    );
+    match definition.reaction_multiplicity {
+        crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => false,
+        crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
+            invocation
+                .reaction_batch_id
+                .is_some_and(|batch_id| state.event_batch_reactions(batch_id).contains(&key))
+        }
+        crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
+            invocation
+                .reaction_action_path
+                .as_deref()
+                .is_some_and(|path| state.action_reactions(path).contains(&key))
+        }
+    }
+}
+
+fn mark_reaction_fired(
+    state: &mut DrainState,
+    invocation: &crate::engine::skill::action::SkillInvocation,
+    slot_index: usize,
+    condition_key: crate::engine::skill::rule::DefinitionKey,
+) {
+    let Some(definition) = crate::engine::skill::condition::registry::find_key(
+        condition_key.opcode,
+        condition_key.type_name,
+    ) else {
+        return;
+    };
+    let key = (
+        invocation.plan.source_uid,
+        invocation.plan.skill_id,
+        Some(slot_index),
+        condition_key,
+    );
+    match definition.reaction_multiplicity {
+        crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => {}
+        crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
+            if let Some(batch_id) = invocation.reaction_batch_id {
+                state.event_batch_reactions(batch_id).insert(key);
+            }
+        }
+        crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
+            if let Some(path) = invocation.reaction_action_path.as_deref() {
+                state.action_reactions(path).insert(key);
+            }
+        }
+    }
+}
+
 /// Drains queued operations and registered reactions into semantic frames using declared phase and lane order.
 /// It follows declared phases; it does not repair ordering or packet shape.
 fn drain_queue_with_deferred(
@@ -574,6 +642,9 @@ fn drain_queue_with_deferred(
                     cancel_invocation_progress(managers, state, frame_path.as_ref(), &invocation);
                     continue;
                 }
+                if reaction_already_fired(state, &invocation) {
+                    continue;
+                }
 
                 let parent_path = match caster_frame {
                     Some(caster) => Some(ensure_frame(
@@ -707,6 +778,7 @@ fn drain_queue_with_deferred(
                         slot_index,
                         condition_key,
                     );
+                    mark_reaction_fired(state, &invocation, slot_index, condition_key);
                 }
                 set_skill_target(
                     &mut result.frames,

@@ -129,7 +129,10 @@ pub(super) fn dispatch_event_groups(
     lane: Option<ReactionLane>,
 ) -> Result<ReactionBatch, DrainError> {
     let all_events = event_groups.iter().flatten().cloned().collect::<Vec<_>>();
-    let mut state = EventBatchState::default();
+    let mut state = EventBatchState {
+        batch_id: drain_state.next_event_batch_id(),
+        ..Default::default()
+    };
     let mut unscoped_reactions = std::collections::HashSet::new();
     let fired_once_per_action = action_path.map_or(&mut unscoped_reactions, |action_path| {
         drain_state.action_reactions(action_path)
@@ -200,6 +203,7 @@ pub(super) fn dispatch_event_batch(
 
 #[derive(Default)]
 struct EventBatchState {
+    batch_id: u64,
     queued_attack_consumption: bool,
     fired_once_per_target:
         std::collections::HashSet<crate::engine::event::dispatcher::OncePerTargetKey>,
@@ -318,6 +322,8 @@ fn dispatch_event_batch_inner(
             once_per_target: &mut state.fired_once_per_target,
             once_per_event_batch: &mut state.fired_once_per_event_batch,
             once_per_action: fired_once_per_action,
+            event_batch_id: state.batch_id,
+            action_path,
         };
         let mut dispatched = dispatch_reactions(
             pool,
@@ -755,6 +761,12 @@ fn queued_selected_stage(
     stage: dispatcher::ReactionStage,
     multiplicity: Option<&mut crate::engine::event::dispatcher::DispatchMultiplicity<'_>>,
 ) -> Result<Vec<QueuedOp>, DrainError> {
+    let reaction_scope = multiplicity.as_ref().map(|multiplicity| {
+        (
+            multiplicity.event_batch_id,
+            multiplicity.action_path.map(|path| path.to_vec()),
+        )
+    });
     let mut dispatched = dispatcher::dispatch_selected_event(
         pool,
         managers,
@@ -806,6 +818,7 @@ fn queued_selected_stage(
         action_path,
         reentry_skill,
         current_skill_target,
+        reaction_scope,
     )
 }
 
@@ -827,7 +840,8 @@ pub(super) fn dispatch_owner_reactions(
         event,
         &scoped_owner_uids,
     )?;
-    let mut reactions = queued_reactions(pool, dispatched, event, None, None, None, None, None)?;
+    let mut reactions =
+        queued_reactions(pool, dispatched, event, None, None, None, None, None, None)?;
     if let Some(fanout) = queued_entity_entry_halo_fanout(event, None) {
         reactions.push(fanout);
     }
@@ -867,6 +881,7 @@ pub(super) fn queued_reactions(
     action_path: Option<&[usize]>,
     reentry_skill: Option<(i64, i32, Option<i64>)>,
     current_skill_target: Option<i64>,
+    reaction_scope: Option<(u64, Option<Vec<usize>>)>,
 ) -> Result<Vec<QueuedOp>, DrainError> {
     let mut reactions = Vec::new();
     for pass in dispatched.into_passes() {
@@ -879,6 +894,7 @@ pub(super) fn queued_reactions(
             action_path,
             reentry_skill,
             current_skill_target,
+            reaction_scope.clone(),
         )?);
     }
     Ok(reactions)
@@ -894,6 +910,7 @@ fn queued_reaction_pass(
     action_path: Option<&[usize]>,
     reentry_skill: Option<(i64, i32, Option<i64>)>,
     current_skill_target: Option<i64>,
+    reaction_scope: Option<(u64, Option<Vec<usize>>)>,
 ) -> Result<Vec<QueuedOp>, DrainError> {
     let mut skill_groups = HashMap::<(i64, i32), Rc<RefCell<Option<FramePath>>>>::new();
     let mut independent_skill_groups = HashMap::<(i64, i32), Rc<RefCell<Option<FramePath>>>>::new();
@@ -922,7 +939,15 @@ fn queued_reaction_pass(
         .collect::<Result<Vec<_>, DrainError>>()?;
     let mut reactions = skills
         .into_iter()
-        .map(|(subscriber, op, definition)| {
+        .map(|(subscriber, mut op, definition)| {
+            if definition.reaction_multiplicity
+                != crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent
+                && let RuleOp::Skill(invocation) = &mut op
+                && let Some((batch_id, action_path)) = &reaction_scope
+            {
+                invocation.reaction_batch_id = Some(*batch_id);
+                invocation.reaction_action_path = action_path.clone();
+            }
             let frame_scope = definition.reaction_frame_scope;
             let frame_source_uid = match definition.reaction_frame_source {
                 crate::engine::skill::condition::registry::ReactionFrameSource::Subscriber => {

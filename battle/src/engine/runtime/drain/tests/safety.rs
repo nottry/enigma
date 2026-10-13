@@ -16,6 +16,28 @@ fn queued(op: RuleOp) -> QueuedOp {
 }
 
 #[test]
+fn failed_once_per_action_condition_remains_eligible_until_it_fires() {
+    let condition_key = DefinitionKey::new(1304, "LifeLess");
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 2340,
+    }
+    .into();
+    invocation.condition_key = Some(condition_key);
+    invocation.condition_slot = Some(1);
+    invocation.reaction_batch_id = Some(0);
+    invocation.reaction_action_path = Some(vec![0]);
+    let mut state = DrainState::new(TargetContext::default());
+
+    assert!(!reaction_already_fired(&mut state, &invocation));
+    assert!(!reaction_already_fired(&mut state, &invocation));
+
+    mark_reaction_fired(&mut state, &invocation, 1, condition_key);
+
+    assert!(reaction_already_fired(&mut state, &invocation));
+}
+
+#[test]
 fn canceling_an_action_releases_its_held_after_action_casts() {
     let rule = ConfiguredRuleKey::new(200, 2, DefinitionKey::new(60135, "ShellUseSkill"));
     let mut managers = BattleManagers::default();

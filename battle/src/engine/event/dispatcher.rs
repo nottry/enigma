@@ -77,6 +77,8 @@ pub(crate) struct DispatchMultiplicity<'a> {
     pub once_per_target: &'a mut std::collections::HashSet<OncePerTargetKey>,
     pub once_per_event_batch: &'a mut std::collections::HashSet<ReactionMultiplicityKey>,
     pub once_per_action: &'a mut std::collections::HashSet<ReactionMultiplicityKey>,
+    pub event_batch_id: u64,
+    pub action_path: Option<&'a [usize]>,
 }
 
 pub(crate) struct DispatchOwnerPhase<'a> {
@@ -429,10 +431,10 @@ fn dispatch_subscribers_with_multiplicity(
         match definition.reaction_multiplicity {
             crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => true,
             crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
-                multiplicity.once_per_event_batch.insert(key)
+                !multiplicity.once_per_event_batch.contains(&key)
             }
             crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
-                multiplicity.once_per_action.insert(key)
+                !multiplicity.once_per_action.contains(&key)
             }
         }
     });

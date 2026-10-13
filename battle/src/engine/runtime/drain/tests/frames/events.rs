@@ -255,6 +255,7 @@ fn one_skill_event_groups_all_of_its_subscribed_rules() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 
@@ -300,6 +301,7 @@ fn independent_reaction_does_not_inherit_the_causing_frame() {
         &BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement),
         Some(&[4, 2]),
         Some(&[4, 2]),
+        None,
         None,
         None,
         None,
@@ -349,6 +351,7 @@ fn queued_reaction_rejects_an_unregistered_exact_condition() {
         },
         &BattleEvent::Kind(EventKind::SkillAction),
         Some(&[0]),
+        None,
         None,
         None,
         None,
