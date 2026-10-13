@@ -669,9 +669,7 @@ impl BattleRuntime {
         {
             self.round_state.cur_round = active_round;
         }
-        self.round_state.hero_sp_attributes = self
-            .managers
-            .hero_sp_attributes(&self.fight, self.hero_sp_attribute_wire_layout);
+        self.round_state.hero_sp_attributes = self.managers.hero_sp_attributes(&self.fight);
         self.round_state.last_change_hero_uid = self.fight.last_change_hero_uid;
         self.fight.cur_round = Some(self.round_state.cur_round);
         self.fight.is_finish = Some(self.round_state.is_finish);

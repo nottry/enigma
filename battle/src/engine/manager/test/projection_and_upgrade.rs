@@ -36,10 +36,7 @@ fn hero_sp_attributes_only_include_living_defenders() {
 
     assert_eq!(
         managers
-            .hero_sp_attributes(
-                &fight,
-                crate::engine::fight::versions::HeroSpAttributeWireLayout::LiveBattle,
-            )
+            .hero_sp_attributes(&fight)
             .into_iter()
             .filter_map(|attribute| attribute.uid)
             .collect::<Vec<_>>(),
@@ -48,7 +45,7 @@ fn hero_sp_attributes_only_include_living_defenders() {
 }
 
 #[test]
-fn hero_sp_attributes_follow_explicit_conduit_wire_layout() {
+fn hero_sp_attributes_follow_the_fight_version_not_record_mode() {
     crate::test_support::init_config();
     let mut fight = Fight {
         version: Some(7),
@@ -68,24 +65,18 @@ fn hero_sp_attributes_follow_explicit_conduit_wire_layout() {
     let managers = BattleManagers::seeded(&fight);
 
     assert_eq!(
-        managers.hero_sp_attributes(
-            &fight,
-            crate::engine::fight::versions::HeroSpAttributeWireLayout::RecordedBattle,
-        )[0]
-        .attribute
-        .as_ref()
-        .and_then(|attribute| attribute.device_skill_rate),
-        None
+        managers.hero_sp_attributes(&fight)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
+        Some(0)
     );
     fight.is_record = Some(false);
     assert_eq!(
-        managers.hero_sp_attributes(
-            &fight,
-            crate::engine::fight::versions::HeroSpAttributeWireLayout::LiveBattle,
-        )[0]
-        .attribute
-        .as_ref()
-        .and_then(|attribute| attribute.device_skill_rate),
+        managers.hero_sp_attributes(&fight)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
         Some(0)
     );
 }
@@ -189,10 +180,7 @@ fn hero_sp_attributes_project_active_playmode_immunity_until_removed() {
 
     let projected_attribute = |managers: &BattleManagers| {
         managers
-            .hero_sp_attributes(
-                &fight,
-                crate::engine::fight::versions::HeroSpAttributeWireLayout::LiveBattle,
-            )
+            .hero_sp_attributes(&fight)
             .into_iter()
             .find(|attribute| attribute.uid == Some(-1))
             .and_then(|attribute| attribute.attribute)

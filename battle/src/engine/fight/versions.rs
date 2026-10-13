@@ -16,18 +16,6 @@ pub(crate) fn writes_reduce_hp(version: i32) -> bool {
     version == 7
 }
 
-pub(crate) const fn change_round_effect_num(
-    version: i32,
-    is_record: bool,
-    current_round: i32,
-) -> i32 {
-    if version == 7 && !is_record {
-        current_round
-    } else {
-        0
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HurtInfoWireLayout {
     Version6,
@@ -53,18 +41,17 @@ pub(crate) enum RedealWireLayout {
     Version7,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum HeroSpAttributeWireLayout {
-    RecordedBattle,
-    #[default]
-    LiveBattle,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChangeRoundWireLayout {
+    Incremental,
+    CurrentRound,
 }
 
-pub(crate) const fn hero_sp_attribute_wire_layout(is_record: bool) -> HeroSpAttributeWireLayout {
-    if is_record {
-        HeroSpAttributeWireLayout::RecordedBattle
+pub(crate) const fn absorb_hurt_map_layout(version: i32) -> AbsorbHurtMapLayout {
+    if version == 6 {
+        AbsorbHurtMapLayout::TwoMaps
     } else {
-        HeroSpAttributeWireLayout::LiveBattle
+        AbsorbHurtMapLayout::ThreeMaps
     }
 }
 
@@ -92,25 +79,26 @@ pub(crate) const fn redeal_wire_layout(version: i32) -> Option<RedealWireLayout>
     }
 }
 
+pub(crate) const fn change_round_wire_layout(version: i32) -> Option<ChangeRoundWireLayout> {
+    match version {
+        6 => Some(ChangeRoundWireLayout::Incremental),
+        7 => Some(ChangeRoundWireLayout::CurrentRound),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        HeroSpAttributeWireLayout, HurtInfoWireLayout, RedealWireLayout, RoundStartSetupLayout,
-        change_round_effect_num, hero_sp_attribute_wire_layout, hurt_info_wire_layout,
-        redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
+        AbsorbHurtMapLayout, ChangeRoundWireLayout, HurtInfoWireLayout, RedealWireLayout,
+        RoundStartSetupLayout, absorb_hurt_map_layout, change_round_wire_layout,
+        hurt_info_wire_layout, redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
     };
 
     #[test]
     fn reduce_hp_wire_field_is_confirmed_only_for_version_seven() {
         assert!(!writes_reduce_hp(6));
         assert!(writes_reduce_hp(7));
-    }
-
-    #[test]
-    fn change_round_uses_exact_round_only_for_live_version_seven_fights() {
-        assert_eq!(change_round_effect_num(6, false, 3), 0);
-        assert_eq!(change_round_effect_num(7, true, 3), 0);
-        assert_eq!(change_round_effect_num(7, false, 3), 3);
     }
 
     #[test]
@@ -141,14 +129,21 @@ mod tests {
     }
 
     #[test]
-    fn hero_special_attribute_layout_is_selected_by_opening_record_mode() {
+    fn change_round_wire_layout_is_selected_by_fight_version() {
         assert_eq!(
-            hero_sp_attribute_wire_layout(true),
-            HeroSpAttributeWireLayout::RecordedBattle
+            change_round_wire_layout(6),
+            Some(ChangeRoundWireLayout::Incremental)
         );
         assert_eq!(
-            hero_sp_attribute_wire_layout(false),
-            HeroSpAttributeWireLayout::LiveBattle
+            change_round_wire_layout(7),
+            Some(ChangeRoundWireLayout::CurrentRound)
         );
+        assert_eq!(change_round_wire_layout(8), None);
+    }
+
+    #[test]
+    fn absorb_hurt_map_layout_follows_the_fight_version() {
+        assert_eq!(absorb_hurt_map_layout(6), AbsorbHurtMapLayout::TwoMaps);
+        assert_eq!(absorb_hurt_map_layout(7), AbsorbHurtMapLayout::ThreeMaps);
     }
 }

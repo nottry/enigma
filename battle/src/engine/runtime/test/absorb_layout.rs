@@ -26,22 +26,24 @@ fn opening_round(params: &[&str]) -> FightRound {
 }
 
 #[test]
-fn replay_status_selects_the_default_absorb_layout() {
-    let replay = runtime(Fight {
+fn fight_version_selects_the_default_absorb_layout() {
+    let version_six = runtime(Fight {
+        version: Some(6),
         is_record: Some(true),
         ..Default::default()
     });
-    let normal = runtime(Fight {
-        is_record: Some(false),
+    let version_seven_replay = runtime(Fight {
+        version: Some(7),
+        is_record: Some(true),
         ..Default::default()
     });
 
     assert_eq!(
-        replay.absorb_hurt_map_layout,
+        version_six.absorb_hurt_map_layout,
         crate::engine::fight::versions::AbsorbHurtMapLayout::TwoMaps
     );
     assert_eq!(
-        normal.absorb_hurt_map_layout,
+        version_seven_replay.absorb_hurt_map_layout,
         crate::engine::fight::versions::AbsorbHurtMapLayout::ThreeMaps
     );
 }

@@ -202,11 +202,7 @@ pub fn run_round_start_after_ai_split(
     push_cue(
         &mut fight_steps.frames,
         RoundCue::ChangeRound {
-            round: crate::engine::fight::versions::change_round_effect_num(
-                managers.fight_version(),
-                managers.recorded_fight(),
-                context.current_round,
-            ),
+            round: context.current_round,
         },
     );
     if !entering_uids.is_empty() {

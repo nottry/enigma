@@ -658,8 +658,9 @@ fn scheduled_round_start(version: i32, model_id: Option<i32>, is_record: bool) -
     .0
 }
 
-fn change_round_effect_num(round: &DrainResult) -> i32 {
-    let steps = crate::engine::packet::timeline::project(&round.frames).unwrap();
+fn change_round_effect_num(round: &DrainResult, version: i32) -> i32 {
+    let steps =
+        crate::engine::packet::timeline::project_for_version(&round.frames, version).unwrap();
     steps
         .iter()
         .flat_map(|step| &step.act_effect)
@@ -673,7 +674,7 @@ fn change_round_effect_num(round: &DrainResult) -> i32 {
 #[test]
 fn live_version_seven_change_round_payload_names_the_active_round() {
     let round = scheduled_round_start(7, None, false);
-    assert_eq!(change_round_effect_num(&round), 3);
+    assert_eq!(change_round_effect_num(&round, 7), 3);
     assert!(round.outcomes.iter().all(|outcome| !matches!(
         outcome,
         RuleOutcome::Conduit(
@@ -691,7 +692,7 @@ fn live_version_seven_change_round_payload_names_the_active_round() {
 #[test]
 fn change_round_payload_is_zero_when_the_layout_does_not_reset_conduit_power() {
     let round = scheduled_round_start(6, Some(3149), false);
-    assert_eq!(change_round_effect_num(&round), 0);
+    assert_eq!(change_round_effect_num(&round, 6), 0);
     assert!(round.outcomes.iter().all(|outcome| !matches!(
         outcome,
         RuleOutcome::Conduit(crate::engine::manager::conduit::ConduitChange::PowersReset { .. })
@@ -701,7 +702,7 @@ fn change_round_payload_is_zero_when_the_layout_does_not_reset_conduit_power() {
 #[test]
 fn live_version_seven_change_round_payload_is_independent_of_conduit_power() {
     let round = scheduled_round_start(7, Some(3149), false);
-    assert_eq!(change_round_effect_num(&round), 3);
+    assert_eq!(change_round_effect_num(&round, 7), 3);
     let conduit_changes = round
         .outcomes
         .iter()
@@ -723,9 +724,9 @@ fn live_version_seven_change_round_payload_is_independent_of_conduit_power() {
 }
 
 #[test]
-fn recorded_version_seven_change_round_payload_remains_incremental() {
+fn recorded_version_seven_change_round_payload_uses_the_v7_projection() {
     let round = scheduled_round_start(7, None, true);
-    assert_eq!(change_round_effect_num(&round), 0);
+    assert_eq!(change_round_effect_num(&round, 7), 3);
 }
 
 #[test]

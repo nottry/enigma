@@ -8,7 +8,7 @@ use sonettobuf::{
 use crate::{
     catalog::BattleCatalog,
     engine::{
-        fight::versions::{AbsorbHurtMapLayout, HeroSpAttributeWireLayout},
+        fight::versions::AbsorbHurtMapLayout,
         manager::BattleManagers,
         round::{outcome::battle_outcome, state::RoundState},
         skill::effect::SkillEffectCatalog,
@@ -53,7 +53,6 @@ pub struct BattleRuntime {
     cloth_skill_uses: HashMap<i32, usize>,
     objectives: objective::ObjectiveProgress,
     absorb_hurt_map_layout: AbsorbHurtMapLayout,
-    hero_sp_attribute_wire_layout: HeroSpAttributeWireLayout,
 }
 
 impl BattleRuntime {
@@ -319,15 +318,9 @@ impl BattleRuntime {
         let determinism =
             RoundDeterminism::with_seed(fight.battle_id.unwrap_or_default().max(0) as u64);
         let skill_catalog = catalog.skill_effects_for_fight(&fight);
-        let absorb_hurt_map_layout = if fight.is_record == Some(true) {
-            AbsorbHurtMapLayout::TwoMaps
-        } else {
-            AbsorbHurtMapLayout::ThreeMaps
-        };
-        let hero_sp_attribute_wire_layout =
-            crate::engine::fight::versions::hero_sp_attribute_wire_layout(
-                fight.is_record == Some(true),
-            );
+        let absorb_hurt_map_layout = crate::engine::fight::versions::absorb_hurt_map_layout(
+            fight.version.unwrap_or_default(),
+        );
 
         Self {
             catalog_data: Some(catalog),
@@ -342,7 +335,6 @@ impl BattleRuntime {
             cloth_skill_uses: HashMap::new(),
             objectives: Default::default(),
             absorb_hurt_map_layout,
-            hero_sp_attribute_wire_layout,
         }
     }
 }

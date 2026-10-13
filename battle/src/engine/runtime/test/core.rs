@@ -52,7 +52,7 @@ fn entity_info_projects_manager_owned_state() {
 }
 
 #[test]
-fn recorded_hero_special_attribute_layout_survives_record_flag_changes() {
+fn hero_special_attributes_do_not_depend_on_record_mode() {
     crate::test_support::init_config();
     let mut runtime = runtime(Fight {
         version: Some(7),
@@ -72,13 +72,11 @@ fn recorded_hero_special_attribute_layout_survives_record_flag_changes() {
     runtime.fight.is_record = Some(false);
 
     assert_eq!(
-        runtime
-            .managers
-            .hero_sp_attributes(&runtime.fight, runtime.hero_sp_attribute_wire_layout)[0]
+        runtime.managers.hero_sp_attributes(&runtime.fight)[0]
             .attribute
             .as_ref()
             .and_then(|attribute| attribute.device_skill_rate),
-        None
+        Some(0)
     );
 }
 

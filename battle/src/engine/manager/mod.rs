@@ -54,7 +54,6 @@ use self::{
 pub struct BattleManagers {
     catalog_data: Option<crate::catalog::BattleCatalog>,
     fight_version: i32,
-    recorded_fight: bool,
     terminal_outcome: Option<crate::engine::round::outcome::BattleOutcome>,
     pub attribute: AttributeManager,
     pub battle_rule: battle_rule::BattleRuleManager,
@@ -168,10 +167,6 @@ impl BattleManagers {
 
     pub(crate) fn fight_version(&self) -> i32 {
         self.fight_version
-    }
-
-    pub(crate) fn recorded_fight(&self) -> bool {
-        self.recorded_fight
     }
 
     pub(crate) fn terminal_outcome(&self) -> Option<crate::engine::round::outcome::BattleOutcome> {
@@ -1272,7 +1267,6 @@ impl BattleManagers {
         let mut managers = Self {
             catalog_data: Some(catalog),
             fight_version: fight.version.unwrap_or_default(),
-            recorded_fight: fight.is_record.unwrap_or_default(),
             ..Self::default()
         };
         managers.attribute.seed_with_catalog(catalog, fight);
@@ -1412,11 +1406,7 @@ impl BattleManagers {
             .collect()
     }
 
-    pub(crate) fn hero_sp_attributes(
-        &self,
-        fight: &Fight,
-        wire_layout: crate::engine::fight::versions::HeroSpAttributeWireLayout,
-    ) -> Vec<FightHeroSpAttributeInfo> {
+    pub(crate) fn hero_sp_attributes(&self, fight: &Fight) -> Vec<FightHeroSpAttributeInfo> {
         let fight_version = fight.version.unwrap_or_default();
         entities(fight)
             .filter(|entity| entity.team_type == Some(2))
@@ -1445,10 +1435,8 @@ impl BattleManagers {
                 attribute.rebound_dmg = Some(self.origin_attribute(uid, AttrId::ReboundDmg));
                 attribute.extra_dmg = Some(self.origin_attribute(uid, AttrId::ExtraDmg));
                 attribute.reuse_dmg = Some(self.origin_attribute(uid, AttrId::ReuseDmg));
-                attribute.device_skill_rate = (fight_version == 7
-                    && wire_layout
-                        == crate::engine::fight::versions::HeroSpAttributeWireLayout::LiveBattle)
-                    .then(|| self.origin_attribute(uid, AttrId::ConduitMight));
+                attribute.device_skill_rate =
+                    (fight_version == 7).then(|| self.origin_attribute(uid, AttrId::ConduitMight));
                 Some(FightHeroSpAttributeInfo {
                     uid: Some(uid),
                     attribute: Some(attribute),
