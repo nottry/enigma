@@ -137,7 +137,7 @@ pub fn run_skill_setup_schedule_in_opening_round_phase(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
 ) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_dispatch(
+    run_skill_setup_schedule_with_container(
         managers,
         pool,
         catalog,
@@ -146,7 +146,6 @@ pub fn run_skill_setup_schedule_in_opening_round_phase(
         schedule,
         owner_uids,
         SetupFrameContainer::OpeningRoundPhase,
-        SetupDispatch::Skills,
     )
 }
 
@@ -164,7 +163,7 @@ pub fn run_opening_settlement_skills_in_owner_order(
 
     let mut result = DrainResult::default();
     for owner_uid in owner_uids {
-        let owner_result = run_setup_schedule_with_dispatch(
+        let owner_result = run_skill_setup_schedule_with_container(
             managers,
             pool,
             catalog,
@@ -173,14 +172,13 @@ pub fn run_opening_settlement_skills_in_owner_order(
             SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::OpeningRoundPhase,
-            SetupDispatch::Skills,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
         result.frames.extend(owner_result.frames);
     }
 
-    let remaining = run_setup_stage_filtered(
+    let remaining = run_skill_setup_stage_filtered(
         managers,
         pool,
         catalog,
@@ -188,12 +186,9 @@ pub fn run_opening_settlement_skills_in_owner_order(
         context,
         SetupStage::RoundStart,
         1,
-        std::iter::empty(),
-        |_| Vec::new(),
         None,
         owner_uids,
         false,
-        SetupDispatch::Skills,
         SetupFrameContainer::OpeningRoundPhase,
     )?;
     result.outcomes.extend(remaining.outcomes);
@@ -212,7 +207,7 @@ pub fn run_buff_act_setup_schedule_in_opening_round_phase(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
 ) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_dispatch(
+    run_buff_act_setup_schedule(
         managers,
         pool,
         catalog,
@@ -220,8 +215,6 @@ pub fn run_buff_act_setup_schedule_in_opening_round_phase(
         context,
         schedule,
         owner_uids,
-        SetupFrameContainer::OpeningRoundPhase,
-        SetupDispatch::BuffActs,
     )
 }
 
@@ -312,7 +305,7 @@ fn run_sync_setup_in_owner_order(
     let mut result = DrainResult::default();
     for owner_uid in owner_uids {
         for &(stage, priority) in SCHEDULE {
-            let owner_result = run_setup_stage_filtered(
+            let owner_result = run_skill_then_buff_act_setup_stage_filtered(
                 managers,
                 pool,
                 catalog,
@@ -320,12 +313,9 @@ fn run_sync_setup_in_owner_order(
                 context,
                 stage,
                 priority,
-                std::iter::empty(),
-                |_| Vec::new(),
                 Some(std::slice::from_ref(owner_uid)),
                 &[],
                 false,
-                SetupDispatch::All,
                 frame_container,
             )?;
             result.outcomes.extend(owner_result.outcomes);
@@ -335,7 +325,7 @@ fn run_sync_setup_in_owner_order(
     }
 
     for &(stage, priority) in SCHEDULE {
-        let remaining = run_setup_stage_filtered(
+        let remaining = run_skill_then_buff_act_setup_stage_filtered(
             managers,
             pool,
             catalog,
@@ -343,12 +333,9 @@ fn run_sync_setup_in_owner_order(
             context,
             stage,
             priority,
-            std::iter::empty(),
-            |_| Vec::new(),
             (stage == SetupStage::RoundStartLate).then_some([].as_slice()),
             owner_uids,
             stage == SetupStage::RoundStartLate,
-            SetupDispatch::All,
             frame_container,
         )?;
         result.outcomes.extend(remaining.outcomes);
@@ -367,7 +354,7 @@ pub fn run_skill_setup_schedule(
     context: TargetContext,
     schedule: &[(SetupStage, i32)],
 ) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_dispatch(
+    run_skill_setup_schedule_with_container(
         managers,
         pool,
         catalog,
@@ -376,7 +363,6 @@ pub fn run_skill_setup_schedule(
         schedule,
         None,
         SetupFrameContainer::Standalone,
-        SetupDispatch::Skills,
     )
 }
 
@@ -395,7 +381,7 @@ pub fn run_version_seven_round_start_event_setup(
 
     let mut result = DrainResult::default();
     for owner_uid in owner_uids {
-        let owner_result = run_setup_schedule_with_dispatch(
+        let owner_result = run_setup_schedule_with_container(
             managers,
             pool,
             catalog,
@@ -404,14 +390,13 @@ pub fn run_version_seven_round_start_event_setup(
             OWNER_SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::RoundPhase,
-            SetupDispatch::All,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
         result.frames.extend(owner_result.frames);
     }
     for owner_uid in owner_uids {
-        let owner_result = run_setup_schedule_with_dispatch(
+        let owner_result = run_setup_schedule_with_container(
             managers,
             pool,
             catalog,
@@ -420,7 +405,6 @@ pub fn run_version_seven_round_start_event_setup(
             TRANSITION_SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::RoundPhase,
-            SetupDispatch::All,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
@@ -439,7 +423,7 @@ pub fn run_buff_act_setup_schedule_for_owners_in_round_phase(
     schedule: &[(SetupStage, i32)],
     owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_dispatch(
+    run_buff_act_setup_schedule(
         managers,
         pool,
         catalog,
@@ -447,8 +431,6 @@ pub fn run_buff_act_setup_schedule_for_owners_in_round_phase(
         context,
         schedule,
         Some(owner_uids),
-        SetupFrameContainer::RoundPhase,
-        SetupDispatch::BuffActs,
     )
 }
 
@@ -463,21 +445,30 @@ fn run_setup_schedule_with_container(
     owner_uids: Option<&[i64]>,
     frame_container: SetupFrameContainer,
 ) -> Result<DrainResult, DrainError> {
-    run_setup_schedule_with_dispatch(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        schedule,
-        owner_uids,
-        frame_container,
-        SetupDispatch::All,
-    )
+    let mut result = DrainResult::default();
+    for &(stage, priority) in schedule {
+        let stage_result = run_skill_then_buff_act_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            owner_uids,
+            &[],
+            false,
+            frame_container,
+        )?;
+        result.outcomes.extend(stage_result.outcomes);
+        result.events.extend(stage_result.events);
+        result.frames.extend(stage_result.frames);
+    }
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_setup_schedule_with_dispatch(
+fn run_skill_setup_schedule_with_container(
     managers: &mut BattleManagers,
     pool: &TargetPool,
     catalog: &SkillEffectCatalog,
@@ -486,11 +477,10 @@ fn run_setup_schedule_with_dispatch(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
     frame_container: SetupFrameContainer,
-    dispatch: SetupDispatch,
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     for &(stage, priority) in schedule {
-        let stage_result = run_setup_stage_filtered(
+        let stage_result = run_skill_setup_stage_filtered(
             managers,
             pool,
             catalog,
@@ -498,13 +488,40 @@ fn run_setup_schedule_with_dispatch(
             context,
             stage,
             priority,
-            std::iter::empty(),
-            |_| Vec::new(),
             owner_uids,
             &[],
             false,
-            dispatch,
             frame_container,
+        )?;
+        result.outcomes.extend(stage_result.outcomes);
+        result.events.extend(stage_result.events);
+        result.frames.extend(stage_result.frames);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_buff_act_setup_schedule(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    let mut result = DrainResult::default();
+    for &(stage, priority) in schedule {
+        let stage_result = run_buff_act_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            owner_uids,
+            &[],
         )?;
         result.outcomes.extend(stage_result.outcomes);
         result.events.extend(stage_result.events);

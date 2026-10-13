@@ -7,23 +7,6 @@ pub(super) enum SetupFrameContainer {
     OpeningRoundPhase,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum SetupDispatch {
-    All,
-    Skills,
-    BuffActs,
-}
-
-impl SetupDispatch {
-    const fn includes_skills(self) -> bool {
-        matches!(self, Self::All | Self::Skills)
-    }
-
-    const fn includes_buff_acts(self) -> bool {
-        matches!(self, Self::All | Self::BuffActs)
-    }
-}
-
 impl SetupFrameContainer {
     pub(super) fn owns_entity_scope(
         self,
@@ -54,7 +37,7 @@ pub fn run_setup_stage(
     stage: SetupStage,
     priority: i32,
 ) -> Result<DrainResult, DrainError> {
-    run_setup_stage_filtered(
+    run_skill_then_buff_act_setup_stage_filtered(
         managers,
         pool,
         catalog,
@@ -62,12 +45,9 @@ pub fn run_setup_stage(
         context,
         stage,
         priority,
-        std::iter::empty(),
-        |_| Vec::new(),
         None,
         &[],
         false,
-        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
@@ -83,7 +63,7 @@ pub fn run_setup_stage_for_owners(
     priority: i32,
     owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
-    run_setup_stage_filtered(
+    run_skill_then_buff_act_setup_stage_filtered(
         managers,
         pool,
         catalog,
@@ -91,12 +71,9 @@ pub fn run_setup_stage_for_owners(
         context,
         stage,
         priority,
-        std::iter::empty(),
-        |_| Vec::new(),
         Some(owner_uids),
         &[],
         false,
-        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
@@ -112,7 +89,7 @@ pub fn run_opening_setup_stage_for_owners(
     priority: i32,
     player_owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
-    run_setup_stage_filtered(
+    run_skill_then_buff_act_setup_stage_filtered(
         managers,
         pool,
         catalog,
@@ -120,18 +97,29 @@ pub fn run_opening_setup_stage_for_owners(
         context,
         stage,
         priority,
-        std::iter::empty(),
-        |_| Vec::new(),
         Some(player_owner_uids),
         &[],
         true,
-        SetupDispatch::All,
         SetupFrameContainer::Standalone,
     )
 }
 
+#[derive(Default)]
+struct SetupStageState {
+    result: DrainResult,
+    side_paths: Vec<(SetupSide, FramePath)>,
+}
+
+impl SetupStageState {
+    fn append(&mut self, next: DrainResult) {
+        self.result.outcomes.extend(next.outcomes);
+        self.result.events.extend(next.events);
+        self.result.frames = next.frames;
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(super) fn run_setup_stage_filtered(
+pub(super) fn run_skill_then_buff_act_setup_stage_filtered(
     managers: &mut BattleManagers,
     pool: &TargetPool,
     catalog: &SkillEffectCatalog,
@@ -139,57 +127,121 @@ pub(super) fn run_setup_stage_filtered(
     context: TargetContext,
     stage: SetupStage,
     priority: i32,
-    prelude: impl IntoIterator<Item = (SetupSide, RuleOp)>,
-    postlude: impl FnOnce(&BattleManagers) -> Vec<(SetupSide, RuleOp)>,
     owner_uids: Option<&[i64]>,
     excluded_owner_uids: &[i64],
     include_both_sides_opening: bool,
-    dispatch: SetupDispatch,
     frame_container: SetupFrameContainer,
 ) -> Result<DrainResult, DrainError> {
-    let context = context_for_setup_stage(context, stage);
-    let trigger = FrameTrigger::Setup { stage, priority };
-    let mut frames = Vec::new();
-    let mut side_paths = Vec::<(SetupSide, FramePath)>::new();
-    let mut queue = VecDeque::new();
-    for (side, op) in prelude {
-        let side_path = match side_paths.iter().find(|(known, _)| *known == side) {
-            Some((_, path)) => path.clone(),
-            None => {
-                let path = push_root(&mut frames, FrameOwner::SetupSide(side), trigger.clone());
-                side_paths.push((side, path.clone()));
-                path
-            }
-        };
-        queue.push_back(QueuedOp {
-            op,
-            trigger: SkillOpTrigger::Setup { stage, priority },
-            skill_execution: None,
-            frame_path: Some(side_path),
-            parent_path: None,
-            frame_group: None,
-            independent_parent_group: None,
-            frame_owner: None,
-            subscriber_owner_uid: None,
-            caster_frame: None,
-        });
-    }
-    let mut result = drain_queue_with_frames(
+    let mut state = SetupStageState::default();
+    append_skill_setup_stage(
         managers,
         pool,
         catalog,
         determinism,
         context,
-        &mut queue,
-        frames,
+        stage,
+        priority,
+        owner_uids,
+        excluded_owner_uids,
+        include_both_sides_opening,
+        frame_container,
+        &mut state,
     )?;
+    append_buff_act_setup_stage(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        stage,
+        priority,
+        owner_uids,
+        excluded_owner_uids,
+        &mut state,
+    )?;
+    Ok(state.result)
+}
 
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_skill_setup_stage_filtered(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    stage: SetupStage,
+    priority: i32,
+    owner_uids: Option<&[i64]>,
+    excluded_owner_uids: &[i64],
+    include_both_sides_opening: bool,
+    frame_container: SetupFrameContainer,
+) -> Result<DrainResult, DrainError> {
+    let mut state = SetupStageState::default();
+    append_skill_setup_stage(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        stage,
+        priority,
+        owner_uids,
+        excluded_owner_uids,
+        include_both_sides_opening,
+        frame_container,
+        &mut state,
+    )?;
+    Ok(state.result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn run_buff_act_setup_stage_filtered(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    stage: SetupStage,
+    priority: i32,
+    owner_uids: Option<&[i64]>,
+    excluded_owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    let mut state = SetupStageState::default();
+    append_buff_act_setup_stage(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        stage,
+        priority,
+        owner_uids,
+        excluded_owner_uids,
+        &mut state,
+    )?;
+    Ok(state.result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_skill_setup_stage(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    stage: SetupStage,
+    priority: i32,
+    owner_uids: Option<&[i64]>,
+    excluded_owner_uids: &[i64],
+    include_both_sides_opening: bool,
+    frame_container: SetupFrameContainer,
+    state: &mut SetupStageState,
+) -> Result<(), DrainError> {
+    let context = context_for_setup_stage(context, stage);
+    let trigger = FrameTrigger::Setup { stage, priority };
     let current_pool = pool.runtime_view(managers);
-    let subscribers = if dispatch.includes_skills() {
-        dispatcher::dispatch_compiled_setup(&current_pool, managers, catalog, stage, priority)?
-    } else {
-        Vec::new()
-    };
+    let subscribers =
+        dispatcher::dispatch_compiled_setup(&current_pool, managers, catalog, stage, priority)?;
     let subscribers = subscribers
             .into_iter()
             .filter(|(subscriber, _)| {
@@ -206,7 +258,8 @@ pub(super) fn run_setup_stage_filtered(
                             })))
             });
     let subscribers = subscribers.collect::<Vec<_>>();
-    let mut frames = std::mem::take(&mut result.frames);
+    let mut frames = std::mem::take(&mut state.result.frames);
+    let side_paths = &mut state.side_paths;
     let mut owner_paths = Vec::<(SetupSide, i64, FramePath)>::new();
     let mut skill_frame_groups = Vec::<(i64, i32, Rc<RefCell<Option<FramePath>>>)>::new();
     let mut queue = VecDeque::new();
@@ -312,16 +365,29 @@ pub(super) fn run_setup_stage_filtered(
         &mut queue,
         frames,
     )?;
-    result.outcomes.extend(stage_result.outcomes);
+    state.append(stage_result);
+    Ok(())
+}
 
-    result.events.extend(stage_result.events);
-    let mut frames = stage_result.frames;
+#[allow(clippy::too_many_arguments)]
+fn append_buff_act_setup_stage(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    stage: SetupStage,
+    priority: i32,
+    owner_uids: Option<&[i64]>,
+    excluded_owner_uids: &[i64],
+    state: &mut SetupStageState,
+) -> Result<(), DrainError> {
+    let context = context_for_setup_stage(context, stage);
+    let trigger = FrameTrigger::Setup { stage, priority };
+    let mut frames = std::mem::take(&mut state.result.frames);
+    let side_paths = &mut state.side_paths;
     let mut queue = VecDeque::new();
-    let setup_subscribers = if dispatch.includes_buff_acts() {
-        dispatcher::dispatch_buff_act_setup(managers, catalog, stage, priority)
-    } else {
-        Vec::new()
-    };
+    let setup_subscribers = dispatcher::dispatch_buff_act_setup(managers, catalog, stage, priority);
     let setup_subscribers = setup_subscribers
         .into_iter()
         .filter(|(subscriber, _)| {
@@ -444,77 +510,8 @@ pub(super) fn run_setup_stage_filtered(
         &mut queue,
         frames,
     )?;
-    result.outcomes.extend(buff_act_result.outcomes);
-    result.events.extend(buff_act_result.events);
-    let mut frames = buff_act_result.frames;
-    let mut queue = VecDeque::new();
-    let mut postlude_paths = Vec::<(SetupSide, FramePath)>::new();
-    for (side, op) in postlude(managers) {
-        let side_path = match side_paths.iter().find(|(known, _)| *known == side) {
-            Some((_, path)) => path.clone(),
-            None => {
-                let path = push_root(&mut frames, FrameOwner::SetupSide(side), trigger.clone());
-                side_paths.push((side, path.clone()));
-                path
-            }
-        };
-        let mechanic_path = match postlude_paths.iter().find(|(known, _)| *known == side) {
-            Some((_, path)) => path.clone(),
-            None => {
-                let path = push_child(
-                    &mut frames,
-                    &side_path,
-                    FrameOwner::SetupMechanic,
-                    trigger.clone(),
-                );
-                postlude_paths.push((side, path.clone()));
-                path
-            }
-        };
-        let (frame_path, parent_path) = match op {
-            RuleOp::Skill(_) => (None, Some(mechanic_path.clone())),
-            RuleOp::Command(_)
-            | RuleOp::Publish(_)
-            | RuleOp::SkillLifecycle(_)
-            | RuleOp::DeathSettlement(_)
-            | RuleOp::TerminalSettlement
-            | RuleOp::BeginSkillAction { .. }
-            | RuleOp::BuffFeatureMarker { .. }
-            | RuleOp::EffectMarker { .. }
-            | RuleOp::SceneChange { .. }
-            | RuleOp::BuffActTrigger(_)
-            | RuleOp::BuffActInfoMarker(_)
-            | RuleOp::MarkBuffActFired { .. }
-            | RuleOp::ModifyActiveSkillTargets { .. }
-            | RuleOp::FreezeActiveSkillRates
-            | RuleOp::NuoDiKaHit(_) => (Some(mechanic_path), None),
-        };
-        queue.push_back(QueuedOp {
-            op,
-            trigger: SkillOpTrigger::Setup { stage, priority },
-            skill_execution: None,
-            frame_path,
-            parent_path,
-            frame_group: None,
-            independent_parent_group: None,
-            frame_owner: None,
-            subscriber_owner_uid: None,
-            caster_frame: None,
-        });
-    }
-    let postlude_result = drain_queue_with_frames(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        &mut queue,
-        frames,
-    )?;
-    result.outcomes.extend(postlude_result.outcomes);
-    result.events.extend(postlude_result.events);
-    result.frames = postlude_result.frames;
-    Ok(result)
+    state.append(buff_act_result);
+    Ok(())
 }
 
 pub(super) fn context_for_setup_stage(
