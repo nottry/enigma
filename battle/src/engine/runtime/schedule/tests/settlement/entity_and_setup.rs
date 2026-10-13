@@ -117,6 +117,7 @@ fn entity_settlement_uses_attacker_and_defender_roster_order() {
         vec![
             EventKind::RoundEndEntitySettlement,
             EventKind::RoundEndAfterSettlement,
+            EventKind::RoundEndAfterOwnerSettlement,
         ]
     );
     assert_eq!(managers.buff.snapshot(10, 20).unwrap().duration, Some(1));
@@ -149,6 +150,7 @@ fn entity_settlement_uses_attacker_and_defender_roster_order() {
         vec![
             EventKind::RoundEndEntitySettlement,
             EventKind::RoundEndAfterSettlement,
+            EventKind::RoundEndAfterOwnerSettlement,
         ]
     );
     assert!(defender.settled_buffs.is_empty());

@@ -396,19 +396,16 @@ pub fn run_entity_settlement(
                     }
                     append(&mut result, skills);
                     let owner_settled = BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement);
-                    let mut after_owners = drain::run_grouped_owner_event(
+                    let after_owners = drain::run_grouped_owner_event(
                         managers,
                         pool,
                         catalog,
                         determinism,
                         context,
-                        owner_settled.clone(),
+                        owner_settled,
                         &active_owner_uids,
                         drain::ReactionLane::Skills,
                     )?;
-                    if after_owners.events.first() == Some(&owner_settled) {
-                        after_owners.events.remove(0);
-                    }
                     append(&mut result, after_owners);
                     result
                 } else {

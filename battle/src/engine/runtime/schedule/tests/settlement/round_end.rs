@@ -45,6 +45,7 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
             EventKind::RoundEnd,
             EventKind::RoundEndEntitySettlement,
             EventKind::RoundEndAfterSettlement,
+            EventKind::RoundEndAfterOwnerSettlement,
         ]
     );
 
@@ -67,6 +68,7 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
             EventKind::SmallRoundEnd,
             EventKind::RoundEndEntitySettlement,
             EventKind::RoundEndAfterSettlement,
+            EventKind::RoundEndAfterOwnerSettlement,
             EventKind::RoundEndFinalSettlement,
         ]
     );
