@@ -142,6 +142,16 @@ impl BattleRuntime {
         self.determinism.enqueue_card_draws(cards);
     }
 
+    pub(crate) fn seed_observed_redeal(&mut self, hand: &[CardInfo]) -> Result<(), String> {
+        let draws = self
+            .managers
+            .card
+            .observed_redeal_draws(hand)
+            .ok_or_else(|| "captured redeal is not reachable from the current hand".to_owned())?;
+        self.seed_card_draws(draws);
+        Ok(())
+    }
+
     pub fn seed_next_ai_cards(&mut self, cards: Vec<CardInfo>) {
         self.determinism.enqueue_next_ai_card_snapshot(cards);
     }

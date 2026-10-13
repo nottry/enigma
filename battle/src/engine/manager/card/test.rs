@@ -728,6 +728,25 @@ fn redeal_eligibility_fails_closed_without_complete_catalog_identity() {
 }
 
 #[test]
+fn observed_redeal_result_resolves_legal_base_rank_draws() {
+    crate::test_support::init_config();
+    let catalog = crate::catalog::BattleCatalog::new(crate::test_support::game_data());
+    let mut manager = CardManager::with_draw_pile(
+        vec![card(10, 31340112), card(20, 31270121)],
+        vec![card(20, 31270121), card(10, 31340111)],
+    );
+    manager.set_catalog(catalog);
+    manager.rank_up.insert((20, 31270121), 31270122);
+    manager.rank_up.insert((10, 31340111), 31340112);
+
+    let draws = manager
+        .observed_redeal_draws(&[card(20, 31270122), card(10, 31340111)])
+        .unwrap();
+
+    assert_eq!(draws, vec![card(20, 31270121), card(10, 31340111)]);
+}
+
+#[test]
 fn refill_keeps_drawing_after_compositions_until_the_hand_is_full() {
     let mut cards = CardManager::new(vec![card(1, 10), card(2, 20), card(3, 30), card(4, 40)]);
     cards.rank_up.insert((2, 20), 21);

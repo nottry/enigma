@@ -17,6 +17,13 @@ pub mod replay {
             determinism::{HandRankChoice, RoundDeterminism, SkillTargetChoice},
         },
     };
+
+    pub fn seed_observed_redeal(
+        runtime: &mut ReplayBattle,
+        hand: &[sonettobuf::CardInfo],
+    ) -> Result<(), String> {
+        runtime.seed_observed_redeal(hand)
+    }
 }
 
 pub mod scan {

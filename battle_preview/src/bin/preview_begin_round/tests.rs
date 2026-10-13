@@ -90,6 +90,43 @@ fn captured_round_continuity_rejects_same_round_without_terminal_evidence() {
 }
 
 #[test]
+fn captured_cloth_redeal_reads_the_observed_post_rank_hand() {
+    let path = std::env::temp_dir().join(format!(
+        "enigma-cloth-redeal-{}-{}.json",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let cards = vec![sonettobuf::CardInfo {
+        uid: Some(10),
+        skill_id: Some(31270122),
+        ..Default::default()
+    }];
+    let reply = sonettobuf::UseClothSkillReply {
+        round: Some(FightRound {
+            fight_step: vec![FightStep {
+                act_effect: vec![sonettobuf::ActEffect {
+                    effect_type: Some(
+                        sonettobuf::effect_type_enum::EffectType::Afterredealcard as i32,
+                    ),
+                    card_info_list: cards.clone(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+    };
+    fs::write(&path, serde_json::to_vec(&reply).unwrap()).unwrap();
+
+    assert_eq!(captured_cloth_redeal(&path).unwrap(), Some(cards));
+
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn cloth_input_discovery_returns_same_round_requests_in_capture_order() {
     let directory = std::env::temp_dir().join(format!(
         "enigma-cloth-inputs-{}-{}",
