@@ -1164,6 +1164,13 @@ fn condition_kind_matches(
             compare,
             count,
         } => entity_count_matches(*scope, *compare, *count, source_uid, managers, pool),
+        ParsedConditionKind::AliveAlliedModelCount { model_id, minimum } => {
+            pool.main_allies(source_uid)
+                .iter()
+                .filter(|entity| entity.model_id == *model_id)
+                .count() as i32
+                >= *minimum
+        }
         ParsedConditionKind::SummonedCount {
             summoned_id,
             required_level,

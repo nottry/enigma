@@ -110,6 +110,16 @@ pub fn teammates_without_special(_: i32, _: &str, args: &[String]) -> Option<Par
     )
 }
 
+pub fn alive_allied_model_at_least(
+    _: i32,
+    _: &str,
+    args: &[String],
+) -> Option<ParsedConditionKind> {
+    let [team, model_id, minimum] = parse_fixed(args)?;
+    (team == 1 && model_id > 0 && minimum > 0)
+        .then_some(ParsedConditionKind::AliveAlliedModelCount { model_id, minimum })
+}
+
 pub fn summoned_equal(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
     summoned_count(args, ConditionCompare::Equal)
 }
@@ -263,6 +273,29 @@ mod tests {
         assert_eq!(
             enemy_dead(86, "EnemyDead", &[]),
             Some(ParsedConditionKind::EnemyDead)
+        );
+    }
+
+    #[test]
+    fn alive_monster_count_requires_the_allied_team_shape() {
+        assert_eq!(
+            alive_allied_model_at_least(
+                74210,
+                "MonsterAliveNumMoreThan",
+                &["1".into(), "103370112".into(), "1".into()]
+            ),
+            Some(ParsedConditionKind::AliveAlliedModelCount {
+                model_id: 103370112,
+                minimum: 1,
+            })
+        );
+        assert!(
+            alive_allied_model_at_least(
+                74210,
+                "MonsterAliveNumMoreThan",
+                &["2".into(), "103370112".into(), "1".into()]
+            )
+            .is_none()
         );
     }
 }

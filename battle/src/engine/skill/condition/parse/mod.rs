@@ -302,6 +302,10 @@ pub enum ParsedConditionKind {
         compare: ConditionCompare,
         count: i32,
     },
+    AliveAlliedModelCount {
+        model_id: i32,
+        minimum: i32,
+    },
     SummonedCount {
         summoned_id: i32,
         required_level: i32,
