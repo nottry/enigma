@@ -212,7 +212,8 @@ pub fn subscriber_from_feature(
         team_type: feature.team_type,
         owner_alive: feature.owner_alive,
         amount: feature.amount,
-        key: SubscriptionKey::new(event, definition.key),
+        key: SubscriptionKey::new(event, definition.key)
+            .with_timing(definition.runtime.reaction_timing),
         act_type: feature.act_type,
         effect_time: feature.effect_time,
         effect_condition: feature.effect_condition,
@@ -231,13 +232,13 @@ pub fn feature_runtime_frame_scope(
     )
 }
 
-pub fn feature_runtime_execution_timing(
+pub fn feature_reaction_timing(
     feature: &ActiveBuffFeature,
-) -> Option<registry::RuntimeExecutionTiming> {
+) -> Option<crate::engine::event::subscription::ReactionTiming> {
     Some(
         registry::find(feature.act_id()?, &feature.act_type)?
             .runtime
-            .execution_timing,
+            .reaction_timing,
     )
 }
 

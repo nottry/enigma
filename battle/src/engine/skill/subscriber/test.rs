@@ -734,7 +734,8 @@ fn discovers_event_passives_linked_by_active_buffs() {
             key: SubscriptionKey::new(
                 EventKind::TargetAttacked,
                 DefinitionKey::new(22211, "BeAttacked"),
-            ),
+            )
+            .with_timing(crate::engine::event::subscription::ReactionTiming::AfterSharedHit),
         }]
     );
 }

@@ -71,20 +71,20 @@ fn transaction_capability_lives_on_the_exact_registry_entry() {
 #[test]
 fn round_start_settlement_keeps_fresh_wound_after_shadow_cloak() {
     assert_eq!(
-        runtime_settlement_phase(1042, "Raspberry"),
-        RuntimeSettlementPhase::Before
+        reaction_timing(1042, "Raspberry"),
+        crate::engine::event::subscription::ReactionTiming::Immediate
     );
     assert_eq!(
-        runtime_settlement_phase(1023, "LostHpAddExtraBloodPoolValue"),
-        RuntimeSettlementPhase::After
+        reaction_timing(1023, "LostHpAddExtraBloodPoolValue"),
+        crate::engine::event::subscription::ReactionTiming::AfterSettlement
     );
 }
 
 #[test]
 fn crystal_attack_grants_run_after_lethal_hit_settlement() {
     assert_eq!(
-        runtime_settlement_phase(1051, "CrystalAddBuff"),
-        RuntimeSettlementPhase::After
+        reaction_timing(1051, "CrystalAddBuff"),
+        crate::engine::event::subscription::ReactionTiming::AfterSettlement
     );
 }
 

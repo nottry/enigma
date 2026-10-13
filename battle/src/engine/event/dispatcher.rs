@@ -41,22 +41,11 @@ pub enum ReactionLane {
     BuffActsAfterSettlement,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ReactionStage {
-    Immediate,
-    AfterSettlement,
-    AfterSkill,
-    SkillAfterHit,
-    BeforeAfterHitObservers,
-    BuffActAfterHit,
-    AfterAction,
-}
-
 pub(crate) struct DispatchSelection<'a> {
     pub owner_uids: Option<&'a [i64]>,
     pub publication: Option<crate::engine::event::subscription::PublicationPhase>,
     pub lane: Option<ReactionLane>,
-    pub stage: ReactionStage,
+    pub timing: crate::engine::event::subscription::ReactionTiming,
 }
 
 pub(crate) type ReactionMultiplicityKey = (
@@ -89,7 +78,7 @@ pub(crate) struct DispatchOwnerPhase<'a> {
 pub(crate) struct DispatchSkillSelection {
     pub owner_skill: (i64, i32),
     pub publication: crate::engine::event::subscription::PublicationPhase,
-    pub stage: ReactionStage,
+    pub timing: crate::engine::event::subscription::ReactionTiming,
 }
 
 #[cfg(test)]
@@ -280,7 +269,12 @@ pub(crate) fn dispatch_selected_event(
         retain_publication(&mut subscribers, publication);
     }
     retain_reaction_lane(&mut subscribers, selection.lane);
-    retain_reaction_stage(&mut subscribers, selection.stage);
+    retain_reaction_timing(
+        &mut subscribers,
+        selection.timing,
+        event,
+        matches!(selection.lane, Some(ReactionLane::Skills)),
+    );
     Ok(if let Some(multiplicity) = multiplicity {
         dispatch_subscribers_with_multiplicity(
             subscribers,
@@ -363,7 +357,7 @@ pub(crate) fn dispatch_selected_skill_event(
         buff_acts: Vec::new(),
     };
     retain_publication(&mut subscribers, selection.publication);
-    retain_reaction_stage(&mut subscribers, selection.stage);
+    retain_reaction_timing(&mut subscribers, selection.timing, event, false);
     Ok(dispatch_subscribers(
         subscribers,
         pool,
@@ -716,108 +710,48 @@ fn retain_reaction_lane(
     subscribers: &mut subscriber::EventSubscribers,
     lane: Option<ReactionLane>,
 ) {
-    use crate::engine::skill::buff_act::registry::RuntimeSettlementPhase;
+    use crate::engine::event::subscription::ReactionTiming;
 
     match lane {
         Some(ReactionLane::Skills) => subscribers.buff_acts.clear(),
         Some(ReactionLane::BuffActs) => subscribers.skills.clear(),
         Some(ReactionLane::BuffActsBeforeSettlement) => {
             subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_settlement_phase(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeSettlementPhase::Before
-            });
+            subscribers
+                .buff_acts
+                .retain(|subscriber| subscriber.key.timing != ReactionTiming::AfterSettlement);
         }
         Some(ReactionLane::BuffActsAfterSettlement) => {
             subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_settlement_phase(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeSettlementPhase::After
-            });
+            subscribers
+                .buff_acts
+                .retain(|subscriber| subscriber.key.timing == ReactionTiming::AfterSettlement);
         }
         None => {}
     }
 }
 
-fn retain_reaction_stage(subscribers: &mut subscriber::EventSubscribers, stage: ReactionStage) {
-    use crate::engine::{
-        event::subscription::ReactionTiming,
-        skill::buff_act::registry::{RuntimeExecutionTiming, RuntimeSettlementPhase},
-    };
+fn retain_reaction_timing(
+    subscribers: &mut subscriber::EventSubscribers,
+    timing: crate::engine::event::subscription::ReactionTiming,
+    event: &BattleEvent,
+    delay_shared_hit: bool,
+) {
+    use crate::engine::event::subscription::ReactionTiming;
 
-    match stage {
-        ReactionStage::Immediate => {
-            subscribers
-                .skills
-                .retain(|subscriber| subscriber.key.timing == ReactionTiming::Immediate);
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_execution_timing(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeExecutionTiming::Immediate
-                    && buff_act::registry::runtime_settlement_phase(
-                        subscriber.key.definition.opcode,
-                        &subscriber.act_type,
-                    ) == RuntimeSettlementPhase::Before
-            });
-        }
-        ReactionStage::AfterSettlement => {
-            subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_execution_timing(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeExecutionTiming::Immediate
-                    && buff_act::registry::runtime_settlement_phase(
-                        subscriber.key.definition.opcode,
-                        &subscriber.act_type,
-                    ) == RuntimeSettlementPhase::After
-            });
-        }
-        ReactionStage::AfterSkill => {
-            subscribers
-                .skills
-                .retain(|subscriber| subscriber.key.timing == ReactionTiming::AfterSkill);
-            subscribers.buff_acts.clear();
-        }
-        ReactionStage::SkillAfterHit => {
-            subscribers
-                .skills
-                .retain(|subscriber| subscriber.key.timing == ReactionTiming::AfterHitSkills);
-            subscribers.buff_acts.clear();
-        }
-        ReactionStage::BeforeAfterHitObservers => {
-            subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_execution_timing(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeExecutionTiming::BeforeAfterHitObservers
-            });
-        }
-        ReactionStage::BuffActAfterHit => {
-            subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_execution_timing(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeExecutionTiming::AfterHitSkills
-            });
-        }
-        ReactionStage::AfterAction => {
-            subscribers.skills.clear();
-            subscribers.buff_acts.retain(|subscriber| {
-                buff_act::registry::runtime_execution_timing(
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                ) == RuntimeExecutionTiming::AfterAction
-            });
-        }
-    }
+    let shared_hit =
+        delay_shared_hit && matches!(event, BattleEvent::Hit(hit) if hit.share_count > 0);
+    let selected = |declared| match declared {
+        ReactionTiming::AfterSharedHit if shared_hit => timing == ReactionTiming::AfterSharedHit,
+        ReactionTiming::AfterSharedHit => timing == ReactionTiming::Immediate,
+        declared => declared == timing,
+    };
+    subscribers
+        .skills
+        .retain(|subscriber| selected(subscriber.key.timing));
+    subscribers
+        .buff_acts
+        .retain(|subscriber| selected(subscriber.key.timing));
 }
 
 #[cfg(test)]
@@ -918,7 +852,7 @@ mod tests {
     };
 
     #[test]
-    fn reaction_stage_selects_subscribers_before_rule_outputs() {
+    fn reaction_timing_selects_subscribers_before_rule_outputs() {
         let skill = |timing| SkillSubscriber {
             owner_uid: 10,
             skill_id: 100,
@@ -938,7 +872,12 @@ mod tests {
             buff_acts: Vec::new(),
         };
 
-        retain_reaction_stage(&mut subscribers, ReactionStage::AfterSkill);
+        retain_reaction_timing(
+            &mut subscribers,
+            crate::engine::event::subscription::ReactionTiming::AfterSkill,
+            &BattleEvent::Kind(EventKind::SkillAction),
+            false,
+        );
 
         assert_eq!(subscribers.skills.len(), 1);
         assert_eq!(
@@ -948,7 +887,63 @@ mod tests {
     }
 
     #[test]
-    fn buff_act_stage_selects_exact_runtime_timing_before_rule_outputs() {
+    fn shared_hit_delay_is_owned_by_the_subscription_timing() {
+        let subscriber = || SkillSubscriber {
+            owner_uid: 10,
+            skill_id: 100,
+            slot_index: Some(0),
+            key: crate::engine::event::subscription::SubscriptionKey::new(
+                EventKind::TargetAttacked,
+                DefinitionKey::new(22209, "BeAttacked"),
+            )
+            .with_timing(crate::engine::event::subscription::ReactionTiming::AfterSharedHit),
+        };
+        let hit = |share_count| {
+            BattleEvent::Hit(HitEvent {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Skill,
+                    key: DefinitionKey::new(1, "SkillDamage"),
+                },
+                source_uid: -1,
+                target_uid: 10,
+                skill_id: 1,
+                amount: 100,
+                shield_absorbed: 0,
+                career_restraint: false,
+                damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
+                share_count,
+                assassinate: false,
+                ignore_riposte: false,
+            })
+        };
+
+        let mut normal = subscriber::EventSubscribers {
+            skills: vec![subscriber()],
+            buff_acts: Vec::new(),
+        };
+        retain_reaction_timing(
+            &mut normal,
+            crate::engine::event::subscription::ReactionTiming::Immediate,
+            &hit(0),
+            true,
+        );
+        assert_eq!(normal.skills.len(), 1);
+
+        let mut shared = subscriber::EventSubscribers {
+            skills: vec![subscriber()],
+            buff_acts: Vec::new(),
+        };
+        retain_reaction_timing(
+            &mut shared,
+            crate::engine::event::subscription::ReactionTiming::AfterSharedHit,
+            &hit(3),
+            true,
+        );
+        assert_eq!(shared.skills.len(), 1);
+    }
+
+    #[test]
+    fn buff_act_subscription_selects_declared_reaction_timing_before_rule_outputs() {
         let subscriber = |opcode, type_name: &'static str| BuffActSubscriber {
             owner_uid: 10,
             source_uid: 10,
@@ -960,7 +955,10 @@ mod tests {
             key: crate::engine::event::subscription::SubscriptionKey::new(
                 EventKind::SkillAction,
                 DefinitionKey::new(opcode, type_name),
-            ),
+            )
+            .with_timing(crate::engine::skill::buff_act::registry::reaction_timing(
+                opcode, type_name,
+            )),
             act_type: type_name.to_owned(),
             effect_time: 0,
             effect_condition: 0,
@@ -974,25 +972,25 @@ mod tests {
             subscriber(870, "Shell"),
             subscriber(871, "ShellDebuff"),
         ];
-        for (stage, expected) in [
+        for (timing, expected) in [
             (
-                ReactionStage::Immediate,
+                crate::engine::event::subscription::ReactionTiming::Immediate,
                 DefinitionKey::new(800, "TeammateInjuryCount"),
             ),
             (
-                ReactionStage::AfterSettlement,
+                crate::engine::event::subscription::ReactionTiming::AfterSettlement,
                 DefinitionKey::new(1023, "LostHpAddExtraBloodPoolValue"),
             ),
             (
-                ReactionStage::AfterAction,
+                crate::engine::event::subscription::ReactionTiming::AfterAction,
                 DefinitionKey::new(302, "BeatBack"),
             ),
             (
-                ReactionStage::BuffActAfterHit,
+                crate::engine::event::subscription::ReactionTiming::AfterHitObservers,
                 DefinitionKey::new(870, "Shell"),
             ),
             (
-                ReactionStage::BeforeAfterHitObservers,
+                crate::engine::event::subscription::ReactionTiming::BeforeAfterHitObservers,
                 DefinitionKey::new(871, "ShellDebuff"),
             ),
         ] {
@@ -1001,7 +999,12 @@ mod tests {
                 buff_acts: buff_acts.clone(),
             };
 
-            retain_reaction_stage(&mut subscribers, stage);
+            retain_reaction_timing(
+                &mut subscribers,
+                timing,
+                &BattleEvent::Kind(EventKind::SkillAction),
+                false,
+            );
 
             assert_eq!(
                 subscribers

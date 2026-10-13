@@ -1,5 +1,8 @@
 use crate::engine::{
-    event::{kind::EventKind, subscription::PublicationPhase},
+    event::{
+        kind::EventKind,
+        subscription::{PublicationPhase, ReactionTiming},
+    },
     skill::{
         effect::SkillEffectCatalog,
         rule::{DefinitionKey, RuleReferences, SetupStage, output::RuleOp},
@@ -367,24 +370,6 @@ pub enum RuntimeActorScope {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RuntimeSettlementPhase {
-    #[default]
-    Before,
-    After,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RuntimeExecutionTiming {
-    #[default]
-    Immediate,
-    AfterAction,
-    // "After being attacked": runs with the hit's skill reactions, after them.
-    AfterHitSkills,
-    // The target-owned hit response closes before the attacker's AfterHit observers.
-    BeforeAfterHitObservers,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum RuntimeEventMultiplicity {
     #[default]
     EveryEvent,
@@ -410,8 +395,7 @@ pub struct BuffActRuntimeDefinition {
     pub frame_source: RuntimeFrameSource,
     pub team_scope: RuntimeTeamScope,
     pub actor_scope: RuntimeActorScope,
-    pub settlement_phase: RuntimeSettlementPhase,
-    pub execution_timing: RuntimeExecutionTiming,
+    pub reaction_timing: ReactionTiming,
     pub event_multiplicity: RuntimeEventMultiplicity,
     pub reserves_trigger_child_uid: bool,
     pub owns_duration: bool,
@@ -551,7 +535,6 @@ macro_rules! buff_act_definitions {
             $(, source: $source:ident)?
             $(, team: $team:ident)?
             $(, actor: $actor:ident)?
-            $(, settlement: $settlement:ident)?
             $(, timing: $timing:ident)?
             $(, multiplicity: $multiplicity:ident)?
             $(, trigger_child_uid: $trigger_child_uid:expr)?
@@ -589,8 +572,7 @@ macro_rules! buff_act_definitions {
                     frame_source: buff_act_definitions!(@source $($source)?),
                     team_scope: buff_act_definitions!(@team $($team)?),
                     actor_scope: buff_act_definitions!(@actor $($actor)?),
-                    settlement_phase: buff_act_definitions!(@settlement $($settlement)?),
-                    execution_timing: buff_act_definitions!(@timing $($timing)?),
+                    reaction_timing: buff_act_definitions!(@timing $($timing)?),
                     event_multiplicity: buff_act_definitions!(@multiplicity $($multiplicity)?),
                     reserves_trigger_child_uid: buff_act_definitions!(@trigger_child_uid $($trigger_child_uid)?),
                     owns_duration: buff_act_definitions!(@owns_duration $($owns_duration)?),
@@ -643,10 +625,8 @@ macro_rules! buff_act_definitions {
     (@team) => { RuntimeTeamScope::Same };
     (@actor $actor:ident) => { RuntimeActorScope::$actor };
     (@actor) => { RuntimeActorScope::Owner };
-    (@settlement $settlement:ident) => { RuntimeSettlementPhase::$settlement };
-    (@settlement) => { RuntimeSettlementPhase::Before };
-    (@timing $timing:ident) => { RuntimeExecutionTiming::$timing };
-    (@timing) => { RuntimeExecutionTiming::Immediate };
+    (@timing $timing:ident) => { ReactionTiming::$timing };
+    (@timing) => { ReactionTiming::Immediate };
     (@multiplicity $multiplicity:ident) => { RuntimeEventMultiplicity::$multiplicity };
     (@multiplicity) => { RuntimeEventMultiplicity::EveryEvent };
     (@trigger_child_uid $value:expr) => { $value };
@@ -1151,7 +1131,7 @@ buff_act_definitions! {
         events: [EventKind::ShellDeployed, EventKind::ShellRetrieved], frame: CausingFrame,
         runtime: |context| super::shell::rule_ops(context.managers, context.pool, context.determinism, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(869, "ShellProcess"), &[EffectType::None as i32]));
-    (870, "Shell") => Shell, event: EventKind::BeAttacked, events: [EventKind::DamageShared], frame: CausingFrame, timing: AfterHitSkills,
+    (870, "Shell") => Shell, event: EventKind::BeAttacked, events: [EventKind::DamageShared], frame: CausingFrame, timing: AfterHitObservers,
         runtime: |context| super::shell::rule_ops(context.managers, context.pool, context.determinism, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(870, "Shell"), &[EffectType::None as i32]));
     (871, "ShellDebuff") => ShellDebuff, event: EventKind::BeAttacked, frame: CausingFrame, timing: BeforeAfterHitObservers,
@@ -1302,7 +1282,7 @@ buff_act_definitions! {
         scoped_runtime: |context| super::nuo_di_ka_cast_channel::scoped_rule_ops(context.managers, context.catalog, context.subscriber, context.event?),
         supports: super::nuo_di_ka_cast_channel::supports, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1006, "NuoDiKaCastChannel"), &[EffectType::None as i32]).with_pre_add(super::wire::WireEffect { effect_type: EffectType::Nuodikarandomattacknum as i32, effect_num: 0, effect_num1: 1 }));
     (1023, "LostHpAddExtraBloodPoolValue") => LostHpAddExtraBloodPoolValue,
-        settlement: After,
+        timing: AfterSettlement,
         runtime: |context| Some(super::lost_hp_add_extra_blood_pool_value::rule_ops(context.managers, context.subscriber)),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1023, "LostHpAddExtraBloodPoolValue"), &[EffectType::None as i32]));
     (1024, "MonitorContinueChannel") => MonitorContinueChannel,
@@ -1395,7 +1375,7 @@ buff_act_definitions! {
         supports: |_| true, references: references_for_feature, initial_state: HeatScale,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1050, "HeatScaleUseSkill"), &[EffectType::None as i32]));
     (1051, "CrystalAddBuff") => CrystalAddBuff,
-        event: EventKind::SkillAction, phase: AfterDamage, settlement: After,
+        event: EventKind::SkillAction, phase: AfterDamage, timing: AfterSettlement,
         scoped_runtime: |context| super::crystal_add_buff::scoped_rule_ops(context.managers, context.subscriber, context.event?),
         supports: |args| matches!(args, [buff_id, blue, purple, green_two, green_three, ..]
             if *buff_id > 0 && [blue, purple, green_two, green_three].iter().all(|value| **value >= 0)), wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1051, "CrystalAddBuff"), &[EffectType::None as i32]));
@@ -1800,15 +1780,9 @@ pub fn runtime_actor_scope(act_id: i32, act_type: &str) -> RuntimeActorScope {
         .unwrap_or_default()
 }
 
-pub fn runtime_settlement_phase(act_id: i32, act_type: &str) -> RuntimeSettlementPhase {
+pub fn reaction_timing(act_id: i32, act_type: &str) -> ReactionTiming {
     find(act_id, act_type)
-        .map(|definition| definition.runtime.settlement_phase)
-        .unwrap_or_default()
-}
-
-pub fn runtime_execution_timing(act_id: i32, act_type: &str) -> RuntimeExecutionTiming {
-    find(act_id, act_type)
-        .map(|definition| definition.runtime.execution_timing)
+        .map(|definition| definition.runtime.reaction_timing)
         .unwrap_or_default()
 }
 

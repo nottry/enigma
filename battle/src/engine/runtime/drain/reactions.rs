@@ -325,7 +325,7 @@ fn dispatch_event_batch_inner(
             event_batch_id: state.batch_id,
             action_path,
         };
-        let mut dispatched = dispatch_reactions(
+        let dispatched = dispatch_reactions(
             pool,
             managers,
             catalog,
@@ -342,16 +342,6 @@ fn dispatch_event_batch_inner(
             Some(publication_phase),
             Some(&mut multiplicity),
         )?;
-        if matches!(lane, Some(ReactionLane::Skills))
-            && matches!(event, BattleEvent::Hit(hit) if hit.share_count > 0)
-        {
-            dispatched.shared_hit_skills = std::mem::take(&mut dispatched.before_publish)
-                .into_iter()
-                .chain(std::mem::take(&mut dispatched.after_publish))
-                .chain(std::mem::take(&mut dispatched.after_skill))
-                .chain(std::mem::take(&mut dispatched.after_action))
-                .collect();
-        }
         reactions.append(dispatched);
     }
     Ok(reactions)
@@ -424,7 +414,7 @@ pub(super) fn dispatch_reactions(
         if !reaction_lane_accepts_buff_act(lane, definition.key.opcode, definition.key.type_name) {
             continue;
         }
-        let timing = definition.runtime.execution_timing;
+        let timing = definition.runtime.reaction_timing;
         let publication =
             crate::engine::skill::buff_act::transaction_publication(&feature, &op, event.kind())
                 .ok_or_else(|| DrainError::MissingBuffActDefinition {
@@ -432,9 +422,7 @@ pub(super) fn dispatch_reactions(
                     type_name: feature.act_type.clone(),
                 })?;
         let selected_for_pass = publication_phase.is_none_or(|phase| {
-            if timing
-                == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction
-            {
+            if timing == crate::engine::event::subscription::ReactionTiming::AfterAction {
                 phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
             } else {
                 publication == phase
@@ -443,7 +431,7 @@ pub(super) fn dispatch_reactions(
         if !selected_for_pass {
             continue;
         }
-        if timing == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction
+        if timing == crate::engine::event::subscription::ReactionTiming::AfterAction
             && action_path.is_none()
             && !execute_unscoped_after_action
         {
@@ -456,13 +444,12 @@ pub(super) fn dispatch_reactions(
                 (causing_path.map(|path| path.to_vec()), None)
             }
             crate::engine::skill::buff_act::registry::RuntimeFrameScope::SubscriberFrame => {
-                let parent = if timing
-                    == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction
-                {
-                    action_path.or(causing_path)
-                } else {
-                    causing_path
-                };
+                let parent =
+                    if timing == crate::engine::event::subscription::ReactionTiming::AfterAction {
+                        action_path.or(causing_path)
+                    } else {
+                        causing_path
+                    };
                 (None, parent.map(|path| path.to_vec()))
             }
             crate::engine::skill::buff_act::registry::RuntimeFrameScope::IndependentEvent => {
@@ -499,23 +486,19 @@ pub(super) fn dispatch_reactions(
             subscriber_owner_uid: Some(feature.owner_uid),
             caster_frame: None,
         };
-        if timing == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction {
+        if timing == crate::engine::event::subscription::ReactionTiming::AfterAction {
             reactions.after_action.push(queued);
         } else if timing
-            == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::BeforeAfterHitObservers
+            == crate::engine::event::subscription::ReactionTiming::BeforeAfterHitObservers
         {
             reactions.before_after_hit_observers.push(queued);
-        } else if timing
-            == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterHitSkills
-        {
+        } else if timing == crate::engine::event::subscription::ReactionTiming::AfterHitObservers {
             reactions.after_hit_skills.push(queued);
+        } else if timing == crate::engine::event::subscription::ReactionTiming::AfterSettlement {
+            reactions.after_settlement.push(queued);
         } else if publication == crate::engine::event::subscription::PublicationPhase::BeforePublish
         {
             reactions.before_publish.push(queued);
-        } else if definition.runtime.settlement_phase
-            == crate::engine::skill::buff_act::registry::RuntimeSettlementPhase::After
-        {
-            reactions.after_settlement.push(queued);
         } else {
             reactions.after_publish.push(queued);
         }
@@ -527,7 +510,7 @@ pub(super) fn dispatch_reactions(
         phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
     });
     if runs_before {
-        reactions.before_publish.extend(queued_selected_stage(
+        reactions.before_publish.extend(queued_selected_timing(
             pool,
             managers,
             catalog,
@@ -541,7 +524,7 @@ pub(super) fn dispatch_reactions(
             lane,
             owner_uids,
             crate::engine::event::subscription::PublicationPhase::BeforePublish,
-            dispatcher::ReactionStage::Immediate,
+            crate::engine::event::subscription::ReactionTiming::Immediate,
             multiplicity.as_deref_mut(),
         )?);
     }
@@ -593,7 +576,7 @@ pub(super) fn dispatch_reactions(
             );
     }
     if runs_after {
-        reactions.after_publish.extend(queued_selected_stage(
+        reactions.after_publish.extend(queued_selected_timing(
             pool,
             managers,
             catalog,
@@ -607,33 +590,37 @@ pub(super) fn dispatch_reactions(
             lane,
             owner_uids,
             crate::engine::event::subscription::PublicationPhase::AfterPublish,
-            dispatcher::ReactionStage::Immediate,
+            crate::engine::event::subscription::ReactionTiming::Immediate,
             multiplicity.as_deref_mut(),
         )?);
     }
-    for (stage, destination) in [
+    for (timing, destination) in [
         (
-            dispatcher::ReactionStage::AfterSettlement,
+            crate::engine::event::subscription::ReactionTiming::AfterSettlement,
             &mut reactions.after_settlement,
         ),
         (
-            dispatcher::ReactionStage::AfterSkill,
+            crate::engine::event::subscription::ReactionTiming::AfterSkill,
             &mut reactions.after_skill,
         ),
         (
-            dispatcher::ReactionStage::SkillAfterHit,
+            crate::engine::event::subscription::ReactionTiming::AfterHitSkills,
             &mut reactions.after_hit,
         ),
         (
-            dispatcher::ReactionStage::BeforeAfterHitObservers,
+            crate::engine::event::subscription::ReactionTiming::BeforeAfterHitObservers,
             &mut reactions.before_after_hit_observers,
         ),
         (
-            dispatcher::ReactionStage::BuffActAfterHit,
+            crate::engine::event::subscription::ReactionTiming::AfterHitObservers,
             &mut reactions.after_hit_skills,
         ),
         (
-            dispatcher::ReactionStage::AfterAction,
+            crate::engine::event::subscription::ReactionTiming::AfterSharedHit,
+            &mut reactions.shared_hit_skills,
+        ),
+        (
+            crate::engine::event::subscription::ReactionTiming::AfterAction,
             &mut reactions.after_action,
         ),
     ] {
@@ -649,7 +636,7 @@ pub(super) fn dispatch_reactions(
             {
                 continue;
             }
-            destination.extend(queued_selected_stage(
+            destination.extend(queued_selected_timing(
                 pool,
                 managers,
                 catalog,
@@ -663,7 +650,7 @@ pub(super) fn dispatch_reactions(
                 lane,
                 owner_uids,
                 publication,
-                stage,
+                timing,
                 multiplicity.as_deref_mut(),
             )?);
         }
@@ -728,23 +715,23 @@ pub(super) fn dispatch_reactions(
 }
 
 fn reaction_lane_accepts_buff_act(lane: Option<ReactionLane>, act_id: i32, act_type: &str) -> bool {
-    use crate::engine::skill::buff_act::registry::RuntimeSettlementPhase;
+    use crate::engine::event::subscription::ReactionTiming;
 
     match lane {
         Some(ReactionLane::BuffActsBeforeSettlement) => {
-            crate::engine::skill::buff_act::registry::runtime_settlement_phase(act_id, act_type)
-                == RuntimeSettlementPhase::Before
+            crate::engine::skill::buff_act::registry::reaction_timing(act_id, act_type)
+                != ReactionTiming::AfterSettlement
         }
         Some(ReactionLane::BuffActsAfterSettlement) => {
-            crate::engine::skill::buff_act::registry::runtime_settlement_phase(act_id, act_type)
-                == RuntimeSettlementPhase::After
+            crate::engine::skill::buff_act::registry::reaction_timing(act_id, act_type)
+                == ReactionTiming::AfterSettlement
         }
         _ => true,
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn queued_selected_stage(
+fn queued_selected_timing(
     pool: &TargetPool,
     managers: &BattleManagers,
     catalog: &SkillEffectCatalog,
@@ -758,7 +745,7 @@ fn queued_selected_stage(
     lane: Option<ReactionLane>,
     owner_uids: Option<&[i64]>,
     publication: crate::engine::event::subscription::PublicationPhase,
-    stage: dispatcher::ReactionStage,
+    timing: crate::engine::event::subscription::ReactionTiming,
     multiplicity: Option<&mut crate::engine::event::dispatcher::DispatchMultiplicity<'_>>,
 ) -> Result<Vec<QueuedOp>, DrainError> {
     let reaction_scope = multiplicity.as_ref().map(|multiplicity| {
@@ -777,7 +764,7 @@ fn queued_selected_stage(
             owner_uids,
             publication: Some(publication),
             lane,
-            stage,
+            timing,
         },
         multiplicity,
     )?;
@@ -800,7 +787,7 @@ fn queued_selected_stage(
             dispatcher::DispatchSkillSelection {
                 owner_skill: (owner_uid, skill_id),
                 publication,
-                stage,
+                timing,
             },
         )?;
         for skill in current.skills {

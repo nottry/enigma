@@ -313,6 +313,11 @@ pub const fn after_skill(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata
 }
 
+pub const fn after_shared_hit(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_timing = ReactionTiming::AfterSharedHit;
+    metadata
+}
+
 pub const fn after_hit_skills(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_timing = ReactionTiming::AfterHitSkills;
     metadata
@@ -541,7 +546,7 @@ condition_definitions! {
     [19203] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate)));
     [192032] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[EventKind::BuffChanged]));
     [19208] "HasBuffId" => buff::buff_present_and_consume, filters_behavior_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage)));
-    [19209] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[EventKind::TargetAttacked]));
+    [19209] "HasBuffId" => buff::buff_present, after_shared_hit(filters_behavior_targets(predicate(&[EventKind::TargetAttacked])));
     [19210] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[EventKind::SkillAction]));
     [19213] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::HitPassives)));
     [192081] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[]));
@@ -559,7 +564,7 @@ condition_definitions! {
     [750307] "PlayerHasBuff" => buff::team_buff_presence, event_trigger(EventKind::RoundEndAfterFinalSettlement, None);
     [514100] "SelfTeamHasBuffTypeLayerLessThan" => buff::team_buff_type_layer_at_most, setup_route(SetupStage::RoundStartCondition, 100, &[EventKind::BuffChanged]);
     [57208] "NoBuffId" => buff::buff_absent, filters_behavior_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage)));
-    [57209] "NoBuffId" => buff::buff_absent, filters_behavior_targets(predicate(&[EventKind::TargetAttacked]));
+    [57209] "NoBuffId" => buff::buff_absent, after_shared_hit(filters_behavior_targets(predicate(&[EventKind::TargetAttacked])));
     [57204] "NoBuffId" => buff::buff_absent, incoming_attack_modifier(filters_behavior_targets(predicate(&[EventKind::BuffChanged])));
     [57210] "NoBuffId" => buff::buff_absent, filters_behavior_targets(predicate(&[EventKind::SkillAction]));
     [572081] "NoBuffId" => buff::buff_absent, filters_behavior_targets(predicate(&[]));
@@ -588,7 +593,7 @@ condition_definitions! {
     [535212] "TypeIdBuffCountMoreThan" => buff::any_target_buff_type_at_least, event_trigger(EventKind::AllyAction, None);
     [535203] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, predicate(&[]);
     [535104] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, setup_route(SetupStage::RoundStartLate, 0, &[]);
-    [535214] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::TargetAttacked, None);
+    [535214] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [535215] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::AllyAction, None);
     [535303] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::RoundEndEntitySettlement, None);
     [535304] "TypeIdBuffCountMoreThan" => buff::buff_type_pair_at_least, predicate(&[]);
@@ -631,7 +636,7 @@ condition_definitions! {
     [501203] "UseHurtSkill" => active_skill::hurt_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [501201] "UseHurtSkill" => active_skill::hurt_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [501208] "UseHurtSkill" => active_skill::hurt_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
-    [501209] "UseHurtSkill" => active_skill::hurt_skill, event_trigger(EventKind::TargetAttacked, None);
+    [501209] "UseHurtSkill" => active_skill::hurt_skill, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [501210] "UseHurtSkill" => active_skill::hurt_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [501212] "UseHurtSkill" => active_skill::hurt_skill, predicate(&[]);
     [507201] "UseSkillId" => active_skill::skill_id, event_trigger(EventKind::SkillAction, None);
@@ -666,7 +671,7 @@ condition_definitions! {
     [788210] "PerDeviceCurrCost" => resource::per_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
     [788212] "PerDeviceCurrCost" => resource::per_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
     [792208] "UseDeviceSkill" => none::unconditional_without_arguments, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
-    [792209] "UseDeviceSkill" => active_skill::device_hurt_skill, event_trigger(EventKind::TargetAttacked, None);
+    [792209] "UseDeviceSkill" => active_skill::device_hurt_skill, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [786203] "PerDeviceCounter" => conduit::counter, predicate(&[EventKind::ConduitActivated]);
     [787103] "DeviceExPoint" => conduit::ex_point, setup_route(SetupStage::RoundStart, 1, &[]);
     [787105] "DeviceExPoint" => conduit::ex_point, setup_route(SetupStage::AfterRoundStart, 0, &[]);
@@ -742,7 +747,7 @@ condition_definitions! {
         741306, 741307, 741401, 741402,
     ] "TriggerTypeBullet" => trigger::parse_buff_feature, event_trigger(EventKind::BuffFeatureTriggered, None);
     [46301, 46303, 46304, 46307] "NoActRound" => trigger::parse_no_action_round, event_trigger(EventKind::NoActionRound, None);
-    [22202, 22204, 22209, 22211] "BeAttacked" => trigger::parse_target_attacked, event_trigger(EventKind::TargetAttacked, None);
+    [22202, 22204, 22209, 22211] "BeAttacked" => trigger::parse_target_attacked, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [22213] "BeAttacked" => trigger::parse_ally_attacked, before_publish(ally_of_attacked_target_observes(event_trigger(EventKind::SkillAction, Some(SkillPhase::HitPassives))));
     [695213] "ShareDamage" => trigger::parse_share_damage, once_per_event_batch(event_trigger(EventKind::DamageShared, None));
     [1001203] "Assassinate" => trigger::parse_assassinate, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
@@ -769,7 +774,7 @@ condition_definitions! {
     [659212] "UseSkill" => active_skill::use_skill, event_trigger(EventKind::AllyAction, None);
     [66203] "UseSpecificSkill" => active_skill::specific_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [66208] "UseSpecificSkill" => active_skill::specific_skill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
-    [66209] "UseSpecificSkill" => active_skill::received_specific_skill, predicate(&[EventKind::TargetAttacked]);
+    [66209] "UseSpecificSkill" => active_skill::received_specific_skill, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [66210] "UseSpecificSkill" => active_skill::specific_skill, predicate(&[EventKind::SkillAction]);
     [662201] "ActiveUseSkillId" => active_skill::skill_id, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [662203] "ActiveUseSkillId" => active_skill::skill_id, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
@@ -815,18 +820,18 @@ condition_definitions! {
     [34212] "UseSkillEffectTag" => active_skill::effect_tag, predicate(&[]);
     [33201] "HurtRestraint" => parse::hurt_restrained, predicate(&[]);
     [33204] "HurtRestraint" => parse::hurt_restrained, incoming_attack_modifier(attack_target_observes(event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate))));
-    [33209] "HurtRestraint" => parse::hurt_restrained, predicate(&[EventKind::TargetAttacked]);
+    [33209] "HurtRestraint" => parse::hurt_restrained, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [47204] "HurtNotRestraint" => parse::hurt_not_restrained, incoming_attack_modifier(predicate(&[]));
-    [47209] "HurtNotRestraint" => parse::hurt_not_restrained, predicate(&[EventKind::TargetAttacked]);
+    [47209] "HurtNotRestraint" => parse::hurt_not_restrained, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53201] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
     [53208] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
-    [53209] "HurtNumType" => parse::received_damage_target_count_kind, predicate(&[EventKind::TargetAttacked]);
+    [53209] "HurtNumType" => parse::received_damage_target_count_kind, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53210] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [20202] "HurtReal" => parse::reality_damage, incoming_attack_modifier(predicate(&[]));
     [20204] "HurtReal" => parse::reality_damage, incoming_attack_modifier(predicate(&[]));
-    [20209] "HurtReal" => parse::reality_damage, predicate(&[EventKind::TargetAttacked]);
+    [20209] "HurtReal" => parse::reality_damage, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [21204] "HurtMagic" => parse::mental_damage, incoming_attack_modifier(predicate(&[]));
-    [21209] "HurtMagic" => parse::mental_damage, predicate(&[EventKind::TargetAttacked]);
+    [21209] "HurtMagic" => parse::mental_damage, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [538203] "EntityHurtMagic" => parse::mental_damage, predicate(&[]);
     [540203] "EntityHurtReal" => parse::reality_damage, predicate(&[]);
     [58201] "PerExPoint" => resource::per_ex_point, predicate(&[]);

@@ -113,6 +113,7 @@ pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<Buff
         .into_iter()
         .filter_map(|feature| {
             let (&act_id, args) = feature.values.split_first()?;
+            let definition = buff_act::registry::find(act_id, &feature.act_type)?;
             if !buff_act::registry::subscribes_to_event(
                 act_id,
                 &feature.act_type,
@@ -138,10 +139,11 @@ pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<Buff
                 amount: feature.amount,
                 key: SubscriptionKey::at_phase_and_publication(
                     event,
-                    buff_act::registry::find(act_id, &feature.act_type)?.key,
+                    definition.key,
                     phase,
                     buff_act::registry::runtime_publication(act_id, &feature.act_type, event),
-                ),
+                )
+                .with_timing(definition.runtime.reaction_timing),
                 act_type: feature.act_type,
                 effect_time: feature.effect_time,
                 effect_condition: feature.effect_condition,
