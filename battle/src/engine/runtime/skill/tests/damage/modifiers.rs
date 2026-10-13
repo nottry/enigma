@@ -115,7 +115,7 @@ fn source_passive_attack_modifier_is_collected_by_runtime_damage() {
     };
     let managers = BattleManagers::seeded(&fight);
     let pool = TargetPool::from_fight(&fight);
-    let mut catalog = SkillEffectCatalog::default();
+    let mut catalog = SkillEffectCatalog::from_game_db(config::configs::get());
     catalog.insert_damage_rate(SKILL_ID, 1_000);
     catalog.insert(ParsedSkillEffect {
         skill_id: PASSIVE_ID,
@@ -439,7 +439,7 @@ fn linked_damage_uses_its_credited_sources_damage_type() {
 }
 
 #[test]
-fn additional_damage_keeps_its_own_target_order_and_critical_targets() {
+fn captured_additional_target_order_does_not_control_damage() {
     crate::test_support::init_config();
     let entity = |uid| FightEntityInfo {
         uid: Some(uid),
@@ -472,17 +472,49 @@ fn additional_damage_keeps_its_own_target_order_and_critical_targets() {
     };
     let managers = BattleManagers::seeded(&fight);
     let pool = TargetPool::from_fight(&fight);
-    let mut catalog = SkillEffectCatalog::default();
+    let mut catalog = SkillEffectCatalog::from_game_db(config::configs::get());
     const SKILL_ID: i32 = 999_999_004;
+    catalog.insert(ParsedSkillEffect {
+        skill_id: SKILL_ID,
+        slots: Vec::new(),
+    });
     catalog.insert_damage_rate(SKILL_ID, 1_000);
-    let invocation: SkillInvocation = SkillRequest {
+    catalog.insert_logic_target(SKILL_ID, 202);
+    let mut invocation: SkillInvocation = SkillRequest {
         source_uid: 10,
         skill_id: SKILL_ID,
     }
     .into();
+    invocation.target = SkillTarget::Explicit(-1);
+    let mut determinism = RoundDeterminism::default();
+    determinism.enqueue_skill_target_choices([
+        crate::engine::runtime::determinism::SkillTargetChoice {
+            skill_id: SKILL_ID,
+            source_uid: 10,
+            target_code: 202,
+            targets: vec![-1, -2],
+            additional_targets: vec![-2, -1],
+            crit_targets: Vec::new(),
+            additional_crit_targets: vec![-1],
+        },
+    ]);
+
+    let mut dispatch_execution = SkillExecution::new(TargetContext::default());
+    emit_ops(
+        invocation.clone(),
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut dispatch_execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert_eq!(dispatch_execution.additional_damage_targets, None);
+
     let mut execution = SkillExecution::new(TargetContext::default());
     execution.configured_targets = Some(vec![-1, -2]);
-    execution.additional_damage_targets = Some(vec![-2, -1]);
+    execution.additional_damage_targets = dispatch_execution.additional_damage_targets;
     for activation in plan::LinkedDamagePlan::activations(&invocation, &managers, &execution) {
         execution.activate_additional_damage(activation.additional);
     }
@@ -491,15 +523,14 @@ fn additional_damage_keeps_its_own_target_order_and_critical_targets() {
         crate::engine::runtime::determinism::SkillTargetChoice {
             skill_id: SKILL_ID,
             source_uid: 10,
-            target_code: -1,
+            target_code: 202,
             targets: vec![-1, -2],
             additional_targets: vec![-2, -1],
             crit_targets: Vec::new(),
             additional_crit_targets: vec![-1],
         },
     ]);
-
-    let damage = plan::damage_ops(
+    let hits = plan::damage_ops(
         &invocation,
         &managers,
         &pool,
@@ -507,17 +538,16 @@ fn additional_damage_keeps_its_own_target_order_and_critical_targets() {
         SKILL_ID,
         &mut determinism,
         &mut execution,
-    );
-    let hits = damage
-        .additional_damage
-        .into_iter()
-        .filter_map(|command| match command {
-            HpCommand::Damage(hit) => Some((hit.target_uid, hit.hurt.is_crit)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    )
+    .additional_damage
+    .into_iter()
+    .filter_map(|command| match command {
+        HpCommand::Damage(hit) => Some((hit.target_uid, hit.hurt.is_crit)),
+        _ => None,
+    })
+    .collect::<Vec<_>>();
 
-    assert_eq!(hits, vec![(-2, false), (-1, true)]);
+    assert_eq!(hits, vec![(-1, true), (-2, false)]);
 }
 
 fn assassination_damage_pair(

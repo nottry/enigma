@@ -283,15 +283,13 @@ pub(in crate::engine::runtime) fn emit_ops(
             execution.primary_target_uid = None;
             execution.affected_targets.clear();
         }
-        execution.additional_damage_targets = determinism
-            .take_skill_target_choice(
-                invocation.plan.skill_id,
-                invocation.plan.source_uid,
-                request.code,
-            )
-            .map(|choice| choice.additional_targets)
-            .filter(|targets| !targets.is_empty())
-            .or_else(|| selected_target_order(invocation.target, &configured_targets));
+        let _ = determinism.take_skill_target_choice(
+            invocation.plan.skill_id,
+            invocation.plan.source_uid,
+            request.code,
+        );
+        execution.additional_damage_targets =
+            selected_target_order(invocation.target, &configured_targets);
         if let Some(&main_target) = configured_targets.first() {
             execution.context.runtime_target_uid = main_target;
             execution.primary_target_uid.get_or_insert(main_target);
