@@ -40,7 +40,9 @@ pub mod scan {
     }
 
     pub mod behavior {
-        pub use crate::engine::skill::behavior::{has_destination, is_supported};
+        pub use crate::engine::skill::behavior::{
+            has_destination, is_slot_supported, is_supported,
+        };
 
         pub mod classify {
             pub use crate::engine::skill::behavior::classify::BehaviorSpec;
