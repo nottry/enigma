@@ -338,7 +338,7 @@ fn finish_skill_uses_configured_ownership_after_group_switch() {
 }
 
 #[test]
-fn explicit_and_normal_changes_share_team_round_counters_across_devices() {
+fn power_consumption_stays_separate_from_explicit_team_counters() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -450,8 +450,8 @@ fn explicit_and_normal_changes_share_team_round_counters_across_devices() {
             ..
         }
     ));
-    assert_eq!(manager.consumed_for_skill(10, 31440111), Some(7));
-    assert_eq!(manager.consumed_for_skill(11, 302524112), Some(7));
+    assert_eq!(manager.consumed_for_skill(10, 31440111), Some(2));
+    assert_eq!(manager.consumed_for_skill(11, 302524112), Some(1));
 
     manager.begin_round();
     assert_eq!(manager.uses(10), 0);

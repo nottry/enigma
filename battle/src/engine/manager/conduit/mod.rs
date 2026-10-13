@@ -435,8 +435,8 @@ impl ConduitManager {
     }
 
     pub fn consumed_for_skill(&self, source_uid: i64, skill_id: i32) -> Option<i32> {
-        let (team, _) = self.configured_skill(source_uid, skill_id)?;
-        Some(self.counter(team, ConduitCounterKind::EnergyAccumulation))
+        let (team, skill) = self.configured_skill(source_uid, skill_id)?;
+        Some(self.consumed(team, skill.cost_type))
     }
 
     pub fn uses(&self, source_uid: i64) -> i32 {
