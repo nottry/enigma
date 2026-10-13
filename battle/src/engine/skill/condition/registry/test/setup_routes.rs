@@ -228,7 +228,7 @@ fn exact_dead_alias_subscribes_to_entity_death() {
     let death = find_key(8, "Dead").unwrap();
     assert_eq!(
         death.reaction_observer_scope,
-        ReactionObserverScope::AnySubscriber
+        ReactionObserverScope::ConditionTarget
     );
     assert_eq!(death.reaction_frame_source, ReactionFrameSource::Side);
     assert_eq!(

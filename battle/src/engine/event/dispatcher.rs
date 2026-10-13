@@ -7,7 +7,7 @@ use crate::engine::{
         effect::SkillEffectCatalog,
         rule::{SetupStage, output::RuleOp},
         subscriber::{self, BuffActSubscriber, SetupSubscriber, SkillSubscriber, SubscriberError},
-        target::TargetPool,
+        target::{TargetContext, TargetPool, TargetResolver},
     },
 };
 
@@ -376,7 +376,14 @@ fn dispatch_subscribers(
     determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
     event: &BattleEvent,
 ) -> DispatchBatch {
-    retain_observing_subscribers(&mut subscribers, pool, event);
+    retain_observing_subscribers(
+        &mut subscribers,
+        pool,
+        managers,
+        catalog,
+        determinism,
+        event,
+    );
     if crate::engine::diagnostics::enabled(crate::engine::diagnostics::TraceArea::Event) {
         eprintln!(
             "event {event:?} skills={:?} buff_acts={:?}",
@@ -408,7 +415,14 @@ fn dispatch_subscribers_with_multiplicity(
     event: &BattleEvent,
     multiplicity: &mut DispatchMultiplicity<'_>,
 ) -> DispatchBatch {
-    retain_observing_subscribers(&mut subscribers, pool, event);
+    retain_observing_subscribers(
+        &mut subscribers,
+        pool,
+        managers,
+        catalog,
+        determinism,
+        event,
+    );
     subscribers.skills.retain(|subscriber| {
         let Some(definition) = crate::engine::skill::condition::registry::find_key(
             subscriber.key.definition.opcode,
@@ -460,6 +474,9 @@ fn dispatch_subscribers_with_multiplicity(
 fn retain_observing_subscribers(
     subscribers: &mut subscriber::EventSubscribers,
     pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &crate::engine::runtime::determinism::RoundDeterminism,
     event: &BattleEvent,
 ) {
     if let BattleEvent::SkillEffectStarted(action) | BattleEvent::SkillAction(action) = event {
@@ -541,15 +558,44 @@ fn retain_observing_subscribers(
     }
     if let BattleEvent::EntityDied(death) = event {
         subscribers.skills.retain(|subscriber| {
-            crate::engine::skill::condition::registry::find_key(
+            let Some(definition) = crate::engine::skill::condition::registry::find_key(
                 subscriber.key.definition.opcode,
                 subscriber.key.definition.type_name,
-            )
-            .is_none_or(|definition| {
-                definition.reaction_observer_scope
-                    != crate::engine::skill::condition::registry::ReactionObserverScope::EventTarget
-                    || subscriber.owner_uid == death.target_uid
-            })
+            ) else {
+                return true;
+            };
+            match definition.reaction_observer_scope {
+                crate::engine::skill::condition::registry::ReactionObserverScope::AnySubscriber => {
+                    true
+                }
+                crate::engine::skill::condition::registry::ReactionObserverScope::EventTarget => {
+                    subscriber.owner_uid == death.target_uid
+                }
+                crate::engine::skill::condition::registry::ReactionObserverScope::ConditionTarget => {
+                    let slot_index = subscriber
+                        .slot_index
+                        .expect("compiled death subscriber has a condition slot");
+                    let slot = catalog
+                        .get(subscriber.skill_id)
+                        .and_then(|effect| effect.slots.get(slot_index))
+                        .expect("compiled death subscriber references an existing effect slot");
+                    let mut observer_determinism = determinism.clone();
+                    TargetResolver::resolve_with_managers_and_context(
+                        &slot.condition_target,
+                        subscriber.skill_id,
+                        subscriber.owner_uid,
+                        pool,
+                        &mut observer_determinism,
+                        Some(managers),
+                        TargetContext {
+                            runtime_target_uid: death.target_uid,
+                            event_source_uid: death.source_uid,
+                            ..Default::default()
+                        },
+                    )
+                    .contains(&death.target_uid)
+                }
+            }
         });
         subscribers
             .buff_acts

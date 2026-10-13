@@ -90,6 +90,7 @@ pub enum ReactionObserverScope {
     #[default]
     AnySubscriber,
     EventTarget,
+    ConditionTarget,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -393,6 +394,11 @@ pub const fn reaction_targets_event(mut metadata: ConditionMetadata) -> Conditio
 
 pub const fn event_target_observes(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_observer_scope = ReactionObserverScope::EventTarget;
+    metadata
+}
+
+pub const fn condition_target_observes(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_observer_scope = ReactionObserverScope::ConditionTarget;
     metadata
 }
 
@@ -742,7 +748,7 @@ condition_definitions! {
     [11210] "SingleKillNum" => entity_count::single_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [99210] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [992101] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
-    [8] "Dead" => lifecycle::entity_dead, side_reaction_frame(reaction_targets_event(event_trigger(EventKind::EntityDied, None)));
+    [8] "Dead" => lifecycle::entity_dead, condition_target_observes(side_reaction_frame(reaction_targets_event(event_trigger(EventKind::EntityDied, None))));
     [812] "Dead" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [648003, 648009] "SelfExit" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [24102] "TeammateAlive" => entity_count::teammate_alive, event_trigger(EventKind::RoundStart, None);
