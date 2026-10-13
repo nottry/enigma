@@ -145,6 +145,24 @@ pub(crate) fn persistent_attribute_delta(
         + buff_act::raspberry::attribute_delta(buffs, uid, attr_id)
 }
 
+pub(crate) fn snapshotted_attribute_delta(
+    buffs: &BuffManager,
+    hp: &HpManager,
+    uid: i64,
+    attr_id: crate::engine::entity::attr::AttrId,
+) -> i32 {
+    buffs
+        .active_features(hp)
+        .iter()
+        .filter(|feature| feature.owner_uid == uid)
+        .map(|feature| {
+            crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
+                feature, attr_id, buffs,
+            )
+        })
+        .sum()
+}
+
 pub(crate) struct HpExecution {
     pub changes: hp::HpChanges,
     pub indicator: Option<crate::engine::skill::rule::output::EffectMarker>,
@@ -197,7 +215,10 @@ impl BattleManagers {
             AttrId::Hp => hp.max,
             AttrId::Attack | AttrId::RealityDef | AttrId::MentalDef | AttrId::CriticalTechnique => {
                 let base = i64::from(self.attribute.base(uid, attr_id));
-                let flat = i64::from(self.buff.fixed_attribute_delta(uid, attr_id));
+                let flat = i64::from(self.buff.fixed_attribute_delta(uid, attr_id))
+                    + i64::from(snapshotted_attribute_delta(
+                        &self.buff, &self.hp, uid, attr_id,
+                    ));
                 let delta = i64::from(
                     self.attribute.get(uid, attr_id)
                         + self.persistent_attribute_delta(uid, attr_id),
@@ -348,15 +369,7 @@ impl BattleManagers {
                 )
             })
             .sum::<i32>();
-        let flat = active_features
-            .iter()
-            .filter(|feature| feature.owner_uid == uid)
-            .map(|feature| {
-                crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
-                    feature, attack, &self.buff,
-                )
-            })
-            .sum::<i32>();
+        let flat = snapshotted_attribute_delta(&self.buff, &self.hp, uid, attack);
         let rate = 1000
             + self.attribute.get(uid, attack)
             + self.buff.attribute_delta(uid, attack)

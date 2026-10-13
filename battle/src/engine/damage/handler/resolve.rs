@@ -823,17 +823,8 @@ fn direct_damage_trace(
             })
             .sum::<i32>()
     };
-    let flat_attack = source_active_features
-        .iter()
-        .filter(|feature| feature.owner_uid == source.uid)
-        .map(|feature| {
-            crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
-                feature,
-                AttrId::Attack,
-                buffs,
-            )
-        })
-        .sum::<i32>();
+    let flat_attack =
+        crate::engine::manager::snapshotted_attribute_delta(buffs, hp, source.uid, AttrId::Attack);
     let base_attack = attributes.base(source.uid, AttrId::Attack);
     let attack_rate = 1000
         + attributes.get(source.uid, AttrId::Attack)
