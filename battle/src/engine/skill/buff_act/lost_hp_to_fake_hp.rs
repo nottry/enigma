@@ -64,6 +64,18 @@ pub(crate) fn state(
         .ok_or(FakeHpStateError::Invalid)
 }
 
+pub(crate) fn damage_consumption(
+    managers: &BattleManagers,
+    owner_uid: i64,
+) -> Result<Option<crate::engine::manager::hp::FakeHpConsumption>, FakeHpStateError> {
+    Ok(
+        state(managers, owner_uid)?.map(|state| crate::engine::manager::hp::FakeHpConsumption {
+            buff_uid: state.buff_uid,
+            consumed: 0,
+        }),
+    )
+}
+
 fn state_for_feature(
     managers: &BattleManagers,
     feature: &ActiveBuffFeature,
@@ -301,12 +313,33 @@ mod tests {
     }
 
     #[test]
+    fn damage_records_zero_consumption_for_stored_remembrance() {
+        crate::test_support::init_config();
+        let managers = BattleManagers::seeded(&fight(2_071));
+
+        assert_eq!(
+            damage_consumption(&managers, 20),
+            Ok(Some(crate::engine::manager::hp::FakeHpConsumption {
+                buff_uid: 30,
+                consumed: 0,
+            }))
+        );
+    }
+
+    #[test]
     fn hp_execution_commits_and_publishes_remembrance_before_the_damage() {
         crate::test_support::init_config();
         let mut managers = BattleManagers::seeded(&fight(0));
         let execution = managers.execute_rule_hp(damage(20, 2_786)).unwrap();
 
         assert_eq!(state(&managers, 20).unwrap().unwrap().current, 2_071);
+        assert_eq!(
+            execution.changes.fake_hp_consumed,
+            Some(crate::engine::manager::hp::FakeHpConsumption {
+                buff_uid: 30,
+                consumed: 0,
+            })
+        );
         let changes = RuleOutcome::Hp(Box::new(execution)).changes();
         assert!(matches!(
             changes.as_slice(),
