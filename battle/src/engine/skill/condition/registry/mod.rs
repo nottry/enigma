@@ -12,6 +12,7 @@ use crate::engine::{
     skill::{
         action::SkillPhase,
         rule::{DefinitionKey, SetupStage},
+        target::BehaviorTargetOrder,
     },
 };
 
@@ -66,13 +67,6 @@ pub enum BehaviorTargetSource {
     ActiveSkillTargets,
     ActiveSkillTargetGroup,
     HitTargets,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BehaviorTargetOrder {
-    #[default]
-    Resolved,
-    EntityIdentityMap,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

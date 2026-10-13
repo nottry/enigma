@@ -1,7 +1,9 @@
 use crate::engine::{
     manager::{BattleManagers, buff::BuffStatus, emitter},
     runtime::determinism::RoundDeterminism,
-    skill::target::{TargetContext, TargetEntity, TargetPool, request::TargetRequest},
+    skill::target::{
+        BehaviorTargetOrder, TargetContext, TargetEntity, TargetPool, request::TargetRequest,
+    },
 };
 
 pub struct TargetResolver;
@@ -83,6 +85,34 @@ pub(crate) fn uses_rng(target_code: i32) -> bool {
 }
 
 impl TargetResolver {
+    pub fn order_behavior_candidates(
+        targets: &mut [i64],
+        order: BehaviorTargetOrder,
+        managers: &BattleManagers,
+    ) {
+        if order == BehaviorTargetOrder::Resolved {
+            return;
+        }
+        let identity_order = managers
+            .entity
+            .registration_ordered_uids()
+            .collect::<Vec<_>>();
+        let mut bucket_count = 16;
+        while identity_order.len() > bucket_count * 3 / 4 {
+            bucket_count *= 2;
+        }
+        targets.sort_by_key(|uid| {
+            let bits = *uid as u64;
+            let hash = (bits ^ (bits >> 32)) as u32;
+            let bucket = (hash ^ (hash >> 16)) as usize & (bucket_count - 1);
+            let inserted = identity_order
+                .iter()
+                .position(|known_uid| known_uid == uid)
+                .unwrap_or(usize::MAX);
+            (bucket, inserted)
+        });
+    }
+
     pub fn retarget_stale_explicit(
         source_uid: i64,
         target_uid: i64,

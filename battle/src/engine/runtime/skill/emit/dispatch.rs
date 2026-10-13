@@ -9,8 +9,7 @@ use crate::engine::{
         behavior::{self, BehaviorOpContext, classify::BehaviorKind},
         condition::{
             ParsedConditionKind, conditions_fire_count, conditions_match,
-            registry::{BehaviorTargetOrder, ConsequencePolicy},
-            resource::ResourceConditionContext,
+            registry::ConsequencePolicy, resource::ResourceConditionContext,
             satisfied_card_enchants, satisfied_conditions,
         },
         effect::{SkillEffectCatalog, SkillEffectSlot},
@@ -18,7 +17,10 @@ use crate::engine::{
             output::{BattleCommand, RuleOp},
             route::ConditionDriver,
         },
-        target::{TargetPool, TargetRequest, TargetResolver, request::SOURCE_TARGET_CODE},
+        target::{
+            BehaviorTargetOrder, TargetPool, TargetRequest, TargetResolver,
+            request::SOURCE_TARGET_CODE,
+        },
     },
 };
 
@@ -698,12 +700,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             targets.retain(|target_uid| managers.hp.current(*target_uid) > 0);
         }
         if let Some(target_order) = behavior_target_order {
-            match target_order {
-                BehaviorTargetOrder::Resolved => {}
-                BehaviorTargetOrder::EntityIdentityMap => {
-                    targets = managers.entity.in_identity_map_order(&targets);
-                }
-            }
+            TargetResolver::order_behavior_candidates(&mut targets, target_order, managers);
             targets.retain(|target_uid| {
                 conditions.iter().all(|condition| {
                     conditions_match(
