@@ -266,7 +266,7 @@ fn zero_cost_skill_publishes_exact_pre_effect_event_before_its_commands() {
 }
 
 #[test]
-fn source_opening_command_precedes_pre_effect_reactions() {
+fn source_opening_and_pre_effect_reactions_precede_action_cost() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -331,7 +331,22 @@ fn source_opening_command_precedes_pre_effect_reactions() {
     }
     .into();
     invocation.mode = SkillExecutionMode::Active;
-    let mut execution = SkillExecution::new(TargetContext::default());
+    let mut execution = SkillExecution::with_action_cost(
+        TargetContext::default(),
+        Some(crate::engine::manager::ex_point::ExPointCommand::Spend(
+            crate::engine::manager::ex_point::ExPointChange {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Skill,
+                    key: DefinitionKey::new(0, "TestPaidAction"),
+                },
+                source_uid: 10,
+                target_uid: 10,
+                delta: -5,
+                config_effect: 0,
+                effect_type: 0,
+            },
+        )),
+    );
     let mut determinism = RoundDeterminism::default();
 
     let opening = emit_ops(
@@ -382,6 +397,27 @@ fn source_opening_command_precedes_pre_effect_reactions() {
         Some(RuleOp::Publish(BattleEvent::SkillEffectStarted(action)))
             if action.phase == SkillPhase::Immediate
     ));
+    assert_eq!(started.ops.len(), 1);
+
+    let immediate = emit_ops(
+        started
+            .continuation
+            .expect("skill resumes after its start event"),
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert!(immediate.ops.iter().any(|emission| matches!(
+        &emission.op,
+        RuleOp::BeginSkillAction {
+            lifecycle: crate::engine::skill::action::SkillLifecycle::PhaseCompleted(action),
+            cost: crate::engine::manager::ex_point::ExPointCommand::Spend(change),
+        } if action.phase == SkillPhase::Immediate && change.delta == -5
+    )));
 }
 
 #[test]

@@ -410,16 +410,45 @@ fn lorentz_rewritten_precast_does_not_grant_moxie() {
 }
 
 #[test]
-fn action_start_subscribers_settle_before_the_ultimate_cost_frame() {
+fn source_opening_effects_precede_the_ultimate_cost() {
     init_config();
+    const SKILL_ID: i32 = 31_270_132;
     let fight = Fight {
+        version: Some(7),
         attacker: Some(FightTeam {
             entitys: vec![FightEntityInfo {
                 uid: Some(10),
-                current_hp: Some(100),
+                model_id: Some(3127),
+                team_type: Some(1),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    attack: Some(1_000),
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
                 ex_point: Some(5),
-                ex_skill: Some(999),
-                passive_skill: vec![1_000],
+                ex_skill: Some(SKILL_ID),
+                buffs: vec![BuffInfo {
+                    uid: Some(40),
+                    buff_id: Some(4_150_002),
+                    count: Some(1),
+                    layer: Some(6),
+                    from_uid: Some(10),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
                 ..Default::default()
             }],
             ..Default::default()
@@ -432,33 +461,14 @@ fn action_start_subscribers_settle_before_the_ultimate_cost_frame() {
         .execute_card(CardCommand::Setup(CardSetup {
             hand: vec![CardInfo {
                 uid: Some(10),
-                skill_id: Some(999),
+                skill_id: Some(SKILL_ID),
                 ..Default::default()
             }],
             draw_pile: Vec::new(),
             deck_num: 16,
         }))
         .unwrap();
-    let mut subscriber = SkillEffectSlot::new(
-        ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
-        TargetRequest::self_only(),
-    );
-    subscriber.conditions = vec![ParsedCondition {
-        opcode: 201,
-        type_name: "None".to_owned(),
-        kind: ParsedConditionKind::None(NoneMode::SkillActionStart),
-        raw_args: Vec::new(),
-    }];
-    subscriber.compiled_route = ConditionRoute::compile(&subscriber.conditions);
-    let mut catalog = SkillEffectCatalog::default();
-    catalog.insert(ParsedSkillEffect {
-        skill_id: 1_000,
-        slots: vec![subscriber],
-    });
-    catalog.insert(ParsedSkillEffect {
-        skill_id: 999,
-        slots: Vec::new(),
-    });
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
     let result = run_player_action_queue(
         &mut managers,
         &pool,
@@ -479,20 +489,45 @@ fn action_start_subscribers_settle_before_the_ultimate_cost_frame() {
     .unwrap();
 
     let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
-    let skill = steps.iter().find(|step| step.act_id == Some(999)).unwrap();
-    let effect_types = skill
+    let skill = steps
+        .iter()
+        .find(|step| step.act_id == Some(SKILL_ID))
+        .unwrap();
+    let opening = skill
         .act_effect
         .iter()
-        .filter_map(|effect| effect.effect_type)
-        .collect::<Vec<_>>();
-    assert_eq!(
-        effect_types,
-        vec![
-            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
-            sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
-        ]
-    );
-    assert_eq!(managers.ex_point.get(10), 1);
+        .position(|effect| effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31_270_101))
+        .expect("source-opening buff effect");
+    let preignition = skill
+        .act_effect
+        .iter()
+        .position(|effect| effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(4_150_001))
+        .expect("preignition burn effect");
+    let cost = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            effect.effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
+                && effect.effect_num == Some(-5)
+        })
+        .expect("ultimate cost effect");
+    let damage = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect.effect_type,
+                Some(kind)
+                    if kind == sonettobuf::effect_type_enum::EffectType::Damage as i32
+                        || kind == sonettobuf::effect_type_enum::EffectType::Crit as i32
+            )
+        })
+        .expect("configured damage effect");
+    assert!(opening < preignition && preignition < cost && cost < damage);
+    assert_eq!(managers.ex_point.get(10), 0);
+    assert!(!managers.buff.has_buff_id(10, 31_270_101));
+    assert_eq!(managers.buff.buff_id_amount(-1, 4_150_001), 10);
 }
 
 #[test]

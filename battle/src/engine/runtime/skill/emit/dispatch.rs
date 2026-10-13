@@ -1115,21 +1115,14 @@ pub(in crate::engine::runtime) fn emit_ops(
     }
 
     if publishes_lifecycle && active_phase == Some(SkillPhase::SourceOpening) {
-        let mut phase_completed = phase_completed_op(
+        outputs.push(phase_completed_op(
             &invocation,
             managers,
             catalog,
             pool,
             execution,
             SkillPhase::SourceOpening,
-        );
-        if let Some(cost) = execution.take_action_cost() {
-            let RuleOp::SkillLifecycle(lifecycle) = phase_completed.op else {
-                unreachable!("a completed phase emits a skill lifecycle")
-            };
-            phase_completed.op = RuleOp::BeginSkillAction { lifecycle, cost };
-        }
-        outputs.push(phase_completed);
+        ));
     } else if publishes_lifecycle
         && active_phase == Some(SkillPhase::AdditionalDamage)
         && has_row_damage
