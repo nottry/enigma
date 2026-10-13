@@ -173,12 +173,6 @@ pub struct TeamSharedShieldAbsorption {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct FakeHpAbsorption {
-    pub buff_uid: i64,
-    pub consumed: i32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TeamSharedShieldPlan {
     pub buff_uid: i64,
     pub owner_uid: i64,
@@ -261,7 +255,6 @@ pub struct HpChanges {
     pub source_uid: i64,
     pub target_uid: i64,
     pub damage: Option<DamageRecord>,
-    pub fake_hp_absorbed: Option<FakeHpAbsorption>,
     pub team_shared_shield_absorbed: Option<TeamSharedShieldAbsorption>,
     pub team_shared_shield_removed: Option<crate::engine::manager::buff::BuffChanges>,
     pub shared_hurt: Option<Box<SharedHurt>>,
@@ -451,8 +444,6 @@ pub enum HpCommandError {
     MissingTarget(i64),
     InvalidTeamSharedState,
     InvalidShareHurtState,
-    InvalidFakeHpState,
-    UnsupportedFakeHpState,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -719,7 +710,6 @@ impl HpManager {
             source_uid,
             target_uid,
             damage: None,
-            fake_hp_absorbed: None,
             team_shared_shield_absorbed: None,
             team_shared_shield_removed: None,
             shared_hurt: None,

@@ -436,7 +436,6 @@ fn project_change(
                     });
                 apply_absorbed_shield_wire(
                     &mut effect,
-                    changes.fake_hp_absorbed,
                     changes.team_shared_shield_absorbed,
                     changes.shield_absorbed,
                     hurt_info_layout,
@@ -453,7 +452,6 @@ fn project_change(
                 );
                 apply_absorbed_shield_wire(
                     &mut effect,
-                    changes.fake_hp_absorbed,
                     changes.team_shared_shield_absorbed,
                     changes.shield_absorbed,
                     hurt_info_layout,
@@ -1273,24 +1271,18 @@ fn project_change(
 
 fn apply_absorbed_shield_wire(
     effect: &mut ActEffect,
-    fake_hp: Option<crate::engine::manager::hp::FakeHpAbsorption>,
     team_shared: Option<crate::engine::manager::hp::TeamSharedShieldAbsorption>,
     shield: Option<crate::engine::manager::hp::ShieldChange>,
     layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
 ) {
-    if layout != HurtInfoWireLayout::Version7
-        || (fake_hp.is_none() && team_shared.is_none() && shield.is_none())
-    {
+    if layout != HurtInfoWireLayout::Version7 || (team_shared.is_none() && shield.is_none()) {
         return;
     }
     let Some(hurt) = &mut effect.hurt_info else {
         return;
     };
     let team_shared = team_shared
-        .map(|change| format!("{}#{}", change.buff_uid, change.consumed))
-        .unwrap_or_default();
-    let fake_hp = fake_hp
         .map(|change| format!("{}#{}", change.buff_uid, change.consumed))
         .unwrap_or_default();
     let shield = shield
@@ -1301,7 +1293,7 @@ fn apply_absorbed_shield_wire(
             r#"{{"reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
         ),
         AbsorbHurtMapLayout::ThreeMaps => format!(
-            r#"{{"consumeFakeHpBuffMap":"{fake_hp}","reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
+            r#"{{"consumeFakeHpBuffMap":"","reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
         ),
     });
 }

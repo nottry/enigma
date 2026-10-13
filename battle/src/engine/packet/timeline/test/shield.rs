@@ -30,7 +30,6 @@ fn fully_absorbed_damage_projects_shield_then_zero_damage() {
                 display_amount: None,
             },
         }),
-        fake_hp_absorbed: None,
         team_shared_shield_absorbed: None,
         team_shared_shield_removed: None,
         shared_hurt: None,
@@ -59,7 +58,7 @@ fn fully_absorbed_damage_projects_shield_then_zero_damage() {
 }
 
 #[test]
-fn version_seven_embeds_shield_and_zero_fake_hp_absorption_in_hurt_info() {
+fn version_seven_embeds_shield_and_empty_fake_hp_map_in_hurt_info() {
     let origin = CommandOrigin {
         domain: RuleDomain::Skill,
         key: DefinitionKey::new(123, "SkillDamage"),
@@ -87,10 +86,6 @@ fn version_seven_embeds_shield_and_zero_fake_hp_absorption_in_hurt_info() {
                 hurt_effect_type: EffectType::Damage as i32,
                 display_amount: None,
             },
-        }),
-        fake_hp_absorbed: Some(crate::engine::manager::hp::FakeHpAbsorption {
-            buff_uid: 1072,
-            consumed: 0,
         }),
         team_shared_shield_absorbed: None,
         team_shared_shield_removed: None,
@@ -130,7 +125,7 @@ fn version_seven_embeds_shield_and_zero_fake_hp_absorption_in_hurt_info() {
             .absorb_hurt_param
             .as_deref(),
         Some(
-            r#"{"consumeFakeHpBuffMap":"1072#0","reduceTeamShareShieldBuffMap":"","reduceShieldBuffMap":"77#40"}"#
+            r#"{"consumeFakeHpBuffMap":"","reduceTeamShareShieldBuffMap":"","reduceShieldBuffMap":"77#40"}"#
         )
     );
 
@@ -184,7 +179,6 @@ fn version_seven_embeds_team_shared_shield_consumption_in_hurt_info() {
                     display_amount: None,
                 },
             }),
-            fake_hp_absorbed: None,
             team_shared_shield_absorbed: Some(
                 crate::engine::manager::hp::TeamSharedShieldAbsorption {
                     buff_uid: 77,
@@ -237,7 +231,6 @@ fn reduce_hp_wire_value_is_gated_by_fight_protocol_version() {
         source_uid: 1,
         target_uid: 10,
         damage: None,
-        fake_hp_absorbed: None,
         team_shared_shield_absorbed: None,
         team_shared_shield_removed: None,
         shared_hurt: None,

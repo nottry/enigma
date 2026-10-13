@@ -242,7 +242,6 @@ pub enum BuffActKind {
     LayerMasterHalo,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
-    LostHpToFakeHp,
     LifeAttackFixRate,
     MonitorContinueChannel,
     BuffOwnedCharge,

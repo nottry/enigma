@@ -90,7 +90,6 @@ pub struct BattleManagers {
 
 struct HpPlan {
     command: hp::HpCommand,
-    fake_hp: Option<hp::FakeHpAbsorption>,
     team_shared: Option<hp::TeamSharedShieldPlan>,
     team_shared_buff: Option<BuffPlan>,
     share: Option<ShareHurtPlan>,
@@ -561,18 +560,6 @@ impl BattleManagers {
                 }),
             _ => None,
         };
-        let fake_hp = match command {
-            hp::HpCommand::Damage(damage)
-                if damage.amount > 0 && damage.effect_kind != hp::DamageEffectKind::Avoided =>
-            {
-                crate::engine::skill::buff_act::lost_hp_to_fake_hp::zero_reserve(
-                    &self.buff,
-                    hp,
-                    damage.target_uid,
-                )?
-            }
-            _ => None,
-        };
         let team_shared_buff = if let hp::HpCommand::Damage(damage) = command
             && let Some(absorption) = team_shared.and_then(|plan| plan.absorption(damage.amount))
         {
@@ -584,7 +571,6 @@ impl BattleManagers {
         };
         Ok(HpPlan {
             command,
-            fake_hp,
             team_shared,
             team_shared_buff,
             share,
@@ -621,7 +607,6 @@ impl BattleManagers {
         let mut changes = self
             .hp
             .commit_validated_command_with_team_shared(plan.command, plan.team_shared);
-        changes.fake_hp_absorbed = plan.fake_hp;
         changes.toughness = toughness;
         changes.team_shared_shield_removed = team_shared_shield_removed;
         changes.shared_hurt = shared_hurt;
