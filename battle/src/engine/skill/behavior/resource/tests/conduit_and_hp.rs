@@ -55,7 +55,7 @@ fn exact_conduit_counter_behavior_commits_typed_round_state() {
         let [RuleOp::Command(BattleCommand::Conduit(command))] = ops.as_slice() else {
             panic!("expected one Conduit counter command");
         };
-        let change = managers.conduit.execute(*command).unwrap();
+        let change = managers.conduit.execute(command.clone()).unwrap();
         assert!(matches!(
             change,
             crate::engine::manager::conduit::ConduitChange::CounterChanged {
@@ -134,7 +134,7 @@ fn exact_conduit_power_behavior_commits_typed_energy() {
     let [RuleOp::Command(BattleCommand::Conduit(command))] = ops.as_slice() else {
         panic!("expected one Conduit command");
     };
-    let change = managers.conduit.execute(*command).unwrap();
+    let change = managers.conduit.execute(command.clone()).unwrap();
 
     assert_eq!(managers.conduit.power(1, 1), 4);
     assert!(matches!(
@@ -252,7 +252,7 @@ fn exact_conduit_group_behavior_changes_the_manager_owned_selection() {
         panic!("expected one Conduit command");
     };
 
-    let change = managers.conduit.execute(*command).unwrap();
+    let change = managers.conduit.execute(command.clone()).unwrap();
     assert!(matches!(
         change,
         crate::engine::manager::conduit::ConduitChange::SkillGroupChanged {
@@ -328,7 +328,7 @@ fn interval_conduit_skill_stops_the_exact_active_skill() {
         };
 
         assert!(matches!(
-            managers.conduit.execute(*command).unwrap(),
+            managers.conduit.execute(command.clone()).unwrap(),
             crate::engine::manager::conduit::ConduitChange::SkillStopped {
                 origin,
                 source_uid: 10,

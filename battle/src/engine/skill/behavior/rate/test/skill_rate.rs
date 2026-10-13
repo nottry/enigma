@@ -822,7 +822,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
         domain: crate::engine::skill::rule::RuleDomain::Behavior,
         key: crate::engine::skill::rule::DefinitionKey::new(60291, "AddDevicePower"),
     };
-    for power_id in [1, 2] {
+    for (power_id, delta) in [(0, 1), (1, 6), (2, 6)] {
         managers
             .conduit
             .execute(
@@ -832,7 +832,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
                         source_uid: 10,
                         team: 1,
                         power_id,
-                        delta: 6,
+                        delta,
                         kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
                     },
                 ),
@@ -872,7 +872,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
     )
     .unwrap();
 
-    assert_eq!(modifiers.rates[0].fixed_value(), Some(70_200));
+    assert_eq!(modifiers.rates[0].fixed_value(), Some(72_800));
     assert_eq!(
         modifiers.attack_attributes,
         vec![(AttrId::CriticalRate, 1000), (AttrId::Penetration, 700)]
@@ -886,23 +886,32 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
             crate::engine::skill::rule::output::RuleOp::Command(
                 crate::engine::skill::rule::output::BattleCommand::ExPoint(
                     crate::engine::manager::ex_point::ExPointCommand::Set(
-                        crate::engine::manager::ex_point::ExPointSet { value: 0, .. }
-                    )
-                )
+                        crate::engine::manager::ex_point::ExPointSet { value: 0, .. },
+                    ),
+                ),
             ),
             crate::engine::skill::rule::output::RuleOp::Command(
                 crate::engine::skill::rule::output::BattleCommand::Conduit(
                     crate::engine::manager::conduit::ConduitCommand::ClearPowers {
-                        power_ids: [1, 2],
+                        power_ids: _,
                         ..
                     }
-                )
+                ),
             ),
             crate::engine::skill::rule::output::RuleOp::EffectMarker {
-                effect_num: 12,
+                effect_num: 13,
                 config_effect: 100031,
                 ..
-            }
+            },
         ]
     ));
+    let crate::engine::skill::rule::output::RuleOp::Command(
+        crate::engine::skill::rule::output::BattleCommand::Conduit(
+            crate::engine::manager::conduit::ConduitCommand::ClearPowers { power_ids, .. },
+        ),
+    ) = &ops[1]
+    else {
+        unreachable!()
+    };
+    assert_eq!(power_ids, &[0, 1, 2]);
 }

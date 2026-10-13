@@ -41,7 +41,7 @@ pub struct ConduitArea {
     pub powers: Vec<ConduitPower>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitCommand {
     Initialize {
         team: i32,
@@ -83,7 +83,7 @@ pub enum ConduitCommand {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: [i32; 2],
+        power_ids: Vec<i32>,
     },
     ResetPowers {
         team: i32,
@@ -213,7 +213,7 @@ pub enum ConduitChange {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: [i32; 2],
+        power_ids: Vec<i32>,
         spent: i32,
     },
     PowersReset {

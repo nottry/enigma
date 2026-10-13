@@ -538,7 +538,7 @@ fn reduced_spend_keeps_the_configured_activation_cost() {
 }
 
 #[test]
-fn unique_skill_clears_both_energy_pools_as_one_activation() {
+fn unique_skill_clears_configured_energy_pools_as_one_activation() {
     config::init(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../data/excel2json")
@@ -558,7 +558,7 @@ fn unique_skill_clears_both_energy_pools_as_one_activation() {
         ..Default::default()
     };
     let mut manager = ConduitManager::seed(&fight);
-    for (power_id, delta) in [(1, 5), (2, 7)] {
+    for (power_id, delta) in [(0, 1), (1, 5), (2, 7)] {
         manager
             .execute(ConduitCommand::ChangePower(ConduitPowerChange {
                 origin: ORIGIN,
@@ -601,19 +601,20 @@ fn unique_skill_clears_both_energy_pools_as_one_activation() {
             source_uid: 10,
             team: 1,
             skill_id: 31490151,
-            power_ids: [1, 2],
+            power_ids: vec![0, 1, 2],
         })
         .unwrap();
+    assert_eq!(manager.power(1, 0), 0);
     assert_eq!(manager.power(1, 1), 0);
     assert_eq!(manager.power(1, 2), 0);
     assert!(matches!(
         cleared,
-        ConduitChange::PowersCleared { spent: 12, .. }
+        ConduitChange::PowersCleared { spent: 13, .. }
     ));
     assert!(matches!(
         cleared.events().as_slice(),
         [crate::engine::event::payload::BattleEvent::ConduitActivated(event)]
-            if event.spent == 12 && event.skill_id == 31490151
+            if event.spent == 13 && event.skill_id == 31490151
     ));
 }
 

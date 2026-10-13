@@ -277,17 +277,17 @@ impl ConduitManager {
                     .get_mut(&team)
                     .ok_or(ConduitError::MissingArea(team))?;
                 let mut spent = 0i32;
-                for power_id in power_ids {
+                for power_id in &power_ids {
                     let value = area
                         .powers
                         .iter_mut()
-                        .find(|power| power.id == power_id)
+                        .find(|power| power.id == *power_id)
                         .map(|power| std::mem::take(&mut power.value))
                         .unwrap_or_default()
                         .max(0);
                     spent = spent.saturating_add(value);
                     self.consumed_this_round
-                        .entry((team, power_id))
+                        .entry((team, *power_id))
                         .and_modify(|consumed| *consumed = consumed.saturating_add(value))
                         .or_insert(value);
                 }

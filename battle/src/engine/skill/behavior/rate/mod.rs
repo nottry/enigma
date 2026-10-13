@@ -272,10 +272,10 @@ fn conduit_power_up_ops(
     behavior: &ParsedBehavior,
 ) -> Option<Vec<RuleOp>> {
     let args = conduit_power_up_args(behavior)?;
-    context.modifiers.attack_career = Some(args.power_ids[0]);
-    context.modifiers.additional_attack_career = Some(args.power_ids[1]);
+    context.modifiers.attack_career = Some(args.attack_careers[0]);
+    context.modifiers.additional_attack_career = Some(args.attack_careers[1]);
     let spent = args
-        .power_ids
+        .consumed_power_ids
         .iter()
         .map(|power_id| {
             context
@@ -326,7 +326,7 @@ fn conduit_power_up_ops(
             source_uid: context.source_uid,
             team: context.source_team,
             skill_id: context.active_skill_id,
-            power_ids: args.power_ids,
+            power_ids: args.consumed_power_ids,
         })),
         RuleOp::EffectMarker {
             target_uid: context.source_uid,
@@ -339,9 +339,9 @@ fn conduit_power_up_ops(
     ])
 }
 
-#[derive(Clone, Copy)]
 struct ConduitPowerUpArgs {
-    power_ids: [i32; 2],
+    consumed_power_ids: Vec<i32>,
+    attack_careers: [i32; 2],
     rate_per_power: i32,
     thresholds: [i32; 3],
     threshold_bonuses: [i32; 3],
@@ -351,12 +351,18 @@ struct ConduitPowerUpArgs {
 }
 
 fn conduit_power_up_args(behavior: &ParsedBehavior) -> Option<ConduitPowerUpArgs> {
-    let power_ids = behavior.arg_list(0)?;
-    let [0, power_a, power_b] = power_ids.as_slice() else {
+    let consumed_power_ids = behavior.arg_list(0)?.to_vec();
+    let attack_careers = consumed_power_ids
+        .iter()
+        .copied()
+        .filter(|power_id| *power_id > 0)
+        .collect::<Vec<_>>();
+    let [power_a, power_b] = attack_careers.as_slice() else {
         return None;
     };
     let args = ConduitPowerUpArgs {
-        power_ids: [*power_a, *power_b],
+        consumed_power_ids,
+        attack_careers: [*power_a, *power_b],
         rate_per_power: behavior.arg(1)?,
         thresholds: [behavior.arg(2)?, behavior.arg(3)?, behavior.arg(4)?],
         threshold_bonuses: [behavior.arg(5)?, behavior.arg(6)?, behavior.arg(7)?],
@@ -364,7 +370,17 @@ fn conduit_power_up_args(behavior: &ParsedBehavior) -> Option<ConduitPowerUpArgs
         penetration: (AttrId::from_raw(behavior.arg(10)?)?, behavior.arg(11)?),
         excess_crit_conversion: behavior.arg(12)?,
     };
-    (args.power_ids.iter().all(|id| (1..=8).contains(id))
+    ((2..=3).contains(&args.consumed_power_ids.len())
+        && args
+            .consumed_power_ids
+            .iter()
+            .all(|id| (0..=8).contains(id))
+        && args
+            .consumed_power_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            == args.consumed_power_ids.len()
         && args.rate_per_power >= 0
         && args.thresholds.iter().all(|threshold| *threshold > 0)
         && args.thresholds.windows(2).all(|pair| pair[0] < pair[1])
