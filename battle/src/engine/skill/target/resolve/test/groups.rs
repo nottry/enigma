@@ -1,27 +1,11 @@
 use super::*;
 
 #[test]
-fn all_enemy_capture_order_does_not_change_group_membership() {
-    assert!(captured_targets_match(
-        TargetRule::EnemiesIncludingSpecial,
-        &[10, 11, 12],
-        &[12, 10, 11],
-    ));
-    assert!(!captured_targets_match(
-        TargetRule::EnemiesIncludingSpecial,
-        &[10, 11, 12],
-        &[12, 10],
-    ));
-    assert!(!captured_targets_match(
-        TargetRule::EnemiesIncludingSpecial,
-        &[10, 10, 11],
-        &[10, 11, 12],
-    ));
-    assert!(!captured_targets_match(
-        TargetRule::MainAllies,
-        &[10, 11, 12],
-        &[12, 10, 11],
-    ));
+fn captured_target_comparison_preserves_order_and_cardinality() {
+    assert!(captured_targets_match(&[10, 11, 12], &[10, 11, 12]));
+    assert!(!captured_targets_match(&[10, 11, 12], &[12, 10, 11]));
+    assert!(!captured_targets_match(&[10, 11, 12], &[12, 10]));
+    assert!(!captured_targets_match(&[10, 10, 11], &[10, 11, 12]));
 }
 
 #[test]

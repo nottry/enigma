@@ -58,16 +58,8 @@ enum TargetRule {
     PriorityEnemyWithMonsterLabel(i32),
 }
 
-fn captured_targets_match(rule: TargetRule, resolved: &[i64], captured: &[i64]) -> bool {
-    if rule == TargetRule::EnemiesIncludingSpecial {
-        let mut resolved = resolved.to_vec();
-        let mut captured = captured.to_vec();
-        resolved.sort_unstable();
-        captured.sort_unstable();
-        resolved == captured
-    } else {
-        resolved == captured
-    }
+fn captured_targets_match(resolved: &[i64], captured: &[i64]) -> bool {
+    resolved == captured
 }
 
 pub fn is_random_other_ally(target_code: i32) -> bool {
@@ -336,7 +328,7 @@ impl TargetResolver {
             targets.insert(0, primary);
         }
         if let Some(captured) = determinism.take_skill_targets(skill_id, source_uid, request.code)
-            && !captured_targets_match(rule, &targets, &captured)
+            && !captured_targets_match(&targets, &captured)
         {
             let available = pool
                 .enemies(source_uid, true)
