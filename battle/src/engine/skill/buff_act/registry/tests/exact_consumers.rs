@@ -90,7 +90,24 @@ fn registry_requires_exact_id_and_type() {
         Some(BuffActInitialStateRule::ZeroInteger)
     );
     assert!(!device_bank_wire.initial_state_marker);
-    assert!(find(1150, "LostHpToFakeHp").is_none());
+    let fake_hp = find(1150, "LostHpToFakeHp").expect("LostHpToFakeHp must be registered");
+    assert_eq!(fake_hp.kind, BuffActKind::LostHpToFakeHp);
+    assert_eq!(
+        destination(1150, "LostHpToFakeHp", &[102, 4_000]),
+        Some(BuffActDestination::HpLossState)
+    );
+    assert!(!fake_hp.runtime.effect_time_subscription);
+    assert!(fake_hp.runtime.handler.is_none());
+    assert!(fake_hp.state.hp_loss.is_some());
+    assert!(has_destination(1150, "LostHpToFakeHp", &[102, 4_000]));
+    assert!(!has_destination(1150, "LostHpToFakeHp", &[101, 4_000]));
+    assert!(!has_destination(1150, "LostHpToFakeHp", &[102, 0]));
+    assert!(
+        !fake_hp
+            .wire
+            .expect("LostHpToFakeHp has wire metadata")
+            .initial_state_marker
+    );
     assert_eq!(
         find(728, "ChangeRemoveBuffUseSkillParam").unwrap().kind,
         BuffActKind::ChangeRemoveBuffUseSkillParam

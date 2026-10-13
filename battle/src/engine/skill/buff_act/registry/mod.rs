@@ -48,6 +48,8 @@ pub type AttackReplacementHandler = fn(
     &ActiveBuffFeature,
     &crate::engine::manager::hp::HpManager,
 ) -> Option<super::AttackReplacement>;
+pub type HpLossStateHandler =
+    fn(&BattleManagers, &ActiveBuffFeature, i32) -> Option<Vec<super::HpLossStateUpdate>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuffActParseError {
@@ -245,6 +247,7 @@ pub enum BuffActKind {
     LayerMasterHalo,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
+    LostHpToFakeHp,
     LifeAttackFixRate,
     MonitorContinueChannel,
     BuffOwnedCharge,
@@ -423,6 +426,7 @@ pub struct BuffActTransactionDefinition {
 pub struct BuffActStateDefinition {
     pub read_timing: StatReadTiming,
     pub attack_replacement: Option<AttackReplacementHandler>,
+    pub hp_loss: Option<HpLossStateHandler>,
     pub consumer: bool,
     pub initial: Option<BuffActInitialStateRule>,
 }
@@ -441,6 +445,7 @@ pub enum BuffActInitialStateRule {
     SecondArgument,
     StringCounter,
     GrantValue,
+    LostHpToFakeHp,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -465,6 +470,7 @@ pub enum BuffActDestination {
     Transaction,
     Setup,
     AttackReplacement,
+    HpLossState,
     StateConsumer,
     LinkedSkill,
 }
@@ -508,6 +514,8 @@ impl BuffActDefinition {
             Some(BuffActDestination::Setup)
         } else if self.state.attack_replacement.is_some() {
             Some(BuffActDestination::AttackReplacement)
+        } else if self.state.hp_loss.is_some() {
+            Some(BuffActDestination::HpLossState)
         } else if self.state.consumer {
             Some(BuffActDestination::StateConsumer)
         } else {
@@ -550,6 +558,7 @@ macro_rules! buff_act_definitions {
             $(, parser: $parser:expr)?
             $(, references: $references:expr)?
             $(, attack_replacement: $attack_replacement:expr)?
+            $(, hp_loss_state: $hp_loss_state:expr)?
             $(, state_consumer: $state_consumer:expr)?
             $(, initial_state: $initial_state:ident)?
             $(, completion_gap: $completion_gap:literal)?
@@ -594,6 +603,7 @@ macro_rules! buff_act_definitions {
                 state: BuffActStateDefinition {
                     read_timing: buff_act_definitions!(@stat_read $($stat_read)?),
                     attack_replacement: buff_act_definitions!(@attack_replacement $($attack_replacement)?),
+                    hp_loss: buff_act_definitions!(@hp_loss_state $($hp_loss_state)?),
                     consumer: buff_act_definitions!(@state_consumer $($state_consumer)?),
                     initial: buff_act_definitions!(@initial_state $($initial_state)?),
                 },
@@ -665,6 +675,8 @@ macro_rules! buff_act_definitions {
     (@completion_gap) => { None };
     (@attack_replacement $handler:expr) => { Some($handler) };
     (@attack_replacement) => { None };
+    (@hp_loss_state $handler:expr) => { Some($handler) };
+    (@hp_loss_state) => { None };
     (@state_consumer $value:expr) => { $value };
     (@state_consumer) => { false };
     (@initial_state $rule:ident) => { Some(BuffActInitialStateRule::$rule) };
@@ -1024,6 +1036,12 @@ buff_act_definitions! {
         supports: |args| matches!(args, [capacity] if *capacity > 0),
         initial_state: ZeroInteger,
         wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1149, "DeviceExPointOverflowBank"), &[EffectType::None as i32])
+            .without_initial_state_marker());
+    (1150, "LostHpToFakeHp") => LostHpToFakeHp, effect_time_subscription: false,
+        supports: super::lost_hp_to_fake_hp::supports,
+        hp_loss_state: super::lost_hp_to_fake_hp::hp_loss_state_update,
+        initial_state: LostHpToFakeHp,
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1150, "LostHpToFakeHp"), &[EffectType::None as i32])
             .without_initial_state_marker());
     (1008, "BanLostLife") => BanLostLife,
         supports: |args| matches!(args, [150] | [160]),

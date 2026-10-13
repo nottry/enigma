@@ -347,10 +347,19 @@ impl BuffManager {
         if let Some(transition) = plan.transition {
             return self.commit_replace_plan(hp, *transition);
         }
-        let initial_act_info_markers = plan
-            .initial_act_info_markers
-            .clone()
-            .or_else(|| plan.initial_act_info.clone());
+        let initial_act_info_markers = plan.initial_act_info_markers.clone().or_else(|| {
+            plan.initial_act_info.as_ref().map(|values| {
+                values
+                    .iter()
+                    .filter(|info| {
+                        info.act_id.is_some_and(|act_id| {
+                            plan.definition.projects_initial_wire_state(act_id)
+                        })
+                    })
+                    .cloned()
+                    .collect()
+            })
+        });
         let records_transaction_stack_progress = plan.definition.is_stackable_type()
             && (matches!(plan.layer_refresh, Some(LayerRefreshPlan::Update { .. }))
                 || matches!(plan.action, GrantAction::Reject(_)));

@@ -520,6 +520,14 @@ fn semantic_destination_is_independent_from_wire_metadata() {
         buff_act_capability(buff_act::registry::destination(10000, "EzioBigSkill", &[],)),
         Some("state-consumer")
     );
+    assert_eq!(
+        buff_act_capability(buff_act::registry::destination(
+            1150,
+            "LostHpToFakeHp",
+            &[102, 4_000],
+        )),
+        Some("hp-loss-state")
+    );
 }
 
 #[test]

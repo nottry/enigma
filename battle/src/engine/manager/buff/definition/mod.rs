@@ -488,6 +488,7 @@ impl BuffDefinition {
                     ),
                     BuffActInitialStateRule::StringCounter => (Vec::new(), "0".to_owned(), 0),
                     BuffActInitialStateRule::GrantValue => return None,
+                    BuffActInitialStateRule::LostHpToFakeHp => return None,
                 };
                 Some(super::BuffActInfoMarkerResult {
                     target_uid,
@@ -574,6 +575,12 @@ impl BuffDefinition {
                             param: vec![value],
                             str_param: Some(String::new()),
                         })
+                    }
+                    BuffActInitialStateRule::LostHpToFakeHp => {
+                        Some(crate::engine::skill::buff_act::lost_hp_to_fake_hp::initial_act_info(
+                            source_attack?,
+                            &feature.values,
+                        )?)
                     }
                     _ => None,
                 }

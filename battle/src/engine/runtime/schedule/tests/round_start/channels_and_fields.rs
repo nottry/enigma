@@ -422,6 +422,7 @@ fn round_start_capacity_uses_only_exact_raspberry_loss_instances() {
                 kill: None,
                 death: None,
             },
+            before_hp_markers: Vec::new(),
             indicator: None,
         }))
     };

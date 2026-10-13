@@ -444,6 +444,7 @@ pub enum HpCommandError {
     MissingTarget(i64),
     InvalidTeamSharedState,
     InvalidShareHurtState,
+    InvalidHpLossState,
 }
 
 #[derive(Debug, Clone, Default)]

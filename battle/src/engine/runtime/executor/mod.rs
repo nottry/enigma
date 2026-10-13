@@ -220,15 +220,27 @@ impl RuleOutcome {
             }
             Self::StateChanged => Vec::new(),
             Self::NuoDiKaHit(hit) => vec![BattleChange::NuoDiKaHit(*hit)],
-            Self::Hp(execution) => {
-                std::iter::once(BattleChange::Hp(Box::new(execution.changes.clone())))
-                    .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
-                    .collect()
-            }
+            Self::Hp(execution) => execution
+                .before_hp_markers
+                .iter()
+                .cloned()
+                .map(BattleChange::BuffActInfoMarker)
+                .chain(std::iter::once(BattleChange::Hp(Box::new(
+                    execution.changes.clone(),
+                ))))
+                .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
+                .collect(),
             Self::HpBatch(changes) => changes
                 .iter()
                 .flat_map(|execution| {
-                    std::iter::once(BattleChange::Hp(Box::new(execution.changes.clone())))
+                    execution
+                        .before_hp_markers
+                        .iter()
+                        .cloned()
+                        .map(BattleChange::BuffActInfoMarker)
+                        .chain(std::iter::once(BattleChange::Hp(Box::new(
+                            execution.changes.clone(),
+                        ))))
                         .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
                 })
                 .collect(),

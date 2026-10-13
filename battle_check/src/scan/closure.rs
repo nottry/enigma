@@ -622,6 +622,7 @@ pub(super) fn buff_act_capability(
         BuffActDestination::Transaction => "transaction",
         BuffActDestination::Setup => "setup",
         BuffActDestination::AttackReplacement => "damage-formula",
+        BuffActDestination::HpLossState => "hp-loss-state",
         BuffActDestination::StateConsumer => "state-consumer",
         BuffActDestination::LinkedSkill => "linked-skill",
     })

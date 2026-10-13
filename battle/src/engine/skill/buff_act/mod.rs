@@ -92,6 +92,7 @@ pub mod injury_bank;
 pub mod life_attack_fix_rate;
 pub mod lost_hp_add_extra_blood_pool_value;
 pub mod lost_hp_count_add_buff;
+pub mod lost_hp_to_fake_hp;
 pub mod modify_attr_by_buff_layer;
 pub mod monitor_continue_channel;
 pub mod must_crit_and_fix_temp_attr;
@@ -1015,6 +1016,40 @@ pub fn target_attack_attribute_delta(
         .filter(|feature| feature.owner_uid == target_uid)
         .map(|feature| shell::extra_action_attribute_delta(&feature, attr_id))
         .sum()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HpLossStateUpdate {
+    pub command: crate::engine::manager::buff::BuffCommand,
+    pub marker: crate::engine::manager::buff::BuffActInfoMarkerResult,
+}
+
+pub fn hp_loss_state_updates(
+    managers: &BattleManagers,
+    target_uid: i64,
+    amount: i32,
+) -> Option<Vec<HpLossStateUpdate>> {
+    if amount <= 0 {
+        return Some(Vec::new());
+    }
+    let mut features = managers
+        .buff
+        .active_features(&managers.hp)
+        .into_iter()
+        .filter(|feature| feature.owner_uid == target_uid)
+        .filter_map(|feature| {
+            let handler = registry::find(feature.act_id()?, &feature.act_type)?
+                .state
+                .hp_loss?;
+            Some((feature, handler))
+        })
+        .collect::<Vec<_>>();
+    features.sort_by_key(|(feature, _)| feature.buff_uid);
+    let mut updates = Vec::new();
+    for (feature, handler) in features {
+        updates.extend(handler(managers, &feature, amount)?);
+    }
+    Some(updates)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

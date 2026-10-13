@@ -102,8 +102,9 @@ impl BuffManager {
                 if grant.params.is_some() {
                     plan.initial_params = grant.params;
                 }
-                if grant.act_info.is_some() {
-                    plan.initial_act_info = grant.act_info;
+                if let Some(act_info) = grant.act_info {
+                    plan.initial_act_info_markers = Some(act_info.clone());
+                    plan.initial_act_info = Some(act_info);
                 }
                 (grant.origin, BuffPlanAction::Grant(Box::new(plan)))
             }
@@ -183,8 +184,9 @@ impl BuffManager {
                 if grant.params.is_some() {
                     plan.initial_params = grant.params;
                 }
-                if grant.act_info.is_some() {
-                    plan.initial_act_info = grant.act_info;
+                if let Some(act_info) = grant.act_info {
+                    plan.initial_act_info_markers = Some(act_info.clone());
+                    plan.initial_act_info = Some(act_info);
                 }
                 let action = if renew {
                     let removed_uids = self
