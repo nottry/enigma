@@ -522,7 +522,7 @@ fn run_player_card_ops(
         }
         let composes_adjacent = matches!(
             &op,
-            PlayerCardOp::Move { .. } | PlayerCardOp::UseUniversal { .. } | PlayerCardOp::Play(_)
+            PlayerCardOp::Move { .. } | PlayerCardOp::UseUniversal { .. }
         );
         let blocked_card_index = match &op {
             PlayerCardOp::Play(play)
