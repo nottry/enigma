@@ -763,30 +763,36 @@ pub(super) fn apply_cloth_power(
     let Some(power) = managers.catalog().cloth_power(fight) else {
         return;
     };
-    let completed_cards = result
-        .outcomes
-        .iter()
-        .filter_map(|outcome| match outcome {
+    let mut pending_cards = Vec::new();
+    for outcome in &result.outcomes {
+        match outcome {
+            executor::RuleOutcome::Card(changes) => {
+                if changes.kind == crate::engine::manager::card::CardChangeKind::Played
+                    && let Some(played) = &changes.played
+                {
+                    pending_cards.push(played.card_index);
+                }
+                state.power = cloth_power_after_card_change(
+                    &power,
+                    state.power,
+                    changes.kind,
+                    false,
+                    eligible_composition_count(managers, &changes.composed_owners),
+                );
+            }
             executor::RuleOutcome::SkillLifecycle(
                 crate::engine::skill::action::SkillLifecycle::ActionCompleted(action),
-            ) if action.card_index > 0 => Some(action.card_index),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    for outcome in &result.outcomes {
-        let executor::RuleOutcome::Card(changes) = outcome else {
-            continue;
-        };
-        state.power = cloth_power_after_card_change(
-            &power,
-            state.power,
-            changes.kind,
-            changes
-                .played
-                .as_ref()
-                .is_some_and(|played| completed_cards.contains(&played.card_index)),
-            eligible_composition_count(managers, &changes.composed_owners),
-        );
+            ) if action.card_index > 0 => {
+                if let Some(index) = pending_cards
+                    .iter()
+                    .position(|card_index| *card_index == action.card_index)
+                {
+                    pending_cards.remove(index);
+                    state.power = power.card_used(state.power);
+                }
+            }
+            _ => {}
+        }
     }
 }
 

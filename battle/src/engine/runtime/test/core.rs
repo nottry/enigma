@@ -274,6 +274,24 @@ fn played_cards_grant_cloth_power_only_after_action_completion() {
         },
     );
     assert_eq!(state.power, 19);
+
+    state.power = 15;
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![
+                RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(ActionEvent {
+                    card_index: 1,
+                    ..Default::default()
+                })),
+                played(1),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 15);
 }
 
 #[test]
