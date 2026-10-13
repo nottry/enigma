@@ -9,7 +9,8 @@ use crate::engine::{
     fight::versions::{AbsorbHurtMapLayout, HurtInfoWireLayout},
     manager::{
         buff::{
-            BuffApplyResult, BuffMarkerResult, BuffRejectResult, BuffRemoveResult, BuffUpdateResult,
+            BuffActInfoMarkerResult, BuffApplyResult, BuffMarkerResult, BuffRejectResult,
+            BuffRemoveResult, BuffUpdateResult,
         },
         emitter,
         eureka::EurekaApplyResult,

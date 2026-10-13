@@ -13,6 +13,7 @@ pub(super) struct ResolvedBuffFeature {
     pub kind: Option<crate::engine::skill::buff_act::registry::BuffActKind>,
     pub arguments_supported: bool,
     pub stat_read_timing: crate::engine::skill::buff_act::registry::StatReadTiming,
+    pub initial_state: Option<crate::engine::skill::buff_act::registry::BuffActInitialStateRule>,
     pub wire: Option<&'static crate::engine::skill::buff_act::wire::BuffActWireDefinition>,
 }
 
@@ -293,6 +294,10 @@ pub(super) fn resolve_features_from(
                     .and_then(|feature| feature.definition)
                     .map(|definition| definition.state.read_timing)
                     .unwrap_or(crate::engine::skill::buff_act::registry::StatReadTiming::None),
+                initial_state: parsed
+                    .as_ref()
+                    .and_then(|feature| feature.definition)
+                    .and_then(|definition| definition.state.initial),
                 wire: parsed
                     .as_ref()
                     .and_then(|feature| feature.definition)

@@ -402,7 +402,7 @@ fn active_buff_group_count_keeps_its_exact_predicate_route() {
     assert_eq!(definition.dependencies, &[EventKind::BuffChanged]);
     assert_eq!(
         definition.behavior_target_source,
-        BehaviorTargetSource::ActiveSkillTargets
+        BehaviorTargetSource::ActiveSkillTargetGroup
     );
     assert_eq!(
         parse(669203, "PerBuffGroupCount", &["7".into()]),

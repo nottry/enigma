@@ -658,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn captured_next_ai_snapshot_sees_a_committed_combatant_summon() {
+    fn captured_next_ai_snapshot_rejects_a_replaced_target() {
         crate::test_support::init_config();
         let fight = Fight {
             attacker: Some(FightTeam {
@@ -725,7 +725,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![-1, -3]
         );
-        assert_eq!(configured.ai[1].target_uid, Some(-2));
+        assert_eq!(configured.ai[1].target_uid, Some(0));
     }
 
     #[test]

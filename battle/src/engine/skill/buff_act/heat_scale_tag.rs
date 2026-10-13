@@ -66,7 +66,10 @@ pub fn rule_ops(
         return Some(Vec::new());
     }
     if let BattleEvent::GaugeChanged(change) = event {
-        if change.key != lingering_glow::key(subscriber.team_type) || change.applied_delta <= 0 {
+        let gained_progress = change.progress_raw_delta > 0
+            || (change.kind == crate::engine::manager::gauge::GaugeChangeKind::Accumulated
+                && change.applied_delta > 0);
+        if change.key != lingering_glow::key(subscriber.team_type) || !gained_progress {
             return Some(Vec::new());
         }
         let features = managers.buff.active_features(&managers.hp);

@@ -300,6 +300,67 @@ fn entity_card_cleanup_groups_dead_owners_in_one_owned_phase() {
 }
 
 #[test]
+fn version_seven_card_cleanup_follows_deferred_round_start_settlement() {
+    init_config();
+    let entity = |uid, team_type, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        current_hp: Some(current_hp),
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 100)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 2, 0)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+
+    let (round, _, _, _) = run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        0,
+    )
+    .unwrap();
+    let position = |phase| {
+        round
+            .frames
+            .iter()
+            .position(|frame| frame.owner == FrameOwner::RoundPhase(phase))
+            .expect("round phase is present")
+    };
+
+    assert!(position(RoundPhase::RoundStartSettlement) < position(RoundPhase::EntityCardCleanup));
+    assert!(position(RoundPhase::RoundStartSync) < position(RoundPhase::EntityCardCleanup));
+}
+
+#[test]
 fn action_queue_stops_when_the_configured_win_target_dies() {
     init_config();
     let entity = |uid, model_id, hp| FightEntityInfo {

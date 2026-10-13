@@ -64,7 +64,7 @@ fn before_crit_modifier_uses_the_same_planned_outcome_as_damage() {
     let pool = TargetPool::from_fight(&fight);
     let catalog = crate::engine::skill::effect::catalog::global();
 
-    for (is_crit, expects_penetration) in [(true, true), (false, false)] {
+    for (is_crit, expected_damage) in [(true, 990), (false, 600)] {
         let mut determinism = RoundDeterminism::default();
         determinism.enqueue_hidden_crits(40120521, 10, [is_crit]);
         let mut execution = SkillExecution::new(TargetContext::default());
@@ -94,22 +94,18 @@ fn before_crit_modifier_uses_the_same_planned_outcome_as_damage() {
             &SkillOpTrigger::Active,
         )
         .unwrap();
-
         assert_eq!(execution.planned_crits, Some(vec![(-1, is_crit)]));
         assert_eq!(execution.context.action_crit_count, i32::from(is_crit));
-        assert_eq!(
-            execution
-                .modifiers
-                .attack_attributes
-                .contains(&(AttrId::Penetration, 500)),
-            expects_penetration
-        );
-        assert!(
-            emission
-                .ops
-                .iter()
-                .any(|output| matches!(output.op, RuleOp::Command(BattleCommand::HpBatch(_))))
-        );
+        let damage = emission.ops.iter().find_map(|output| match &output.op {
+            RuleOp::Command(BattleCommand::HpBatch(commands)) => {
+                commands.iter().find_map(|command| match command {
+                    crate::engine::manager::hp::HpCommand::Damage(damage) => Some(damage.amount),
+                    _ => None,
+                })
+            }
+            _ => None,
+        });
+        assert_eq!(damage, Some(expected_damage));
     }
 }
 

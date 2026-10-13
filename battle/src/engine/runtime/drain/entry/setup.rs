@@ -476,6 +476,8 @@ pub(super) fn run_setup_stage_filtered(
             RuleOp::Command(_)
             | RuleOp::Publish(_)
             | RuleOp::SkillLifecycle(_)
+            | RuleOp::DeathSettlement(_)
+            | RuleOp::TerminalSettlement
             | RuleOp::BeginSkillAction { .. }
             | RuleOp::BuffFeatureMarker { .. }
             | RuleOp::EffectMarker { .. }

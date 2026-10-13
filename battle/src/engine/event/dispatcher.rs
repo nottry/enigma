@@ -15,6 +15,79 @@ use crate::engine::{
 pub struct DispatchBatch {
     pub skills: Vec<(SkillSubscriber, RuleOp)>,
     pub buff_acts: Vec<(BuffActSubscriber, Option<Vec<buff_act::BuffActRuleOp>>)>,
+    pub(crate) following: Vec<DispatchBatch>,
+}
+
+impl DispatchBatch {
+    pub(crate) fn passes(&self) -> impl Iterator<Item = &Self> {
+        std::iter::once(self).chain(&self.following)
+    }
+
+    pub(crate) fn into_passes(self) -> impl Iterator<Item = Self> {
+        std::iter::once(Self {
+            skills: self.skills,
+            buff_acts: self.buff_acts,
+            following: Vec::new(),
+        })
+        .chain(self.following)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionLane {
+    Skills,
+    BuffActs,
+    BuffActsBeforeSettlement,
+    BuffActsAfterSettlement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReactionStage {
+    Immediate,
+    AfterSettlement,
+    AfterSkill,
+    SkillAfterHit,
+    BeforeAfterHitObservers,
+    BuffActAfterHit,
+    AfterAction,
+}
+
+pub(crate) struct DispatchSelection<'a> {
+    pub owner_uids: Option<&'a [i64]>,
+    pub publication: Option<crate::engine::event::subscription::PublicationPhase>,
+    pub lane: Option<ReactionLane>,
+    pub stage: ReactionStage,
+}
+
+pub(crate) type ReactionMultiplicityKey = (
+    i64,
+    i32,
+    Option<usize>,
+    crate::engine::skill::rule::DefinitionKey,
+);
+pub(crate) type OncePerTargetKey = (
+    i64,
+    i64,
+    crate::engine::skill::rule::DefinitionKey,
+    i64,
+    i64,
+);
+
+pub(crate) struct DispatchMultiplicity<'a> {
+    pub once_per_target: &'a mut std::collections::HashSet<OncePerTargetKey>,
+    pub once_per_event_batch: &'a mut std::collections::HashSet<ReactionMultiplicityKey>,
+    pub once_per_action: &'a mut std::collections::HashSet<ReactionMultiplicityKey>,
+}
+
+pub(crate) struct DispatchOwnerPhase<'a> {
+    pub owner_uids: &'a [i64],
+    pub publication: crate::engine::event::subscription::PublicationPhase,
+}
+
+pub(crate) struct DispatchSkillSelection {
+    pub owner_skill: (i64, i32),
+    pub publication: crate::engine::event::subscription::PublicationPhase,
+    pub stage: ReactionStage,
 }
 
 #[cfg(test)]
@@ -73,7 +146,88 @@ fn outputs(
             (subscriber, output)
         })
         .collect();
-    DispatchBatch { skills, buff_acts }
+    DispatchBatch {
+        skills,
+        buff_acts,
+        following: Vec::new(),
+    }
+}
+
+fn output_passes(
+    subscribers: subscriber::EventSubscribers,
+    managers: &BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    event: &BattleEvent,
+) -> DispatchBatch {
+    let passes = ordered_subscriber_passes(subscribers, event);
+    let mut passes = passes.into_iter().map(|subscribers| {
+        outputs(
+            subscribers,
+            managers,
+            pool,
+            catalog,
+            determinism,
+            Some(event),
+        )
+    });
+    let mut first = passes.next().unwrap_or_default();
+    first.following.extend(passes);
+    first
+}
+
+fn ordered_subscriber_passes(
+    subscribers: subscriber::EventSubscribers,
+    event: &BattleEvent,
+) -> Vec<subscriber::EventSubscribers> {
+    match event {
+        BattleEvent::SkillEffectStarted(action) => {
+            let (actor_skills, other_skills) = subscribers
+                .skills
+                .into_iter()
+                .partition(|subscriber| subscriber.owner_uid == action.source_uid);
+            let (actor_buff_acts, other_buff_acts) = subscribers
+                .buff_acts
+                .into_iter()
+                .partition(|subscriber| subscriber.owner_uid == action.source_uid);
+            vec![
+                subscriber::EventSubscribers {
+                    skills: other_skills,
+                    buff_acts: other_buff_acts,
+                },
+                subscriber::EventSubscribers {
+                    skills: actor_skills,
+                    buff_acts: actor_buff_acts,
+                },
+            ]
+        }
+        BattleEvent::EntityDied(_) => {
+            let (target_skills, observer_skills) = subscribers.skills.into_iter().partition(
+                |subscriber| {
+                    crate::engine::skill::condition::registry::find_key(
+                        subscriber.key.definition.opcode,
+                        subscriber.key.definition.type_name,
+                    )
+                    .is_some_and(|definition| {
+                        definition.reaction_observer_scope
+                            == crate::engine::skill::condition::registry::ReactionObserverScope::EventTarget
+                    })
+                },
+            );
+            vec![
+                subscriber::EventSubscribers {
+                    skills: target_skills,
+                    buff_acts: subscribers.buff_acts,
+                },
+                subscriber::EventSubscribers {
+                    skills: observer_skills,
+                    buff_acts: Vec::new(),
+                },
+            ]
+        }
+        _ => vec![subscribers],
+    }
 }
 
 fn current_card_enchants(event: &BattleEvent) -> Option<Vec<i32>> {
@@ -100,6 +254,46 @@ pub fn dispatch_event(
     )
 }
 
+pub(crate) fn dispatch_selected_event(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    event: &BattleEvent,
+    selection: DispatchSelection<'_>,
+    multiplicity: Option<&mut DispatchMultiplicity<'_>>,
+) -> Result<DispatchBatch, SubscriberError> {
+    let mut subscribers = if let Some(owner_uids) = selection.owner_uids {
+        subscriber::for_compiled_owner_events(
+            pool,
+            managers,
+            catalog,
+            event.subscription_kinds(),
+            owner_uids,
+        )?
+    } else {
+        subscriber::for_compiled_events(pool, managers, catalog, event.subscription_kinds())?
+    };
+    if let Some(publication) = selection.publication {
+        retain_publication(&mut subscribers, publication);
+    }
+    retain_reaction_lane(&mut subscribers, selection.lane);
+    retain_reaction_stage(&mut subscribers, selection.stage);
+    Ok(if let Some(multiplicity) = multiplicity {
+        dispatch_subscribers_with_multiplicity(
+            subscribers,
+            pool,
+            managers,
+            catalog,
+            determinism,
+            event,
+            multiplicity,
+        )
+    } else {
+        dispatch_subscribers(subscribers, pool, managers, catalog, determinism, event)
+    })
+}
+
 pub fn dispatch_event_phase(
     pool: &TargetPool,
     managers: &BattleManagers,
@@ -116,16 +310,40 @@ pub fn dispatch_event_phase(
     )
 }
 
-pub fn dispatch_skill_event_phase(
+pub(crate) fn dispatch_event_phase_with_multiplicity(
     pool: &TargetPool,
     managers: &BattleManagers,
     catalog: &SkillEffectCatalog,
     determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
-    owner_skill: (i64, i32),
     event: &BattleEvent,
     publication: crate::engine::event::subscription::PublicationPhase,
+    multiplicity: &mut DispatchMultiplicity<'_>,
 ) -> Result<DispatchBatch, SubscriberError> {
-    let (owner_uid, skill_id) = owner_skill;
+    subscriber::for_compiled_events(pool, managers, catalog, event.subscription_kinds()).map(
+        |mut subscribers| {
+            retain_publication(&mut subscribers, publication);
+            dispatch_subscribers_with_multiplicity(
+                subscribers,
+                pool,
+                managers,
+                catalog,
+                determinism,
+                event,
+                multiplicity,
+            )
+        },
+    )
+}
+
+pub(crate) fn dispatch_selected_skill_event(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    event: &BattleEvent,
+    selection: DispatchSkillSelection,
+) -> Result<DispatchBatch, SubscriberError> {
+    let (owner_uid, skill_id) = selection.owner_skill;
     let skills = catalog
         .compiled_subscription_lanes(skill_id)
         .map_err(|route| SubscriberError::UncompiledRoute { skill_id, route })?
@@ -142,7 +360,8 @@ pub fn dispatch_skill_event_phase(
         skills,
         buff_acts: Vec::new(),
     };
-    retain_publication(&mut subscribers, publication);
+    retain_publication(&mut subscribers, selection.publication);
+    retain_reaction_stage(&mut subscribers, selection.stage);
     Ok(dispatch_subscribers(
         subscribers,
         pool,
@@ -154,13 +373,14 @@ pub fn dispatch_skill_event_phase(
 }
 
 fn dispatch_subscribers(
-    subscribers: subscriber::EventSubscribers,
+    mut subscribers: subscriber::EventSubscribers,
     pool: &TargetPool,
     managers: &BattleManagers,
     catalog: &SkillEffectCatalog,
     determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
     event: &BattleEvent,
 ) -> DispatchBatch {
+    retain_observing_subscribers(&mut subscribers, pool, event);
     if crate::engine::diagnostics::enabled(crate::engine::diagnostics::TraceArea::Event) {
         eprintln!(
             "event {event:?} skills={:?} buff_acts={:?}",
@@ -180,23 +400,81 @@ fn dispatch_subscribers(
                 .collect::<Vec<_>>(),
         );
     }
-    let mut batch = outputs(
-        subscribers,
-        managers,
-        pool,
-        catalog,
-        determinism,
-        Some(event),
-    );
+    output_passes(subscribers, managers, pool, catalog, determinism, event)
+}
+
+fn dispatch_subscribers_with_multiplicity(
+    mut subscribers: subscriber::EventSubscribers,
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    event: &BattleEvent,
+    multiplicity: &mut DispatchMultiplicity<'_>,
+) -> DispatchBatch {
+    retain_observing_subscribers(&mut subscribers, pool, event);
+    subscribers.skills.retain(|subscriber| {
+        let Some(definition) = crate::engine::skill::condition::registry::find_key(
+            subscriber.key.definition.opcode,
+            subscriber.key.definition.type_name,
+        ) else {
+            return true;
+        };
+        let key = (
+            subscriber.owner_uid,
+            subscriber.skill_id,
+            subscriber.slot_index,
+            subscriber.key.definition,
+        );
+        match definition.reaction_multiplicity {
+            crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => true,
+            crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
+                multiplicity.once_per_event_batch.insert(key)
+            }
+            crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
+                multiplicity.once_per_action.insert(key)
+            }
+        }
+    });
+    subscribers.buff_acts.retain(|subscriber| {
+        let BattleEvent::Hit(hit) = event else {
+            return true;
+        };
+        let Some(definition) =
+            buff_act::registry::find(subscriber.key.definition.opcode, &subscriber.act_type)
+        else {
+            return true;
+        };
+        if definition.runtime.event_multiplicity
+            != buff_act::registry::RuntimeEventMultiplicity::OncePerActionTarget
+        {
+            return true;
+        }
+        multiplicity.once_per_target.insert((
+            subscriber.owner_uid,
+            subscriber.buff_uid,
+            subscriber.key.definition,
+            hit.source_uid,
+            hit.target_uid,
+        ))
+    });
+    output_passes(subscribers, managers, pool, catalog, determinism, event)
+}
+
+fn retain_observing_subscribers(
+    subscribers: &mut subscriber::EventSubscribers,
+    pool: &TargetPool,
+    event: &BattleEvent,
+) {
     if let BattleEvent::SkillEffectStarted(action) | BattleEvent::SkillAction(action) = event {
-        batch.skills.retain(|(subscriber, _)| {
+        subscribers.skills.retain(|subscriber| {
             skill_subscriber_observes_action(pool, subscriber, action)
                 && (subscriber.key.event != EventKind::SkillAction
                     || subscriber.key.phase == Some(action.phase)
                     || (subscriber.key.phase.is_none()
                         && action.phase == crate::engine::skill::action::SkillPhase::AfterHit))
         });
-        batch.buff_acts.retain(|(subscriber, _)| {
+        subscribers.buff_acts.retain(|subscriber| {
             let observes_actor = match buff_act::registry::runtime_actor_scope(
                 subscriber.key.definition.opcode,
                 &subscriber.act_type,
@@ -226,7 +504,7 @@ fn dispatch_subscribers(
     }
     if let BattleEvent::AllyAction(action) = event {
         let attacker = pool.source_is_attacker(action.source_uid);
-        batch.skills.retain(|(subscriber, _)| {
+        subscribers.skills.retain(|subscriber| {
             if subscriber.key.event == EventKind::SkillCast {
                 subscriber.owner_uid == action.source_uid
             } else {
@@ -234,7 +512,7 @@ fn dispatch_subscribers(
             }
         });
         let team = if attacker { 1 } else { 2 };
-        batch.buff_acts.retain(|(subscriber, _)| {
+        subscribers.buff_acts.retain(|subscriber| {
             if subscriber.key.event == EventKind::SkillCast {
                 subscriber.owner_uid == action.source_uid
             } else {
@@ -250,38 +528,37 @@ fn dispatch_subscribers(
         });
     }
     if let BattleEvent::BuffFeatureTriggered(trigger) = event {
-        batch
+        subscribers
             .skills
-            .retain(|(subscriber, _)| subscriber.owner_uid == trigger.owner_uid);
-        batch
+            .retain(|subscriber| subscriber.owner_uid == trigger.owner_uid);
+        subscribers
             .buff_acts
-            .retain(|(subscriber, _)| subscriber.owner_uid == trigger.owner_uid);
+            .retain(|subscriber| subscriber.owner_uid == trigger.owner_uid);
     }
     if let BattleEvent::EntityTransformed { target_uid } = event {
-        batch
+        subscribers
             .skills
-            .retain(|(subscriber, _)| subscriber.owner_uid == *target_uid);
-        batch
+            .retain(|subscriber| subscriber.owner_uid == *target_uid);
+        subscribers
             .buff_acts
-            .retain(|(subscriber, _)| subscriber.owner_uid == *target_uid);
+            .retain(|subscriber| subscriber.owner_uid == *target_uid);
     }
     if let BattleEvent::EntityDied(death) = event {
-        batch.skills.retain(|(subscriber, _)| {
+        subscribers.skills.retain(|subscriber| {
             crate::engine::skill::condition::registry::find_key(
                 subscriber.key.definition.opcode,
                 subscriber.key.definition.type_name,
             )
             .is_none_or(|definition| {
-                definition.reaction_frame_target
-                    != crate::engine::skill::condition::registry::ReactionFrameTarget::Owner
+                definition.reaction_observer_scope
+                    != crate::engine::skill::condition::registry::ReactionObserverScope::EventTarget
                     || subscriber.owner_uid == death.target_uid
             })
         });
-        batch
+        subscribers
             .buff_acts
-            .retain(|(subscriber, _)| subscriber.owner_uid == death.target_uid);
+            .retain(|subscriber| subscriber.owner_uid == death.target_uid);
     }
-    batch
 }
 
 fn skill_subscriber_observes_action(
@@ -382,6 +659,36 @@ pub fn dispatch_owner_event_phase(
     })
 }
 
+pub(crate) fn dispatch_owner_event_phase_with_multiplicity(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    event: &BattleEvent,
+    scope: DispatchOwnerPhase<'_>,
+    multiplicity: &mut DispatchMultiplicity<'_>,
+) -> Result<DispatchBatch, SubscriberError> {
+    subscriber::for_compiled_owner_events(
+        pool,
+        managers,
+        catalog,
+        event.subscription_kinds(),
+        scope.owner_uids,
+    )
+    .map(|mut subscribers| {
+        retain_publication(&mut subscribers, scope.publication);
+        dispatch_subscribers_with_multiplicity(
+            subscribers,
+            pool,
+            managers,
+            catalog,
+            determinism,
+            event,
+            multiplicity,
+        )
+    })
+}
+
 fn retain_publication(
     subscribers: &mut subscriber::EventSubscribers,
     publication: crate::engine::event::subscription::PublicationPhase,
@@ -401,6 +708,114 @@ fn retain_publication(
     subscribers
         .buff_acts
         .retain(|subscriber| subscriber.key.publication == publication);
+}
+
+fn retain_reaction_lane(
+    subscribers: &mut subscriber::EventSubscribers,
+    lane: Option<ReactionLane>,
+) {
+    use crate::engine::skill::buff_act::registry::RuntimeSettlementPhase;
+
+    match lane {
+        Some(ReactionLane::Skills) => subscribers.buff_acts.clear(),
+        Some(ReactionLane::BuffActs) => subscribers.skills.clear(),
+        Some(ReactionLane::BuffActsBeforeSettlement) => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_settlement_phase(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeSettlementPhase::Before
+            });
+        }
+        Some(ReactionLane::BuffActsAfterSettlement) => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_settlement_phase(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeSettlementPhase::After
+            });
+        }
+        None => {}
+    }
+}
+
+fn retain_reaction_stage(subscribers: &mut subscriber::EventSubscribers, stage: ReactionStage) {
+    use crate::engine::{
+        event::subscription::ReactionTiming,
+        skill::buff_act::registry::{RuntimeExecutionTiming, RuntimeSettlementPhase},
+    };
+
+    match stage {
+        ReactionStage::Immediate => {
+            subscribers
+                .skills
+                .retain(|subscriber| subscriber.key.timing == ReactionTiming::Immediate);
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_execution_timing(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeExecutionTiming::Immediate
+                    && buff_act::registry::runtime_settlement_phase(
+                        subscriber.key.definition.opcode,
+                        &subscriber.act_type,
+                    ) == RuntimeSettlementPhase::Before
+            });
+        }
+        ReactionStage::AfterSettlement => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_execution_timing(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeExecutionTiming::Immediate
+                    && buff_act::registry::runtime_settlement_phase(
+                        subscriber.key.definition.opcode,
+                        &subscriber.act_type,
+                    ) == RuntimeSettlementPhase::After
+            });
+        }
+        ReactionStage::AfterSkill => {
+            subscribers
+                .skills
+                .retain(|subscriber| subscriber.key.timing == ReactionTiming::AfterSkill);
+            subscribers.buff_acts.clear();
+        }
+        ReactionStage::SkillAfterHit => {
+            subscribers
+                .skills
+                .retain(|subscriber| subscriber.key.timing == ReactionTiming::AfterHitSkills);
+            subscribers.buff_acts.clear();
+        }
+        ReactionStage::BeforeAfterHitObservers => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_execution_timing(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeExecutionTiming::BeforeAfterHitObservers
+            });
+        }
+        ReactionStage::BuffActAfterHit => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_execution_timing(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeExecutionTiming::AfterHitSkills
+            });
+        }
+        ReactionStage::AfterAction => {
+            subscribers.skills.clear();
+            subscribers.buff_acts.retain(|subscriber| {
+                buff_act::registry::runtime_execution_timing(
+                    subscriber.key.definition.opcode,
+                    &subscriber.act_type,
+                ) == RuntimeExecutionTiming::AfterAction
+            });
+        }
+    }
 }
 
 #[cfg(test)]
@@ -499,6 +914,103 @@ mod tests {
             target::TargetRequest,
         },
     };
+
+    #[test]
+    fn reaction_stage_selects_subscribers_before_rule_outputs() {
+        let skill = |timing| SkillSubscriber {
+            owner_uid: 10,
+            skill_id: 100,
+            slot_index: Some(0),
+            key: crate::engine::event::subscription::SubscriptionKey::new(
+                EventKind::SkillAction,
+                DefinitionKey::new(1, "StageTest"),
+            )
+            .with_timing(timing),
+        };
+        let mut subscribers = subscriber::EventSubscribers {
+            skills: vec![
+                skill(crate::engine::event::subscription::ReactionTiming::Immediate),
+                skill(crate::engine::event::subscription::ReactionTiming::AfterSkill),
+                skill(crate::engine::event::subscription::ReactionTiming::AfterHitSkills),
+            ],
+            buff_acts: Vec::new(),
+        };
+
+        retain_reaction_stage(&mut subscribers, ReactionStage::AfterSkill);
+
+        assert_eq!(subscribers.skills.len(), 1);
+        assert_eq!(
+            subscribers.skills[0].key.timing,
+            crate::engine::event::subscription::ReactionTiming::AfterSkill
+        );
+    }
+
+    #[test]
+    fn buff_act_stage_selects_exact_runtime_timing_before_rule_outputs() {
+        let subscriber = |opcode, type_name: &'static str| BuffActSubscriber {
+            owner_uid: 10,
+            source_uid: 10,
+            buff_uid: i64::from(opcode),
+            buff_id: opcode,
+            team_type: 1,
+            owner_alive: true,
+            amount: 1,
+            key: crate::engine::event::subscription::SubscriptionKey::new(
+                EventKind::SkillAction,
+                DefinitionKey::new(opcode, type_name),
+            ),
+            act_type: type_name.to_owned(),
+            effect_time: 0,
+            effect_condition: 0,
+            args: Vec::new(),
+            raw: String::new(),
+        };
+        let buff_acts = vec![
+            subscriber(800, "TeammateInjuryCount"),
+            subscriber(1023, "LostHpAddExtraBloodPoolValue"),
+            subscriber(302, "BeatBack"),
+            subscriber(870, "Shell"),
+            subscriber(871, "ShellDebuff"),
+        ];
+        for (stage, expected) in [
+            (
+                ReactionStage::Immediate,
+                DefinitionKey::new(800, "TeammateInjuryCount"),
+            ),
+            (
+                ReactionStage::AfterSettlement,
+                DefinitionKey::new(1023, "LostHpAddExtraBloodPoolValue"),
+            ),
+            (
+                ReactionStage::AfterAction,
+                DefinitionKey::new(302, "BeatBack"),
+            ),
+            (
+                ReactionStage::BuffActAfterHit,
+                DefinitionKey::new(870, "Shell"),
+            ),
+            (
+                ReactionStage::BeforeAfterHitObservers,
+                DefinitionKey::new(871, "ShellDebuff"),
+            ),
+        ] {
+            let mut subscribers = subscriber::EventSubscribers {
+                skills: Vec::new(),
+                buff_acts: buff_acts.clone(),
+            };
+
+            retain_reaction_stage(&mut subscribers, stage);
+
+            assert_eq!(
+                subscribers
+                    .buff_acts
+                    .iter()
+                    .map(|subscriber| subscriber.key.definition)
+                    .collect::<Vec<_>>(),
+                vec![expected]
+            );
+        }
+    }
 
     #[test]
     fn completed_action_routes_same_and_opposing_team_thresholds_separately() {

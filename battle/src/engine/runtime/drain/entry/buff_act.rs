@@ -129,6 +129,8 @@ fn run_owned_buff_act_groups(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::DeathSettlement(_)
+                | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }
                 | RuleOp::BuffFeatureMarker { .. }
                 | RuleOp::EffectMarker { .. }

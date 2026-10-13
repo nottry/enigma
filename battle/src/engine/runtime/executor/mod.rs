@@ -34,6 +34,7 @@ use crate::engine::{
 pub(crate) enum RuleOutcome {
     PublishedEvent,
     SkillLifecycle(crate::engine::skill::action::SkillLifecycle),
+    DeathSettlement(crate::engine::manager::hp::DeathTransition),
     SkillActionStarted {
         lifecycle: crate::engine::skill::action::SkillLifecycle,
         cost: ExPointChanges,
@@ -57,6 +58,7 @@ pub(crate) enum RuleOutcome {
     ExPoint(ExPointChanges),
     Eureka(EurekaChanges),
     Gauge(GaugeChange),
+    RawGaugeBatch(Vec<GaugeChange>),
     BloodtitheSpend(Box<crate::engine::mechanic::bloodtithe::spend::SpendChanges>),
     NuoDiKa(crate::engine::mechanic::nuo_di_ka::NuoDiKaChange),
     Emitter(EmitterChange),
@@ -78,10 +80,19 @@ pub(crate) enum RuleOutcome {
 }
 
 impl RuleOutcome {
-    pub(crate) fn followups(&self) -> Vec<RuleOp> {
+    pub(crate) fn followups(&self) -> Vec<(RuleOp, OutputOwner)> {
         match self {
-            Self::Shell(changes) => changes.skills.iter().cloned().map(RuleOp::Skill).collect(),
-            Self::ThresholdSkills(skills) => skills.iter().cloned().map(RuleOp::Skill).collect(),
+            Self::Shell(changes) => changes
+                .skills
+                .iter()
+                .cloned()
+                .map(|skill| (RuleOp::Skill(skill), OutputOwner::Skill))
+                .collect(),
+            Self::ThresholdSkills(skills) => skills
+                .iter()
+                .cloned()
+                .map(|skill| (RuleOp::Skill(skill), OutputOwner::Skill))
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -172,6 +183,7 @@ impl RuleOutcome {
         match self {
             Self::PublishedEvent => Vec::new(),
             Self::SkillLifecycle(change) => vec![BattleChange::SkillLifecycle(change.clone())],
+            Self::DeathSettlement(death) => vec![BattleChange::Death(*death)],
             Self::SkillActionStarted { lifecycle, cost } => vec![
                 BattleChange::SkillLifecycle(lifecycle.clone()),
                 BattleChange::ExPoint(*cost),
@@ -237,6 +249,9 @@ impl RuleOutcome {
             Self::ExPoint(change) => vec![BattleChange::ExPoint(*change)],
             Self::Eureka(change) => vec![BattleChange::Eureka(change.clone())],
             Self::Gauge(change) => vec![BattleChange::Gauge(*change)],
+            Self::RawGaugeBatch(changes) => {
+                changes.iter().copied().map(BattleChange::Gauge).collect()
+            }
             Self::BloodtitheSpend(_) => Vec::new(),
             Self::NuoDiKa(change) => vec![BattleChange::NuoDiKa(*change)],
             Self::Emitter(change) => vec![BattleChange::Emitter(*change)],
@@ -464,6 +479,10 @@ pub(crate) fn execute_rule_op_with(
             events.push(event);
             Ok(RuleOutcome::PublishedEvent)
         }
+        RuleOp::DeathSettlement(death) => Ok(RuleOutcome::DeathSettlement(death)),
+        RuleOp::TerminalSettlement => {
+            unreachable!("terminal settlement is owned by the runtime drain")
+        }
         RuleOp::Command(BattleCommand::Buff(command)) => {
             let changes = managers.execute_buff_rolled(command, determinism)?;
             for event in changes.events() {
@@ -596,6 +615,13 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::Gauge(change))
         }
+        RuleOp::Command(BattleCommand::RawGaugeBatch(commands)) => {
+            let changes = managers.execute_raw_gauge_batch(commands)?;
+            for event in changes.iter().flat_map(|change| change.events()) {
+                events.push(event);
+            }
+            Ok(RuleOutcome::RawGaugeBatch(changes))
+        }
         RuleOp::Command(BattleCommand::BloodtitheSpend(command)) => {
             let Some(changes) =
                 crate::engine::mechanic::bloodtithe::spend::execute(managers, command)?
@@ -646,13 +672,6 @@ pub(crate) fn execute_rule_op_with(
         }
         RuleOp::Command(BattleCommand::Card(command)) => {
             let changes = managers.execute_card(command)?;
-            if let Some(reservation) =
-                crate::engine::mechanic::card::CardMechanic.crystal_buff_uid_reservation(&changes)
-            {
-                managers.execute_buff(
-                    crate::engine::manager::buff::BuffCommand::ReserveChildUids(reservation),
-                )?;
-            }
             for event in changes.events() {
                 events.push(event);
             }

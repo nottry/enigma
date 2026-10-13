@@ -425,7 +425,7 @@ pub fn run_entity_card_cleanup(
             determinism,
             context,
             [RuleOp::Command(BattleCommand::Card(
-                CardCommand::RemoveAiOwner(crate::engine::manager::card::CardRemoveAiOwner {
+                CardCommand::remove_owner(crate::engine::manager::card::CardRemoveOwner {
                     origin: CommandOrigin {
                         domain: RuleDomain::Lifecycle,
                         key: DefinitionKey::new(0, "EntityCardCleanup"),

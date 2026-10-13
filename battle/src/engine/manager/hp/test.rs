@@ -22,6 +22,36 @@ fn action_start_snapshot_is_stable_per_skill() {
 }
 
 #[test]
+fn hp_loss_against_a_defeated_target_is_a_noop() {
+    let mut hp = HpManager::default();
+    hp.states.insert(
+        10,
+        HpState {
+            current: 0,
+            max: 100,
+            base_max: 100,
+        },
+    );
+
+    let changes = hp
+        .execute_command(HpCommand::Lose(HpLoss {
+            origin: CommandOrigin {
+                domain: RuleDomain::BuffAct,
+                key: DefinitionKey::new(726, "Burn"),
+            },
+            source_uid: 1,
+            target_uid: 10,
+            amount: 50,
+            config_effect: 0,
+            hurt: None,
+        }))
+        .unwrap();
+
+    assert!(changes.hp.is_none());
+    assert!(changes.events().is_empty());
+}
+
+#[test]
 fn damage_command_commits_shield_hp_crit_and_death_once() {
     let mut hp = HpManager::default();
     hp.states.insert(
@@ -422,6 +452,35 @@ fn shield_gain_reports_the_added_value_and_keeps_the_total() {
 
     assert_eq!(change.added, 40);
     assert_eq!(change.after, 140);
+}
+
+#[test]
+fn capped_shield_grant_has_no_state_change() {
+    let mut hp = HpManager::default();
+    hp.states.insert(
+        10,
+        HpState {
+            current: 100,
+            max: 100,
+            base_max: 100,
+        },
+    );
+    hp.set_shield(10, 200);
+    let changes = hp
+        .execute_command(HpCommand::GrantShield(ShieldGrant {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60183, "SupplyShield2"),
+            },
+            source_uid: 10,
+            target_uid: 10,
+            amount: 40,
+            max: 200,
+        }))
+        .unwrap();
+
+    assert_eq!(hp.shield(10), 200);
+    assert_eq!(changes.shield_granted, None);
 }
 
 #[test]

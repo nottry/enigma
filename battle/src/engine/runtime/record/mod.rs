@@ -17,18 +17,19 @@ pub enum FrameOwner {
     ConduitSkill {
         source_uid: i64,
         skill_id: i32,
-        card_index: i32,
+        device_index: i32,
         target_uid: Option<i64>,
     },
     ConduitAction {
         source_uid: i64,
-        group: i32,
+        selected_group: i32,
+        device_index: i32,
         skill_position: i32,
         target_uid: Option<i64>,
     },
     ConduitStopped {
         source_uid: i64,
-        group: i32,
+        device_index: i32,
     },
     BuffAct {
         owner_uid: i64,

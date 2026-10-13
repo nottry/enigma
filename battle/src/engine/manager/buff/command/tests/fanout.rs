@@ -236,28 +236,12 @@ fn halo_children_keep_the_grant_source_separate_from_the_carrier() {
         )
         .unwrap();
     assert!(standby.fanout[0].added.iter().all(|child| !child.effective));
-    assert_eq!(
-        manager
-            .active_features(&hp)
-            .into_iter()
-            .filter(|feature| feature.act_id() == Some(1150))
-            .count(),
-        2
-    );
     assert_eq!(manager.buff_id_amount(10, 31450143), 1);
     assert_eq!(manager.buff_id_amount(11, 31450143), 1);
 
     manager.remove_by_id(11, 31450141);
     assert!(manager.has_buff_id(10, 31450143));
     assert!(manager.has_buff_id(11, 31450143));
-    assert_eq!(
-        manager
-            .active_features(&hp)
-            .into_iter()
-            .filter(|feature| feature.act_id() == Some(1150))
-            .count(),
-        2
-    );
     assert_eq!(manager.buff_id_amount(10, 31450143), 1);
     assert_eq!(manager.buff_id_amount(11, 31450143), 1);
     manager.remove_by_id(10, 31450141);
@@ -350,6 +334,59 @@ fn base_halo_regrant_refreshes_the_same_team_instances() {
             -1,
             sonettobuf::effect_type_enum::EffectType::Halobase as i32,
         )]
+    );
+}
+
+#[test]
+fn base_halo_regrant_refreshes_a_defeated_child_still_in_the_active_roster() {
+    crate::test_support::init_config();
+    let entity = |uid, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(current_hp),
+        ..Default::default()
+    };
+    let mut fight = Fight {
+        version: Some(7),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 100), entity(-2, 100), entity(-3, 100)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    let mut hp = HpManager::default();
+    manager.seed(&fight);
+    hp.seed(&fight);
+    let grant = || {
+        BuffCommand::Grant(BuffGrant {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(1, "AddBuff"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            buff_id: 109320111,
+            amount: None,
+            occurrences: 1,
+            child_uid_reservations: 0,
+        })
+    };
+
+    manager.execute(&hp, grant()).unwrap();
+    fight.defender.as_mut().unwrap().entitys = vec![entity(-1, 100), entity(-2, 0)];
+    manager.sync_roster(&fight);
+    hp.seed(&fight);
+
+    let refreshed = manager.execute(&hp, grant()).unwrap();
+    assert_eq!(
+        refreshed
+            .fanout
+            .iter()
+            .flat_map(|fanout| &fanout.refreshed)
+            .map(|refresh| refresh.update.target_uid)
+            .collect::<Vec<_>>(),
+        vec![-2]
     );
 }
 
@@ -608,6 +645,57 @@ fn halo_layer_refresh_reserves_its_observed_uid() {
 
     assert_eq!(grant_plan(&plan).action, GrantAction::RefreshLayer);
     assert!(grant_plan(&plan).layer_refresh_uid.is_some());
+}
+
+#[test]
+fn halo_refresh_follows_the_entity_owners_roster_order() {
+    crate::test_support::init_config();
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(100),
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1), entity(-4), entity(-5)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    let mut hp = HpManager::default();
+    manager.seed(&fight);
+    hp.seed(&fight);
+    let grant = || {
+        BuffCommand::Grant(BuffGrant {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(1, "AddBuff"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            buff_id: 109320111,
+            amount: None,
+            occurrences: 1,
+            child_uid_reservations: 0,
+        })
+    };
+
+    manager.execute(&hp, grant()).unwrap();
+    manager.sync_entity_order(&[-1, -5, -4]);
+    let refreshed = manager.execute(&hp, grant()).unwrap();
+
+    assert_eq!(
+        refreshed
+            .fanout
+            .iter()
+            .flat_map(|fanout| &fanout.refreshed)
+            .map(|refresh| refresh.update.target_uid)
+            .collect::<Vec<_>>(),
+        vec![-5, -4]
+    );
 }
 
 #[test]

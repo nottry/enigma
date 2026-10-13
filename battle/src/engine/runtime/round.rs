@@ -614,19 +614,6 @@ impl BattleRuntime {
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
-            fight_steps.extend(project_result(
-                schedule::run_wave_entry_master_halo_fanout(
-                    &mut self.managers,
-                    &pool,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    &entering_uids,
-                )
-                .map_err(|error| format!("{error:?}"))?,
-                fight_version,
-                absorb_hurt_map_layout,
-            )?);
             self.wave_entry_condition_uids = entering_uids;
         }
         if !self.round_state.is_finish {
@@ -674,6 +661,7 @@ impl BattleRuntime {
             project_result(next_round, fight_version, absorb_hurt_map_layout)?;
 
         self.managers.sync_entities(&mut self.fight);
+        self.managers.sync_roster(&self.fight);
         if uses_action_phase_power_clear
             && self.round_state.is_finish
             && !terminal_during_next_round_preparation

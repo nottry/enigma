@@ -7,16 +7,20 @@ impl BuffManager {
         let catalog = self.catalog();
         let changes = match plan.action {
             BuffPlanAction::Grant(plan) => {
+                let markers = plan.refresh_initial_state_markers();
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::new(catalog, origin, change)
+                    .with_refresh_initial_state_markers(markers)
             }
             BuffPlanAction::GrantInternalChild(plan) => {
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::new(catalog, origin, change).internal()
             }
             BuffPlanAction::Accumulate(plan) => {
+                let markers = plan.refresh_initial_state_markers();
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::without_refresh_echo(catalog, origin, change)
+                    .with_refresh_initial_state_markers(markers)
             }
             BuffPlanAction::Consume(plan) => BuffChanges::without_refresh_echo(
                 catalog,
@@ -270,7 +274,7 @@ impl BuffManager {
                 self.reserve_grant_uid(plan.target_uid, plan.buff_id, uid);
                 BuffChanges::new(catalog, origin, BuffReplaceResult::default())
             }
-            BuffPlanAction::FanoutMasterHalo(plans) => BuffChanges::new(
+            BuffPlanAction::FanoutEntryHalos(plans) => BuffChanges::new(
                 catalog,
                 origin,
                 BuffReplaceResult {

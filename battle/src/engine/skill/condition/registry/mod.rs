@@ -64,6 +64,7 @@ pub enum BehaviorTargetSource {
     #[default]
     Resolved,
     ActiveSkillTargets,
+    ActiveSkillTargetGroup,
     HitTargets,
 }
 
@@ -72,7 +73,22 @@ pub enum ReactionFrameTarget {
     #[default]
     Counterparty,
     Owner,
+    EventTarget,
     CausingFrame,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReactionFrameSource {
+    #[default]
+    Subscriber,
+    Side,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ReactionObserverScope {
+    #[default]
+    AnySubscriber,
+    EventTarget,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -80,6 +96,8 @@ pub enum ReactionFrameScope {
     #[default]
     Subscriber,
     Causing,
+    EventSibling,
+    Independent,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -137,6 +155,8 @@ pub struct ConditionDefinition {
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
     pub behavior_target_source: BehaviorTargetSource,
+    pub reaction_observer_scope: ReactionObserverScope,
+    pub reaction_frame_source: ReactionFrameSource,
     pub reaction_frame_target: ReactionFrameTarget,
     pub reaction_frame_scope: ReactionFrameScope,
     pub skill_action_observer: SkillActionObserver,
@@ -159,6 +179,8 @@ pub struct ConditionMetadata {
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
     pub behavior_target_source: BehaviorTargetSource,
+    pub reaction_observer_scope: ReactionObserverScope,
+    pub reaction_frame_source: ReactionFrameSource,
     pub reaction_frame_target: ReactionFrameTarget,
     pub reaction_frame_scope: ReactionFrameScope,
     pub skill_action_observer: SkillActionObserver,
@@ -188,6 +210,8 @@ pub const fn definition(
         behavior_ownership: metadata.behavior_ownership,
         filters_behavior_targets: metadata.filters_behavior_targets,
         behavior_target_source: metadata.behavior_target_source,
+        reaction_observer_scope: metadata.reaction_observer_scope,
+        reaction_frame_source: metadata.reaction_frame_source,
         reaction_frame_target: metadata.reaction_frame_target,
         reaction_frame_scope: metadata.reaction_frame_scope,
         skill_action_observer: metadata.skill_action_observer,
@@ -211,6 +235,8 @@ pub const fn predicate(dependencies: &'static [EventKind]) -> ConditionMetadata 
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
         behavior_target_source: BehaviorTargetSource::Resolved,
+        reaction_observer_scope: ReactionObserverScope::AnySubscriber,
+        reaction_frame_source: ReactionFrameSource::Subscriber,
         reaction_frame_target: ReactionFrameTarget::Counterparty,
         reaction_frame_scope: ReactionFrameScope::Subscriber,
         skill_action_observer: SkillActionObserver::Actor,
@@ -234,6 +260,8 @@ pub const fn event_trigger(event: EventKind, phase: Option<SkillPhase>) -> Condi
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
         behavior_target_source: BehaviorTargetSource::Resolved,
+        reaction_observer_scope: ReactionObserverScope::AnySubscriber,
+        reaction_frame_source: ReactionFrameSource::Subscriber,
         reaction_frame_target: ReactionFrameTarget::Counterparty,
         reaction_frame_scope: ReactionFrameScope::Subscriber,
         skill_action_observer: SkillActionObserver::Actor,
@@ -261,6 +289,8 @@ pub const fn setup_route(
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
         behavior_target_source: BehaviorTargetSource::Resolved,
+        reaction_observer_scope: ReactionObserverScope::AnySubscriber,
+        reaction_frame_source: ReactionFrameSource::Subscriber,
         reaction_frame_target: ReactionFrameTarget::Counterparty,
         reaction_frame_scope: ReactionFrameScope::Subscriber,
         skill_action_observer: SkillActionObserver::Actor,
@@ -328,6 +358,11 @@ pub const fn uses_active_skill_targets(mut metadata: ConditionMetadata) -> Condi
     metadata
 }
 
+pub const fn uses_active_skill_target_group(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.behavior_target_source = BehaviorTargetSource::ActiveSkillTargetGroup;
+    metadata
+}
+
 pub const fn uses_hit_targets(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.behavior_target_source = BehaviorTargetSource::HitTargets;
     metadata
@@ -338,6 +373,21 @@ pub const fn reaction_targets_owner(mut metadata: ConditionMetadata) -> Conditio
     metadata
 }
 
+pub const fn reaction_targets_event(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_frame_target = ReactionFrameTarget::EventTarget;
+    metadata
+}
+
+pub const fn event_target_observes(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_observer_scope = ReactionObserverScope::EventTarget;
+    metadata
+}
+
+pub const fn side_reaction_frame(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_frame_source = ReactionFrameSource::Side;
+    metadata
+}
+
 pub const fn reaction_targets_causing_frame(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_frame_target = ReactionFrameTarget::CausingFrame;
     metadata
@@ -345,6 +395,16 @@ pub const fn reaction_targets_causing_frame(mut metadata: ConditionMetadata) -> 
 
 pub const fn in_causing_frame(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.reaction_frame_scope = ReactionFrameScope::Causing;
+    metadata
+}
+
+pub const fn in_independent_frame(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_frame_scope = ReactionFrameScope::Independent;
+    metadata
+}
+
+pub const fn in_event_sibling_frame(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_frame_scope = ReactionFrameScope::EventSibling;
     metadata
 }
 
@@ -410,7 +470,7 @@ macro_rules! condition_definitions {
 
 condition_definitions! {
     [0] "None" => none::always, predicate(&[]);
-    [5] "EnterFight" => lifecycle::enter_fight, reactivates_on(setup_route(SetupStage::EnterFight, 0, &[]), &[EventKind::EntityTransformed]);
+    [5] "EnterFight" => lifecycle::enter_fight, reactivates_on(in_event_sibling_frame(setup_route(SetupStage::EnterFight, 0, &[])), &[EventKind::EntityEntered, EventKind::EntityTransformed]);
     [55, 1050, 655036, 655038] "None" => none::enter_battle, companion_setup(event_trigger(EventKind::EntityEntered, None), &[(SetupStage::EnterBattleStatic, 0)]);
     [6] "None" => none::unconditional, setup_route(SetupStage::Unconditional, 0, &[]);
     [5021] "EnterFight" => lifecycle::battle_start, setup_route(SetupStage::BattleStart, 0, &[]);
@@ -433,7 +493,7 @@ condition_definitions! {
     [552106] "Random" => parse::random, setup_route(SetupStage::CardSetup, 0, &[]);
     [107] "None" => none::before_ap_resolve, companion_setup(event_trigger(EventKind::ActionQueueCommitted, None), &[(SetupStage::GeneratedCard, 0)]);
     [203] "None" => none::skill_action_start, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
-    [201] "None" => none::skill_action_start, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
+    [201] "None" => none::skill_action_start, event_trigger(EventKind::SkillAction, Some(SkillPhase::SourceOpening));
     [205] "None" => none::skill_action_start, event_trigger(EventKind::SkillAction, Some(SkillPhase::Immediate));
     [208] "None" => none::skill_action_after_damage, uses_hit_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage)));
     [210] "None" => none::skill_action_after_hit, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
@@ -450,7 +510,8 @@ condition_definitions! {
     [215] "None" => none::shell_retrieve, reaction_targets_causing_frame(event_trigger(EventKind::ShellRetrieved, None));
     [301] "None" => none::small_round_end, event_trigger(EventKind::SmallRoundEnd, None);
     [302] "None" => none::round_end, reaction_targets_owner(event_trigger(EventKind::RoundEnd, None));
-    [305, 306] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
+    [305] "None" => none::round_end_after_settlement, in_independent_frame(event_trigger(EventKind::RoundEndAfterOwnerSettlement, None));
+    [306] "None" => none::round_end, event_trigger(EventKind::RoundEnd, None);
     [303] "None" => none::round_end_entity_settlement, reaction_targets_owner(event_trigger(EventKind::RoundEndEntitySettlement, None));
     [307] "None" => none::round_end_final_settlement, event_trigger(EventKind::RoundEndFinalSettlement, None);
     [304] "None" => none::round_end_after_settlement, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
@@ -489,7 +550,7 @@ condition_definitions! {
     [19302] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::RoundEnd, None));
     [19307] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::RoundEndFinalSettlement, None));
     [19303] "HasBuffId" => buff::buff_present, reaction_targets_owner(filters_behavior_targets(event_trigger(EventKind::RoundEndEntitySettlement, None)));
-    [19304] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::RoundEnd, None));
+    [19304] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [19301] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::SmallRoundEnd, None));
     [19402] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[]));
     [64208] "HasRejectBuffId" => buff::rejected_buff_id_or_type, filters_behavior_targets(event_trigger(EventKind::BuffRejected, None));
@@ -518,6 +579,7 @@ condition_definitions! {
     [51210] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [51212] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, predicate(&[]);
     [51213] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, predicate(&[]);
+    [51301] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::SmallRoundEnd, None);
     [51302] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::RoundEnd, None);
     [51303] "HasTypeIdBuffMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::RoundEndEntitySettlement, None);
     [535208] "TypeIdBuffCountMoreThan" => buff::buff_type_at_least, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
@@ -554,7 +616,7 @@ condition_definitions! {
     [61208] "PerBuffIdCount" => buff::per_buff_id_count, uses_active_skill_targets(matching_buff_act_owns_behavior(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage))));
     [61210] "PerBuffIdCount" => buff::per_buff_id_count, uses_active_skill_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit)));
     [85203] "PerBuffTypeCountGroupByTypeId" => buff::per_distinct_status_type_count, predicate(&[EventKind::BuffChanged]);
-    [669203] "PerBuffGroupCount" => buff::per_buff_group_count, uses_active_skill_targets(predicate(&[EventKind::BuffChanged]));
+    [669203] "PerBuffGroupCount" => buff::per_buff_group_count, uses_active_skill_target_group(predicate(&[EventKind::BuffChanged]));
     [651203] "PerBullet" => buff::per_bullet, uses_active_skill_targets(predicate(&[EventKind::BuffChanged]));
     [651210] "PerBullet" => buff::per_bullet, uses_active_skill_targets(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit)));
     [518203] "PerHasBuffTypeLayer" => buff::per_type_layer, predicate(&[EventKind::BuffChanged]);
@@ -666,9 +728,9 @@ condition_definitions! {
     [11210] "SingleKillNum" => entity_count::single_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [99210] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [992101] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
-    [8] "Dead" => lifecycle::entity_dead, event_trigger(EventKind::EntityDied, None);
-    [812] "Dead" => lifecycle::entity_dead, reaction_targets_owner(event_trigger(EventKind::EntityDied, None));
-    [648003, 648009] "SelfExit" => lifecycle::entity_dead, reaction_targets_owner(event_trigger(EventKind::EntityDied, None));
+    [8] "Dead" => lifecycle::entity_dead, side_reaction_frame(reaction_targets_event(event_trigger(EventKind::EntityDied, None)));
+    [812] "Dead" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
+    [648003, 648009] "SelfExit" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [24102] "TeammateAlive" => entity_count::teammate_alive, event_trigger(EventKind::RoundStart, None);
     [524302] "GroupSummonedNumEqual" => entity_count::group_summoned_equal, event_trigger(EventKind::RoundEnd, None);
     [726304] "BloodPoolValue" => resource::blood_pool_value, event_trigger(EventKind::RoundEndAfterSettlement, None);
@@ -757,6 +819,7 @@ condition_definitions! {
     [47204] "HurtNotRestraint" => parse::hurt_not_restrained, incoming_attack_modifier(predicate(&[]));
     [47209] "HurtNotRestraint" => parse::hurt_not_restrained, predicate(&[EventKind::TargetAttacked]);
     [53201] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
+    [53208] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
     [53209] "HurtNumType" => parse::received_damage_target_count_kind, predicate(&[EventKind::TargetAttacked]);
     [53210] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [20202] "HurtReal" => parse::reality_damage, incoming_attack_modifier(predicate(&[]));
@@ -829,7 +892,20 @@ pub fn conditions_filter_behavior_targets(conditions: &[ParsedCondition]) -> boo
 pub fn conditions_use_active_skill_targets(conditions: &[ParsedCondition]) -> bool {
     super::query::find(conditions, &|condition| {
         find_key(condition.opcode, &condition.type_name).is_some_and(|definition| {
-            definition.behavior_target_source == BehaviorTargetSource::ActiveSkillTargets
+            matches!(
+                definition.behavior_target_source,
+                BehaviorTargetSource::ActiveSkillTargets
+                    | BehaviorTargetSource::ActiveSkillTargetGroup
+            )
+        })
+    })
+    .is_some()
+}
+
+pub fn conditions_use_active_skill_target_group(conditions: &[ParsedCondition]) -> bool {
+    super::query::find(conditions, &|condition| {
+        find_key(condition.opcode, &condition.type_name).is_some_and(|definition| {
+            definition.behavior_target_source == BehaviorTargetSource::ActiveSkillTargetGroup
         })
     })
     .is_some()

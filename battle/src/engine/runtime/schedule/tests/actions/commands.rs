@@ -160,6 +160,7 @@ fn apple_ultimate_settles_death_before_its_after_damage_heal() {
             sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
             sonettobuf::effect_type_enum::EffectType::Damage as i32,
             sonettobuf::effect_type_enum::EffectType::Dead as i32,
+            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
             sonettobuf::effect_type_enum::EffectType::Heal as i32,
         ]
     );
@@ -237,7 +238,7 @@ fn decoded_card_commands_share_the_command_only_player_schedule() {
 }
 
 #[test]
-fn playing_a_card_does_not_compose_the_remaining_hand() {
+fn playing_a_separator_composes_the_remaining_hand_before_the_next_play() {
     init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -301,7 +302,7 @@ fn playing_a_card_does_not_compose_the_remaining_hand() {
                 recorded_skill: None,
             },
             RoundCommand::PlayCard {
-                card_index: 2,
+                card_index: 0,
                 target_uid: Some(-1),
                 chosen_skill_id: None,
                 recorded_skill: None,
@@ -315,12 +316,22 @@ fn playing_a_card_does_not_compose_the_remaining_hand() {
     assert_eq!(
         managers
             .card
+            .played()
+            .iter()
+            .map(|card| card.skill_id)
+            .collect::<Vec<_>>(),
+        vec![30280111, 30280122]
+    );
+    assert_eq!(
+        managers
+            .card
             .hand()
             .iter()
             .filter_map(|card| card.skill_id)
             .collect::<Vec<_>>(),
-        vec![30280121, 30280121]
+        vec![30280111]
     );
+    assert_eq!(managers.ex_point.get(10), 3);
 }
 
 #[test]

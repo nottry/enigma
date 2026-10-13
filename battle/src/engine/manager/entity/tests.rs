@@ -493,6 +493,72 @@ fn combatant_summon_joins_the_active_team_at_the_allocated_position() {
 }
 
 #[test]
+fn combatant_summon_takes_the_defeated_occupants_encounter_order() {
+    crate::test_support::init_config();
+    let entity = |uid, position, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        position: Some(position),
+        current_hp: Some(current_hp),
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1, 100), entity(-2, 2, 100), entity(-3, 3, 0)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+    let mut manager = EntityManager::seed(&fight);
+
+    let summoned = manager
+        .execute_command(
+            catalog(),
+            EntityCommand {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(60008, "Summon"),
+                },
+                source_uid: -1,
+                target_uid: -1,
+                operation: EntityOperation::SummonCombatant {
+                    model_id: 30111003,
+                    position: 3,
+                },
+            },
+            &hp,
+        )
+        .unwrap()
+        .entity
+        .uid
+        .unwrap();
+
+    assert_eq!(
+        manager.ordered_uids().collect::<Vec<_>>(),
+        [-1, -2, summoned, -3]
+    );
+    assert_eq!(manager.roster_lane(-3), Some(RosterLane::Replaced));
+
+    manager.sync_to_fight(&mut fight);
+    assert_eq!(
+        fight
+            .defender
+            .unwrap()
+            .entitys
+            .iter()
+            .filter_map(|entity| entity.uid)
+            .collect::<Vec<_>>(),
+        [-1, -2, summoned]
+    );
+}
+
+#[test]
 fn passive_overrides_follow_roster_order() {
     let roster = [41, 17, 93, 8, 65, 22, 70, 3];
     let fight = Fight {

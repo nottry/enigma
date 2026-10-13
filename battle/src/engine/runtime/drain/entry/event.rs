@@ -24,6 +24,7 @@ pub fn run_event(
         None,
         context.current_round > 0,
         None,
+        None,
     )?
     .into_ordered();
     run_event_queue(
@@ -58,6 +59,83 @@ pub fn run_group_event(
         &[lane],
         owner_uids,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_start_card_event(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    let event = BattleEvent::Kind(crate::engine::event::kind::EventKind::RoundStartCard);
+    let advances = crate::engine::skill::buff_act::effect_time::ROUND_START_CARD_STAGES
+        .into_iter()
+        .filter_map(|take_stage| {
+            let buff_uids = managers.buff.duration_buff_uids(take_stage, owner_uids);
+            (!buff_uids.is_empty())
+                .then(|| {
+                    crate::engine::manager::buff::BuffDurationAdvance::new(
+                        take_stage,
+                        owner_uids.to_vec(),
+                        Some(buff_uids),
+                    )
+                })
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let mut result = run_group_event_lanes(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        event.clone(),
+        &[ReactionLane::BuffActs, ReactionLane::Skills],
+        Some(owner_uids),
+    )?;
+    if advances.is_empty() {
+        return Ok(result);
+    }
+
+    let mut frames = Vec::new();
+    let scope = push_root(
+        &mut frames,
+        FrameOwner::EventRule,
+        FrameTrigger::Event(event.clone()),
+    );
+    let mut queue = advances
+        .into_iter()
+        .map(|advance| QueuedOp {
+            op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Buff(
+                crate::engine::manager::buff::BuffCommand::AdvanceDuration(advance),
+            )),
+            trigger: SkillOpTrigger::Event(event.clone()),
+            skill_execution: None,
+            frame_path: Some(scope.clone()),
+            parent_path: None,
+            frame_group: None,
+            independent_parent_group: None,
+            frame_owner: None,
+            subscriber_owner_uid: None,
+            caster_frame: None,
+        })
+        .collect::<VecDeque<_>>();
+    let duration = drain_queue_with_frames(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        &mut queue,
+        frames,
+    )?;
+    result.outcomes.extend(duration.outcomes);
+    result.events.extend(duration.events);
+    result.frames.extend(duration.frames);
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -167,6 +245,7 @@ fn drain_group_event_lane(
         owner_uids,
         context.current_round > 0,
         None,
+        None,
     )?
     .into_ordered()
     .into();
@@ -225,6 +304,7 @@ pub fn run_grouped_owner_event(
                 Some(lane),
                 Some(std::slice::from_ref(owner_uid)),
                 context.current_round > 0,
+                None,
                 None,
             )?
             .into_ordered()

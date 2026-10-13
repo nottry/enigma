@@ -150,18 +150,55 @@ pub fn run_conduit_action(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     source_uid: i64,
-    group: i32,
+    selected_group: i32,
+    device_index: i32,
     skill_position: i32,
     skill_id: i32,
     frame_target_uid: Option<i64>,
     cost_modifier: Option<(i32, RuleOp)>,
 ) -> Result<DrainResult, DrainError> {
+    let personal_resource_cost = if catalog.is_big_skill(skill_id)
+        && crate::engine::manager::ex_point::ExPointKind::from_wire(
+            managers.ex_point.kind(source_uid),
+        ) == crate::engine::manager::ex_point::ExPointKind::DevicePower
+    {
+        let current = managers.ex_point.get(source_uid);
+        let required = managers.ex_point.maximum(source_uid).ok_or({
+            DrainError::Skill(
+                crate::engine::runtime::skill::SkillOpError::MissingSourceEntity(source_uid),
+            )
+        })?;
+        if current < required {
+            return Err(DrainError::InsufficientUltimateResource {
+                owner_uid: source_uid,
+                skill_id,
+                required,
+                current,
+            });
+        }
+        Some(crate::engine::manager::ex_point::ExPointCommand::Spend(
+            crate::engine::manager::ex_point::ExPointChange {
+                origin: crate::engine::skill::rule::CommandOrigin {
+                    domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                    key: crate::engine::skill::rule::DefinitionKey::new(0, "ConduitUltimateCost"),
+                },
+                source_uid,
+                target_uid: source_uid,
+                delta: -required,
+                config_effect: 0,
+                effect_type: sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
+            },
+        ))
+    } else {
+        None
+    };
     let mut frames = Vec::new();
     let root = push_root(
         &mut frames,
         FrameOwner::ConduitAction {
             source_uid,
-            group,
+            selected_group,
+            device_index,
             skill_position,
             target_uid: frame_target_uid,
         },
@@ -209,6 +246,22 @@ pub fn run_conduit_action(
             caster_frame: None,
         },
     ]);
+    if let Some(cost) = personal_resource_cost {
+        queue.push_back(QueuedOp {
+            op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::ExPoint(
+                cost,
+            )),
+            trigger: SkillOpTrigger::Active,
+            skill_execution: None,
+            frame_path: Some(root.clone()),
+            parent_path: None,
+            frame_group: None,
+            independent_parent_group: None,
+            frame_owner: None,
+            subscriber_owner_uid: None,
+            caster_frame: None,
+        });
+    }
     if let Some((_, consume)) = cost_modifier {
         queue.push_back(QueuedOp {
             op: consume,
@@ -247,7 +300,6 @@ pub fn run_conduit_action(
                     source_uid,
                     skill_id,
                 },
-                card_index: group,
                 mode: crate::engine::skill::action::SkillExecutionMode::Device,
                 ..crate::engine::skill::action::SkillInvocation::from(
                     crate::engine::skill::action::SkillRequest {
@@ -265,7 +317,7 @@ pub fn run_conduit_action(
             frame_owner: Some(FrameOwner::ConduitSkill {
                 source_uid,
                 skill_id,
-                card_index: group,
+                device_index,
                 target_uid: frame_target_uid,
             }),
             subscriber_owner_uid: None,
@@ -324,12 +376,15 @@ pub fn run_conduit_stop(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     source_uid: i64,
-    group: i32,
+    device_index: i32,
 ) -> Result<DrainResult, DrainError> {
     let mut frames = Vec::new();
     let root = push_root(
         &mut frames,
-        FrameOwner::ConduitStopped { source_uid, group },
+        FrameOwner::ConduitStopped {
+            source_uid,
+            device_index,
+        },
         FrameTrigger::Active,
     );
     let mut queue = VecDeque::from([QueuedOp {

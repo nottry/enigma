@@ -652,18 +652,32 @@ fn death_reaction_targets_the_killer() {
             ..Default::default()
         }),
         defender: Some(FightTeam {
-            entitys: vec![FightEntityInfo {
-                uid: Some(-1),
-                model_id: Some(100101),
-                team_type: Some(2),
-                current_hp: Some(1),
-                passive_skill: vec![2345],
-                attr: Some(HeroAttribute {
-                    hp: Some(10_000),
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(-1),
+                    model_id: Some(100101),
+                    team_type: Some(2),
+                    current_hp: Some(1),
+                    passive_skill: vec![2345],
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            }],
+                },
+                FightEntityInfo {
+                    uid: Some(-2),
+                    model_id: Some(100101),
+                    team_type: Some(2),
+                    current_hp: Some(10_000),
+                    passive_skill: vec![2345],
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ],
             ..Default::default()
         }),
         ..Default::default()
@@ -672,7 +686,7 @@ fn death_reaction_targets_the_killer() {
     let mut managers = BattleManagers::seeded(&fight);
     let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
 
-    run_event(
+    let result = run_event(
         &mut managers,
         &pool,
         &catalog,
@@ -687,6 +701,35 @@ fn death_reaction_targets_the_killer() {
 
     assert_eq!(managers.buff.buff_id_amount(10, 5072), 1);
     assert_eq!(managers.buff.buff_id_amount(-1, 5072), 0);
+
+    fn collect_death_frames(
+        frame: &crate::engine::runtime::record::SemanticFrame,
+        owners: &mut Vec<(i64, Option<i64>)>,
+    ) {
+        if let crate::engine::runtime::record::FrameOwner::Skill {
+            source_uid,
+            skill_id: 2345,
+            target_uid,
+            ..
+        } = frame.owner
+        {
+            owners.push((source_uid, target_uid));
+        }
+        for item in &frame.items {
+            if let crate::engine::runtime::record::FrameItem::Child(child) = item {
+                collect_death_frames(child, owners);
+            }
+        }
+    }
+
+    let mut owners = Vec::new();
+    for frame in &result.frames {
+        collect_death_frames(frame, &mut owners);
+    }
+    assert_eq!(
+        owners,
+        vec![(crate::engine::fight::rules::DEFENDER_SIDE_UID, Some(-1))]
+    );
 }
 
 #[test]

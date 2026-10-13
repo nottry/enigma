@@ -3,8 +3,6 @@ use sonettobuf::CardInfo;
 use crate::engine::{
     manager::{
         BattleManagers,
-        buff::BuffChildUidReservation,
-        card::{CardChangeKind, CardChanges},
         eureka::{EurekaState, PowerType},
         ex_point::ExPointKind,
     },
@@ -16,17 +14,6 @@ use crate::engine::{
 pub struct CardMechanic;
 
 impl CardMechanic {
-    pub fn crystal_buff_uid_reservation(
-        &self,
-        changes: &CardChanges,
-    ) -> Option<BuffChildUidReservation> {
-        (changes.kind == CardChangeKind::CrystalAdded).then_some(BuffChildUidReservation {
-            origin: changes.origin?,
-            target_uid: changes.added.as_ref()?.uid?,
-            count: 2,
-        })
-    }
-
     pub fn boss_ultimate_power(
         &self,
         managers: &BattleManagers,

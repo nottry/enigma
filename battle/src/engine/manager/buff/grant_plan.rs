@@ -59,7 +59,7 @@ pub(super) struct PlannedFanout {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct PlannedMasterHaloFanout {
+pub(super) struct PlannedEntryHaloFanout {
     pub(super) emitter_uid: i64,
     pub(super) carrier_buff_uid: i64,
     pub(super) carrier_buff_id: i32,
@@ -76,18 +76,20 @@ pub(super) struct PlannedFanoutRefresh {
 }
 
 impl BuffManager {
-    pub(super) fn master_halo_fanout_plans(
+    pub(super) fn entry_halo_fanout_plans(
         &self,
         hp: &HpManager,
         target_uids: &[i64],
-    ) -> Vec<PlannedMasterHaloFanout> {
-        let carriers = self
+    ) -> Vec<PlannedEntryHaloFanout> {
+        let mut carriers = self
             .buffs
             .iter()
             .filter(|active| {
-                self.entities
-                    .iter()
-                    .any(|entity| entity.uid == active.owner_uid && entity.active)
+                active.fanout_emitter_uid.is_none()
+                    && self
+                        .entities
+                        .iter()
+                        .any(|entity| entity.uid == active.owner_uid && entity.active)
                     && hp.current(active.owner_uid) > 0
                     && active.definition.as_ref().is_none_or(|definition| {
                         definition.duration <= 0 || active.buff.duration.unwrap_or_default() > 0
@@ -103,7 +105,6 @@ impl BuffManager {
                 let duration = active.buff.duration.unwrap_or_default();
                 halo::carriers(self.catalog(), carrier_buff_id)
                     .into_iter()
-                    .filter(|carrier| carrier.kind == HaloKind::Master)
                     .map(move |carrier| {
                         (
                             emitter_uid,
@@ -118,6 +119,7 @@ impl BuffManager {
                     })
             })
             .collect::<Vec<_>>();
+        carriers.sort_by_key(|carrier| carrier.0);
         let mut preceding_by_lane = std::collections::HashMap::<i32, Vec<UidAllocationPlan>>::new();
         let mut seen = std::collections::HashSet::new();
         let mut plans = Vec::new();
@@ -185,7 +187,7 @@ impl BuffManager {
                     1,
                 )[0];
                 preceding.push(uid);
-                plans.push(PlannedMasterHaloFanout {
+                plans.push(PlannedEntryHaloFanout {
                     emitter_uid,
                     carrier_buff_uid,
                     carrier_buff_id,
@@ -518,7 +520,7 @@ impl BuffManager {
 
     pub(super) fn fanout_refresh_specs(
         &self,
-        hp: &HpManager,
+        _hp: &HpManager,
         route: BuffRoute,
         carrier_buff_uid: i64,
         layer: i32,
@@ -554,7 +556,6 @@ impl BuffManager {
                     HaloScope::OpposingTeam => entity.team_type != team_type,
                 })
                 .filter(|entity| entity.uid != emitter_uid)
-                .filter(|entity| hp.current(entity.uid) > 0)
             {
                 let Some(buff_uid) = self.buffs.iter().find_map(|active| {
                     (active.owner_uid == target.uid

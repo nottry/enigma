@@ -343,7 +343,7 @@ fn field_subscribers_precede_projected_buff_links() {
 }
 
 #[test]
-fn transformed_identity_remains_an_event_subscription_owner() {
+fn transformed_identity_subscribes_through_its_death_event_only() {
     crate::test_support::init_config();
     let fight = Fight {
         defender: Some(FightTeam {
@@ -363,6 +363,7 @@ fn transformed_identity_remains_an_event_subscription_owner() {
         }),
         ..Default::default()
     };
+    let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
     managers
         .execute_entity(crate::engine::manager::entity::EntityCommand {
@@ -380,7 +381,7 @@ fn transformed_identity_remains_an_event_subscription_owner() {
         .unwrap();
 
     let subscribers = for_compiled_event(
-        &TargetPool::default(),
+        &pool.runtime_view(&managers),
         &managers,
         crate::engine::skill::effect::catalog::global(),
         EventKind::EntityDied,
@@ -392,6 +393,35 @@ fn transformed_identity_remains_an_event_subscription_owner() {
             .skills
             .iter()
             .any(|subscriber| subscriber.owner_uid == -1 && subscriber.skill_id == 530002746)
+    );
+
+    managers.hp.resync_current(-1, 0);
+    let subscribers = for_compiled_event(
+        &pool.runtime_view_including(&managers, Some(-1)),
+        &managers,
+        crate::engine::skill::effect::catalog::global(),
+        EventKind::EntityDied,
+    )
+    .unwrap();
+    assert!(
+        subscribers
+            .skills
+            .iter()
+            .any(|subscriber| subscriber.owner_uid == -1 && subscriber.skill_id == 530002746)
+    );
+
+    let subscribers = for_compiled_event(
+        &pool.runtime_view(&managers),
+        &managers,
+        crate::engine::skill::effect::catalog::global(),
+        EventKind::BuffRemoved,
+    )
+    .unwrap();
+    assert!(
+        subscribers
+            .skills
+            .iter()
+            .all(|subscriber| subscriber.owner_uid != -1)
     );
 }
 

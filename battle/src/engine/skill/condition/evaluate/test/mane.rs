@@ -87,3 +87,27 @@ fn received_target_count_kind_matches_only_the_passive_owner() {
     assert!(matches(-1));
     assert!(!matches(-2));
 }
+
+#[test]
+fn damage_target_count_kind_rejects_non_attacks() {
+    init_config();
+    let condition = exact_condition(53208, "HurtNumType", &["1"]);
+    let pool = target_pool();
+    let matches = |active_skill_is_attack| {
+        conditions_match(
+            std::slice::from_ref(&condition),
+            10,
+            &[10],
+            None,
+            &pool,
+            TargetContext {
+                active_skill_is_attack,
+                damage_target_count_kind: 1,
+                ..Default::default()
+            },
+        )
+    };
+
+    assert!(matches(true));
+    assert!(!matches(false));
+}

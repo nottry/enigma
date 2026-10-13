@@ -694,6 +694,19 @@ pub(super) fn damage_ops(
         target_context.hit_source_uid = source_uid;
         target_context.hit_target_uid = target_uid;
         target_context.runtime_target_uid = target_uid;
+        rate::emit_active_target_attack_attributes(
+            &mut target_modifiers,
+            source_uid,
+            effect_skill_id,
+            skill_id,
+            rate::RateRuntime {
+                effects: catalog,
+                managers,
+                pool,
+                context: target_context,
+            },
+            determinism,
+        );
         rate::emit_passive_attack_attributes(
             &mut target_modifiers,
             source_uid,

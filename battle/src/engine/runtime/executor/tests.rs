@@ -15,7 +15,7 @@ use crate::engine::{
 };
 
 #[test]
-fn crystal_card_reserves_its_buff_uids_before_the_next_command() {
+fn crystal_card_does_not_consume_buff_uids() {
     crate::test_support::init_config();
     let fight = Fight {
         version: Some(7),
@@ -70,7 +70,7 @@ fn crystal_card_reserves_its_buff_uids_before_the_next_command() {
         panic!("expected buff outcome");
     };
 
-    assert_eq!(changes.change.added.unwrap().buff.uid, Some(1005));
+    assert_eq!(changes.change.added.unwrap().buff.uid, Some(1002));
 }
 
 #[test]

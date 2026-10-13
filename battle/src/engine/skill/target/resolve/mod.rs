@@ -77,6 +77,19 @@ pub fn is_random_other_ally(target_code: i32) -> bool {
     )
 }
 
+pub(crate) fn uses_rng(target_code: i32) -> bool {
+    matches!(
+        target_rule(target_code),
+        Some(
+            TargetRule::SingleOrRandomEnemy
+                | TargetRule::RandomEnemyByRng
+                | TargetRule::RandomAllyByRng
+                | TargetRule::RandomOtherAllyByRng
+                | TargetRule::RandomEnemy
+        )
+    )
+}
+
 impl TargetResolver {
     pub fn retarget_stale_explicit(
         source_uid: i64,
@@ -187,7 +200,7 @@ impl TargetResolver {
             );
         }
 
-        let targets = match rule {
+        let mut targets = match rule {
             TargetRule::Logic => {
                 logic_target(source_uid, skill_id, pool, determinism, managers, context)
             }
@@ -312,6 +325,16 @@ impl TargetResolver {
             TargetRule::AlliesWithStatus => allies_by_status(pool, source_uid, request, true),
             TargetRule::AlliesWithoutStatus => allies_by_status(pool, source_uid, request, false),
         };
+        if rule == TargetRule::EnemiesIncludingSpecial
+            && context.active_skill_is_attack
+            && managers.is_none_or(|managers| managers.catalog().skill_is_attack(skill_id))
+            && let Some(index) = targets
+                .iter()
+                .position(|uid| *uid == context.runtime_target_uid)
+        {
+            let primary = targets.remove(index);
+            targets.insert(0, primary);
+        }
         if let Some(captured) = determinism.take_skill_targets(skill_id, source_uid, request.code)
             && !captured_targets_match(rule, &targets, &captured)
         {
@@ -505,7 +528,11 @@ pub(crate) fn preserves_selected_frame_target(
 ) -> bool {
     matches!(
         target_rule(code),
-        Some(TargetRule::AlliesPreservingSelection | TargetRule::MainAllies)
+        Some(
+            TargetRule::AlliesPreservingSelection
+                | TargetRule::MainAllies
+                | TargetRule::EnemiesIncludingSpecial
+        )
     ) || target_rule(code) == Some(TargetRule::SelectedTarget)
         && context.active_skill_is_attack
         && pool

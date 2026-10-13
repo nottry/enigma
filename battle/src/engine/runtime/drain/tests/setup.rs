@@ -316,6 +316,80 @@ fn transform_commit_publishes_the_exact_enter_fight_route() {
 }
 
 #[test]
+fn combatant_entry_runs_its_enter_fight_passives() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(116330001),
+                team_type: Some(2),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(109320111),
+                    uid: Some(1101),
+                    from_uid: Some(-1),
+                    layer: Some(2),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let summoned =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(116330100, -2, 3, 2)
+            .unwrap();
+    let catalog = SkillEffectCatalog::from_roots(
+        config::configs::get(),
+        summoned.passive_skill,
+        std::iter::empty(),
+    );
+
+    let result = run(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [RuleOp::Command(BattleCommand::Entity(
+            crate::engine::manager::entity::EntityCommand {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(60008, "Summon"),
+                },
+                source_uid: -1,
+                target_uid: -1,
+                operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                    model_id: 116330100,
+                    position: 3,
+                },
+            },
+        ))],
+    )
+    .unwrap();
+
+    let entered_uid = result
+        .events
+        .iter()
+        .find_map(|event| match event {
+            BattleEvent::EntityEntered { target_uid } => Some(*target_uid),
+            _ => None,
+        })
+        .expect("combatant entry event");
+    assert!(managers.buff.has_buff_id(entered_uid, 109330114));
+    assert_eq!(managers.buff.buff_id_amount(entered_uid, 109320111), 2);
+}
+
+#[test]
 fn battle_start_tag_threshold_applies_the_configured_team_buff() {
     crate::test_support::init_config();
     let entity = |uid, model_id, passive_skill| FightEntityInfo {

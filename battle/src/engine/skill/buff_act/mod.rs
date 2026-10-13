@@ -263,8 +263,18 @@ pub fn transaction_rule_ops(
     managers: &BattleManagers,
     event: &BattleEvent,
 ) -> Vec<(ActiveBuffFeature, RuleOp)> {
+    transaction_rule_ops_for(managers, event, |_| true)
+}
+
+pub fn transaction_rule_ops_for(
+    managers: &BattleManagers,
+    event: &BattleEvent,
+    accepts: impl Fn(&registry::BuffActDefinition) -> bool,
+) -> Vec<(ActiveBuffFeature, RuleOp)> {
     let mut ops = Vec::new();
-    for definition in registry::transaction_definitions(event.kind()) {
+    for definition in
+        registry::transaction_definitions(event.kind()).filter(|definition| accepts(definition))
+    {
         ops.extend(definition
             .transaction
             .handler

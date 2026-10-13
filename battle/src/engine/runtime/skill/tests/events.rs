@@ -191,6 +191,7 @@ fn ally_action_context_preserves_assassination_identity() {
     let event = BattleEvent::AllyAction(crate::engine::skill::action::ActionEvent {
         source_uid: 10,
         skill_id: 100,
+        skill_type: 2,
         assassinate: true,
         ..Default::default()
     });
@@ -204,7 +205,22 @@ fn ally_action_context_preserves_assassination_identity() {
 
     assert_eq!(context.active_skill_source_uid, 10);
     assert_eq!(context.active_skill_id, 100);
+    assert_eq!(context.damage_target_count_kind, 2);
     assert!(context.active_skill_assassinate);
+}
+
+#[test]
+fn skill_action_context_preserves_damage_target_count_kind() {
+    let mut context = TargetContext::default();
+
+    super::super::invoke::apply_event_context(
+        &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
+        &mut context,
+        &skill_action_event(0, 0),
+    );
+
+    assert_eq!(context.damage_target_count_kind, 1);
 }
 
 #[test]

@@ -56,6 +56,88 @@ fn final_settlement_advances_final_stage_durations() {
 }
 
 #[test]
+fn blood_debt_replaces_its_expired_defense_debuff_after_settlement() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    mdefense: Some(1_400),
+                    ..Default::default()
+                }),
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(116330041),
+                        duration: Some(2),
+                        from_uid: Some(-1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(21),
+                        buff_id: Some(116330043),
+                        duration: Some(1),
+                        from_uid: Some(-1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(22),
+                        buff_id: Some(116330047),
+                        duration: Some(2),
+                        from_uid: Some(-1),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+    )
+    .unwrap();
+
+    assert!(managers.buff.snapshot(-1, 21).is_none());
+    assert_eq!(managers.buff.buff_id_amount(-1, 116330043), 1);
+    assert_eq!(
+        crate::engine::manager::persistent_attribute_delta(
+            &managers.buff,
+            &managers.hp,
+            -1,
+            crate::engine::entity::attr::AttrId::MentalDef,
+        ),
+        -300
+    );
+}
+
+#[test]
 fn obscurity_break_enters_the_witness_round_on_the_next_round() {
     init_config();
     let entity = |uid, buffs, passive_skill| FightEntityInfo {
@@ -228,6 +310,86 @@ fn defender_round_end_keeps_buff_acts_and_owner_passives_in_one_frame() {
     assert_eq!(managers.buff.buff_id_amount(-1, 116330002), 2);
     assert_eq!(managers.buff.buff_id_amount(-2, 116330002), 0);
     assert_eq!(managers.buff.buff_id_amount(-3, 116330002), 0);
+}
+
+#[test]
+fn defender_killed_by_settlement_does_not_run_later_owner_events() {
+    init_config();
+    let burn = |uid| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(4150001),
+        count: Some(1),
+        layer: Some(1),
+        from_uid: Some(10),
+        duration: Some(2),
+        ..Default::default()
+    };
+    let defender = |uid, current_hp, passive_skill, buffs| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(current_hp),
+        attr: Some(HeroAttribute {
+            attack: Some(1_000),
+            hp: Some(120_000),
+            ..Default::default()
+        }),
+        passive_skill,
+        buffs,
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    attack: Some(1_000),
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                defender(-1, 120_000, Vec::new(), Vec::new()),
+                defender(-2, 120_000, vec![100], vec![burn(31)]),
+                defender(-3, 1, vec![100], vec![burn(32)]),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::new(1, "AddBuff", vec![101]),
+        TargetRequest::self_only(),
+    );
+    slot.conditions =
+        crate::engine::skill::condition::parse::parse_conditions(config::configs::get(), "303");
+    slot.compiled_route =
+        ConditionRoute::compile_for_behavior(&slot.conditions, &slot.behavior.spec);
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![slot],
+    });
+    let mut managers = BattleManagers::seeded(&fight);
+
+    run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-3), 0);
+    assert_eq!(managers.buff.buff_id_amount(-3, 4150001), 1);
+    assert!(managers.buff.has_buff_id(-2, 101));
+    assert!(!managers.buff.has_buff_id(-3, 101));
 }
 
 #[test]

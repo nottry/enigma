@@ -412,16 +412,21 @@ fn actual_contract_bound_death_clears_buffs_and_cards_through_the_drain() {
             &death,
         )
         .unwrap();
-        assert!(dispatched.skills.iter().any(|(subscriber, _)| {
-            subscriber.owner_uid == 10
-                && subscriber.skill_id == passive_skill
-                && subscriber.slot_index == Some(3)
-                && subscriber.key.definition == dead_key
-        }));
+        assert!(
+            dispatched
+                .passes()
+                .flat_map(|pass| &pass.skills)
+                .any(|(subscriber, _)| {
+                    subscriber.owner_uid == 10
+                        && subscriber.skill_id == passive_skill
+                        && subscriber.slot_index == Some(3)
+                        && subscriber.key.definition == dead_key
+                })
+        );
         assert!(
             !dispatched
-                .skills
-                .iter()
+                .passes()
+                .flat_map(|pass| &pass.skills)
                 .any(|(subscriber, _)| subscriber.key.definition == none_key)
         );
 

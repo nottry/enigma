@@ -831,3 +831,17 @@ fn configured_skill_without_a_target_override_emits_once_per_slot() {
         TargetEmissionMode::Once
     );
 }
+
+#[test]
+fn add_buff_duration_uses_the_normal_per_target_owner() {
+    let behavior = ParsedBehavior::from_spec(
+        BehaviorSpec::new(60145, "AddBuffDuration"),
+        vec![5001, 3],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        find(&behavior).unwrap().target_emission_mode,
+        TargetEmissionMode::Each
+    );
+}

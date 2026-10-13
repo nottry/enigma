@@ -382,14 +382,18 @@ fn resync_round(
     Ok(!changes.is_empty())
 }
 
-fn replay_cloth_input(inputs: &[PathBuf], runtime: &mut ReplayBattle) -> anyhow::Result<()> {
+fn replay_cloth_input(
+    inputs: &[capture::CapturedCloth],
+    runtime: &mut ReplayBattle,
+) -> anyhow::Result<()> {
     for input in inputs {
-        let mut request: serde_json::Value = serde_json::from_str(&fs::read_to_string(input)?)?;
+        let mut request: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&input.request)?)?;
         normalize_live_json(&mut request);
         let request = serde_json::from_value(request)?;
-        runtime
-            .use_cloth_skill(request)
-            .ok_or_else(|| io::Error::other(format!("invalid cloth input: {}", input.display())))?;
+        runtime.use_cloth_skill(request).ok_or_else(|| {
+            io::Error::other(format!("invalid cloth input: {}", input.request.display()))
+        })?;
     }
     Ok(())
 }

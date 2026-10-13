@@ -216,7 +216,8 @@ fn conduit_child_is_the_active_skill_scope_but_the_wrapper_is_not() {
         &mut frames,
         FrameOwner::ConduitAction {
             source_uid: 10,
-            group: 1,
+            selected_group: 1,
+            device_index: 1,
             skill_position: 1,
             target_uid: None,
         },
@@ -228,7 +229,7 @@ fn conduit_child_is_the_active_skill_scope_but_the_wrapper_is_not() {
         FrameOwner::ConduitSkill {
             source_uid: 10,
             skill_id: 31490111,
-            card_index: 1,
+            device_index: 1,
             target_uid: None,
         },
         FrameTrigger::Active,
@@ -245,7 +246,8 @@ fn conduit_child_target_updates_both_anchors_without_replacing_them() {
         &mut frames,
         FrameOwner::ConduitAction {
             source_uid: 10,
-            group: 1,
+            selected_group: 1,
+            device_index: 1,
             skill_position: 1,
             target_uid: None,
         },
@@ -257,7 +259,7 @@ fn conduit_child_target_updates_both_anchors_without_replacing_them() {
         FrameOwner::ConduitSkill {
             source_uid: 10,
             skill_id: 31490111,
-            card_index: 1,
+            device_index: 1,
             target_uid: None,
         },
         FrameTrigger::Active,

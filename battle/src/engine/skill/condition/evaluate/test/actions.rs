@@ -312,12 +312,20 @@ fn use_ex_skill_checks_the_active_skill_payload() {
     let managers = BattleManagers::default();
     let pool = TargetPool::from_fight(&Fight {
         attacker: Some(FightTeam {
-            entitys: vec![FightEntityInfo {
-                uid: Some(10),
-                model_id: Some(3134),
-                ex_skill: Some(31345131),
-                ..Default::default()
-            }],
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3134),
+                    ex_skill: Some(31345131),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    model_id: Some(3145),
+                    ex_skill: Some(0),
+                    ..Default::default()
+                },
+            ],
             ..Default::default()
         }),
         ..Default::default()
@@ -345,6 +353,18 @@ fn use_ex_skill_checks_the_active_skill_payload() {
     assert!(matches(31345131));
     assert!(matches(31340131));
     assert!(!matches(31345111));
+    assert!(condition_matches(
+        &condition,
+        10,
+        &[10],
+        Some(&managers),
+        &pool,
+        TargetContext {
+            active_skill_source_uid: 11,
+            active_skill_id: 31450131,
+            ..Default::default()
+        },
+    ));
 }
 
 #[test]

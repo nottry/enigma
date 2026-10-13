@@ -800,6 +800,18 @@ impl BattleManagers {
             &self.hp,
             combat_capacity,
         )?;
+        if matches!(
+            changes.operation,
+            entity::EntityOperation::SummonCombatant { .. }
+                | entity::EntityOperation::SummonSpecial { .. }
+        ) {
+            changes.entity.ex_point_max = catalog.entity_ex_point_max(
+                changes.entity.ex_point_max,
+                changes.entity.model_id,
+                changes.entity.level.unwrap_or(1),
+            );
+            self.entity.update(changes.entity.clone());
+        }
         if matches!(changes.operation, entity::EntityOperation::Transform { .. }) {
             changes.entity.ex_point = Some(self.ex_point.get(changes.target_uid));
             changes.entity.shield_value = Some(self.hp.shield(changes.target_uid));
@@ -861,6 +873,13 @@ impl BattleManagers {
         command: gauge::GaugeCommand,
     ) -> Result<gauge::GaugeChange, gauge::GaugeCommandError> {
         self.gauge.execute_command(command)
+    }
+
+    pub(crate) fn execute_raw_gauge_batch(
+        &mut self,
+        commands: Vec<gauge::GaugeCommand>,
+    ) -> Result<Vec<gauge::GaugeChange>, gauge::GaugeCommandError> {
+        self.gauge.execute_raw_batch(commands)
     }
 
     pub(crate) fn execute_emitter(
@@ -1087,6 +1106,8 @@ impl BattleManagers {
         self.ex_point.register_configured(catalog, entity);
         self.eureka.register(entity);
         self.buff.register_entity(entity, team_type);
+        let entity_order = self.entity.ordered_uids().collect::<Vec<_>>();
+        self.buff.sync_entity_order(&entity_order);
     }
 
     pub(crate) fn promote_reserves(
@@ -1388,15 +1409,14 @@ impl BattleManagers {
 
     pub(crate) fn sync_roster(&mut self, fight: &Fight) {
         self.buff.sync_roster(fight);
+        let entity_order = self.entity.ordered_uids().collect::<Vec<_>>();
+        self.buff.sync_entity_order(&entity_order);
     }
 
-    pub fn ex_point_info(&self, fight: &Fight) -> Vec<FightExPointInfo> {
-        let current_uids = entities(fight)
-            .filter_map(|entity| entity.uid)
-            .collect::<Vec<_>>();
+    pub fn ex_point_info(&self, _fight: &Fight) -> Vec<FightExPointInfo> {
         self.entity
             .ordered_uids()
-            .filter(|uid| current_uids.contains(uid))
+            .filter(|uid| self.entity.roster_lane(*uid) != Some(entity::RosterLane::Inactive))
             .map(|uid| FightExPointInfo {
                 uid: Some(uid),
                 ex_point: Some(self.ex_point.get(uid)),

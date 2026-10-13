@@ -777,8 +777,14 @@ impl HpManager {
                 }
             }
             HpCommand::Lose(value) => {
-                changes.hp =
-                    self.lose_with_hurt(target_uid, value.amount, value.config_effect, value.hurt);
+                if before > 0 {
+                    changes.hp = self.lose_with_hurt(
+                        target_uid,
+                        value.amount,
+                        value.config_effect,
+                        value.hurt,
+                    );
+                }
             }
             HpCommand::Kill(value) => {
                 changes.hp = self.lose(target_uid, before, value.config_effect);
@@ -808,7 +814,8 @@ impl HpManager {
                 }
             }
             HpCommand::GrantShield(value) => {
-                changes.shield_granted = Some(self.add_shield(target_uid, value.amount, value.max));
+                let gain = self.add_shield(target_uid, value.amount, value.max);
+                changes.shield_granted = (gain.added != 0).then_some(gain);
             }
             HpCommand::AdjustMax(value) => {
                 let before = self.get(target_uid);

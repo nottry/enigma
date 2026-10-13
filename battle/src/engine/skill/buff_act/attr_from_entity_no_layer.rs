@@ -93,19 +93,29 @@ mod tests {
                         }),
                         ..Default::default()
                     },
+                    FightEntityInfo {
+                        uid: Some(12),
+                        current_hp: Some(1_000),
+                        attr: Some(HeroAttribute {
+                            hp: Some(1_000),
+                            attack: Some(900),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
                 ],
                 ..Default::default()
             }),
             ..Default::default()
         };
         let mut managers = BattleManagers::seeded(&fight);
-        let command = || {
+        let command = |source_uid| {
             BuffCommand::Grant(BuffGrant {
                 origin: CommandOrigin {
                     domain: RuleDomain::Behavior,
                     key: DefinitionKey::new(1, "AddBuff"),
                 },
-                source_uid: 10,
+                source_uid,
                 target_uid: 11,
                 buff_id: 31450111,
                 amount: None,
@@ -114,7 +124,7 @@ mod tests {
             })
         };
 
-        let changes = managers.execute_buff(command()).unwrap();
+        let changes = managers.execute_buff(command(10)).unwrap();
         let added = changes.change.added.as_ref().unwrap();
         assert_eq!(
             added
@@ -142,11 +152,40 @@ mod tests {
             112
         );
 
-        managers.execute_buff(command()).unwrap();
+        let refreshed = managers.execute_buff(command(12)).unwrap();
         assert_eq!(managers.buff.buff_id_amount(11, 31450111), 2);
         assert_eq!(
             managers.persistent_attribute_delta(11, AttrId::DmgBonus),
             122
+        );
+        let [marker] = refreshed.refresh_initial_state_markers.as_slice() else {
+            panic!("expected one source-attribute refresh marker")
+        };
+        assert_eq!(marker.target_uid, 11);
+        assert_eq!(marker.act_id, 1152);
+        assert_eq!(marker.str_param.as_deref(), Some("205#54"));
+        assert_eq!(
+            managers
+                .buff
+                .snapshot(11, added.buff.uid.unwrap())
+                .unwrap()
+                .act_info
+                .iter()
+                .find(|info| info.act_id == Some(1152))
+                .and_then(|info| info.str_param.as_deref()),
+            Some("205#102")
+        );
+        assert_ne!(marker.buff_uid, added.buff.uid.unwrap());
+        assert_eq!(
+            EffectPacket::recorded_buff_changes(&refreshed)
+                .iter()
+                .map(|effect| effect.effect_type.unwrap_or_default())
+                .collect::<Vec<_>>(),
+            vec![
+                EffectType::Buffactinfoupdate as i32,
+                EffectType::Buffupdate as i32,
+                EffectType::Buffupdate as i32,
+            ]
         );
     }
 }

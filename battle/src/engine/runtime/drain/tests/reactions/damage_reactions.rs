@@ -558,6 +558,80 @@ fn attack_consumption_keeps_first_hit_entity_order() {
 }
 
 #[test]
+fn attack_consumption_waits_for_hit_reactions() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![BuffInfo {
+                    uid: Some(30),
+                    buff_id: Some(430111),
+                    count: Some(1),
+                    from_uid: Some(10),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let hit = BattleEvent::Hit(crate::engine::event::payload::HitEvent {
+        origin: CommandOrigin {
+            domain: RuleDomain::Skill,
+            key: DefinitionKey::new(1, "Damage"),
+        },
+        source_uid: 10,
+        target_uid: -1,
+        skill_id: 1,
+        amount: 100,
+        shield_absorbed: 0,
+        career_restraint: false,
+        damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,
+        share_count: 0,
+        assassinate: false,
+        ignore_riposte: false,
+    });
+    let mut frames = Vec::new();
+    let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
+
+    let reactions = dispatch_event_batch(
+        &pool,
+        &managers,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &[hit],
+        &root,
+        &root,
+        Some(&root),
+        Some((10, 1, Some(-1))),
+        true,
+        true,
+        crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        None,
+    )
+    .unwrap();
+
+    assert!(reactions.after_publish.is_empty());
+    assert_eq!(reactions.after_hit.len(), 1);
+    assert!(matches!(
+        reactions.after_hit[0].op,
+        RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(_)))
+    ));
+}
+
+#[test]
 fn damage_based_rebound_routes_once_and_removes_the_counter() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -761,6 +835,7 @@ fn shared_damage_subscription_queues_once_per_event_batch() {
         true,
         crate::engine::event::subscription::PublicationPhase::AfterPublish,
         None,
+        None,
     )
     .unwrap();
     let second = dispatch_event_groups(
@@ -777,6 +852,7 @@ fn shared_damage_subscription_queues_once_per_event_batch() {
         true,
         true,
         crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        None,
         None,
     )
     .unwrap();

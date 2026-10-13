@@ -268,6 +268,53 @@ fn one_skill_event_groups_all_of_its_subscribed_rules() {
 }
 
 #[test]
+fn independent_reaction_does_not_inherit_the_causing_frame() {
+    use crate::engine::{
+        event::{kind::EventKind, subscription::SubscriptionKey},
+        skill::subscriber::SkillSubscriber,
+    };
+
+    let queued = queued_reactions(
+        &TargetPool::default(),
+        dispatcher::DispatchBatch {
+            skills: vec![(
+                SkillSubscriber {
+                    owner_uid: -1,
+                    skill_id: 100,
+                    slot_index: Some(0),
+                    key: SubscriptionKey::new(
+                        EventKind::RoundEndAfterOwnerSettlement,
+                        DefinitionKey::new(305, "None"),
+                    ),
+                },
+                RuleOp::Skill(
+                    SkillRequest {
+                        source_uid: -1,
+                        skill_id: 100,
+                    }
+                    .into(),
+                ),
+            )],
+            ..Default::default()
+        },
+        &BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement),
+        Some(&[4, 2]),
+        Some(&[4, 2]),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let [reaction] = queued.as_slice() else {
+        panic!("expected one reaction")
+    };
+    assert!(reaction.frame_path.is_none());
+    assert!(reaction.parent_path.is_none());
+    assert!(reaction.independent_parent_group.is_some());
+}
+
+#[test]
 fn queued_reaction_rejects_an_unregistered_exact_condition() {
     use crate::engine::{
         event::{kind::EventKind, subscription::SubscriptionKey},

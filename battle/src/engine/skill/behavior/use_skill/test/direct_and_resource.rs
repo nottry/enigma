@@ -552,6 +552,48 @@ fn direct_use_skill_owns_its_random_ally_target_code() {
 }
 
 #[test]
+fn direct_use_skill_does_not_use_a_captured_nested_target() {
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(1),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1), entity(-2), entity(-3)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let behavior = ParsedBehavior::new(50008, "DirectUseSkill", vec![10]);
+    let mut determinism = RoundDeterminism::default();
+    determinism.enqueue_skill_target_choices([
+        crate::engine::runtime::determinism::SkillTargetChoice {
+            skill_id: 20,
+            source_uid: 10,
+            target_code: 206,
+            targets: vec![-2],
+            additional_targets: Vec::new(),
+            crit_targets: Vec::new(),
+            additional_crit_targets: Vec::new(),
+        },
+    ]);
+
+    assert_eq!(
+        resolve_targets(20, 10, 206, &pool, &mut determinism, &behavior),
+        None
+    );
+    assert_eq!(
+        resolve_targets(20, 10, 206, &pool, &mut determinism, &behavior),
+        None
+    );
+}
+
+#[test]
 fn direct_use_skill_two_preserves_the_configured_reinforced_subtype() {
     let managers = crate::engine::manager::BattleManagers::default();
     let pool = TargetPool::default();

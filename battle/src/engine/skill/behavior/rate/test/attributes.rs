@@ -320,6 +320,104 @@ fn source_modifier_with_target_999_uses_the_current_hit_target() {
 }
 
 #[test]
+fn source_modifier_with_target_999_counts_only_the_current_hit_target() {
+    let mut effects = SkillEffectCatalog::default();
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::new(10001, "SkillRateUp", vec![100]),
+        TargetRequest {
+            code: 202,
+            raw: Vec::new(),
+        },
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 61203,
+        type_name: "PerBuffIdCount".into(),
+        kind: ParsedConditionKind::BuffIdCount {
+            buff_ids: vec![4150001],
+            compare: crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
+            threshold: 1,
+        },
+        raw_args: vec!["4150001".into()],
+    }];
+    slot.condition_target = slot.target.clone();
+    slot.target_from_condition = true;
+    slot.compiled_route =
+        crate::engine::skill::rule::route::ConditionRoute::compile(&slot.conditions);
+    effects.insert(ParsedSkillEffect {
+        skill_id: 432315,
+        slots: vec![slot],
+    });
+    let burn = |uid, layer| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(4150001),
+        from_uid: Some(10),
+        layer: Some(layer),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                passive_skill: vec![432315],
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(-1),
+                    current_hp: Some(100),
+                    buffs: vec![burn(1, 2)],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(-2),
+                    current_hp: Some(100),
+                    buffs: vec![burn(2, 5)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+
+    for (target_uid, expected_count) in [(-1, 2), (-2, 5)] {
+        let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+        emit_passive_attack_attributes(
+            &mut modifiers,
+            10,
+            200,
+            &[432315],
+            RateRuntime {
+                effects: &effects,
+                managers: &managers,
+                pool: &pool,
+                context: TargetContext {
+                    hit_source_uid: 10,
+                    hit_target_uid: target_uid,
+                    runtime_target_uid: target_uid,
+                    ..Default::default()
+                },
+            },
+            &mut RoundDeterminism::default(),
+        );
+
+        assert_eq!(modifiers.rates.len(), expected_count);
+        assert!(
+            modifiers
+                .rates
+                .iter()
+                .all(|rate| rate.target_uid == target_uid)
+        );
+    }
+}
+
+#[test]
 fn liang_yue_poison_scaling_uses_the_compiled_target_group_count() {
     crate::test_support::init_config();
     let effects = SkillEffectCatalog::from_game_db(config::configs::get());
@@ -505,6 +603,7 @@ fn passive_attr_fix_can_gate_a_mass_extra_action() {
             pool: &TargetPool::from_fight(&fight),
 
             context: TargetContext {
+                active_skill_is_attack: true,
                 extra_skill_kind:
                     crate::engine::skill::condition::extra::ExtraSkillKind::ExtraAction.id(),
                 damage_target_count_kind: 2,

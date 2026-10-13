@@ -371,6 +371,21 @@ impl TargetPool {
                 _ => {}
             }
         }
+        let roster_order = managers
+            .entity
+            .ordered_uids()
+            .enumerate()
+            .map(|(index, uid)| (uid, index))
+            .collect::<HashMap<_, _>>();
+        for entities in [
+            &mut pool.attacker_main,
+            &mut pool.attacker_all,
+            &mut pool.defender_main,
+            &mut pool.defender_all,
+        ] {
+            entities
+                .sort_by_key(|entity| roster_order.get(&entity.uid).copied().unwrap_or(usize::MAX));
+        }
         pool
     }
 

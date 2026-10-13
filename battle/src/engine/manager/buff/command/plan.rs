@@ -305,7 +305,7 @@ impl BuffManager {
             ),
             BuffCommand::ExpireAction(remove) => (
                 remove.origin,
-                BuffPlanAction::Remove(self.plan_remove(remove, 0, true, true)?),
+                BuffPlanAction::Remove(self.plan_remove(remove, 0, false, true)?),
             ),
             BuffCommand::Dispel(dispel) => (
                 dispel.origin,
@@ -481,9 +481,9 @@ impl BuffManager {
                     }),
                 )
             }
-            BuffCommand::FanoutMasterHalo(fanout) => {
+            BuffCommand::FanoutEntryHalos(fanout) => {
                 if fanout.origin.domain != RuleDomain::Lifecycle
-                    || fanout.origin.key != WAVE_ENTRY_MASTER_HALO_KEY
+                    || fanout.origin.key != ENTITY_ENTRY_HALO_KEY
                     || fanout.target_uids.is_empty()
                     || fanout.target_uids.contains(&0)
                 {
@@ -491,8 +491,8 @@ impl BuffManager {
                 }
                 (
                     fanout.origin,
-                    BuffPlanAction::FanoutMasterHalo(
-                        self.master_halo_fanout_plans(hp, &fanout.target_uids),
+                    BuffPlanAction::FanoutEntryHalos(
+                        self.entry_halo_fanout_plans(hp, &fanout.target_uids),
                     ),
                 )
             }
@@ -673,33 +673,11 @@ impl BuffManager {
                 _ => false,
             };
         let blocked = blocker.is_some() || resisted || !semantic_grant_allowed;
-        let mut excluded_uids = if blocked || unconditional {
+        let excluded_uids = if blocked || unconditional {
             Vec::new()
         } else {
-            policy
-                .exclusions
-                .remove_on_grant
-                .iter()
-                .flat_map(|excluded_id| {
-                    self.buffs.iter().filter_map(|active| {
-                        (active.owner_uid == request.target_uid && active.type_id == *excluded_id)
-                            .then_some(active.buff.uid.unwrap_or_default())
-                    })
-                })
-                .chain(self.buffs.iter().filter_map(|active| {
-                    (active.owner_uid == request.target_uid
-                        && active.definition.as_ref().is_some_and(|resident| {
-                            policy
-                                .exclusions
-                                .remove_statuses_on_grant
-                                .contains(&resident.status_id)
-                        }))
-                    .then_some(active.buff.uid.unwrap_or_default())
-                }))
-                .collect()
+            self.exclusion_uids(request.target_uid, &policy)
         };
-        excluded_uids.sort_unstable();
-        excluded_uids.dedup();
         let stack_layer = self.grant_layer(route, &definition, args);
         let repeated_stack = !self.shared_uid_lane
             && request.occurrences > 1
@@ -845,6 +823,8 @@ impl BuffManager {
             || (readds_prior_instance && !unconditional)
         {
             policy.uid.normal_reservations_before_reapply
+        } else if action == GrantAction::KeepExisting && policy.uid.reserve_normal_on_kept_reapply {
+            1
         } else {
             0
         };
@@ -1360,19 +1340,30 @@ impl BuffManager {
             })
             .and_then(|active| active.buff.buff_id)
             .ok_or(BuffCommandError::InvalidReplace)?;
-        let grant = self.plan_grant_with_source_attack(
+        let policy = BuffPolicy::configured(self.catalog().game_data(), replacement_id_or_type)
+            .map_err(BuffCommandError::InvalidPolicy)?;
+        let excluded_uids = self.exclusion_uids(target_uid, &policy);
+        let child_uid_reservations = excluded_uids
+            .len()
+            .try_into()
+            .map_err(|_| BuffCommandError::InvalidReplace)?;
+        let mut grant = self.plan_grant_with_source_attack(
             hp,
             GrantRequest {
                 source_uid,
                 target_uid,
                 buff_id: replacement_id_or_type,
-                input: GrantInput::UnconditionalLayer(1),
+                input: GrantInput::ChildInstance {
+                    layer: 0,
+                    layer_specified: true,
+                },
                 occurrences: 1,
-                child_uid_reservations: 0,
+                child_uid_reservations,
                 force_normal_uid: false,
             },
             inputs,
         )?;
+        grant.excluded_uids = excluded_uids;
         let removed_uids = self
             .buffs
             .iter()
@@ -1387,6 +1378,33 @@ impl BuffManager {
             grant,
             expire_removed: false,
         })
+    }
+
+    fn exclusion_uids(&self, target_uid: i64, policy: &BuffPolicy) -> Vec<i64> {
+        let mut uids = policy
+            .exclusions
+            .remove_on_grant
+            .iter()
+            .flat_map(|excluded_id| {
+                self.buffs.iter().filter_map(|active| {
+                    (active.owner_uid == target_uid && active.type_id == *excluded_id)
+                        .then_some(active.buff.uid.unwrap_or_default())
+                })
+            })
+            .chain(self.buffs.iter().filter_map(|active| {
+                (active.owner_uid == target_uid
+                    && active.definition.as_ref().is_some_and(|resident| {
+                        policy
+                            .exclusions
+                            .remove_statuses_on_grant
+                            .contains(&resident.status_id)
+                    }))
+                .then_some(active.buff.uid.unwrap_or_default())
+            }))
+            .collect::<Vec<_>>();
+        uids.sort_unstable();
+        uids.dedup();
+        uids
     }
 
     fn plan_remove(
@@ -1612,7 +1630,8 @@ impl BuffManager {
                 .buff
                 .layer
                 .unwrap_or_default()
-                .saturating_sub(amount.max(0));
+                .saturating_sub(amount.max(0))
+                .max(0);
             layer = Some(next);
             next
         } else {
@@ -1626,17 +1645,24 @@ impl BuffManager {
         };
         let buff_uid = active.buff.uid.unwrap_or_default();
         if next_amount <= 0
-            && matches!(depleted, DepletedBuff::Remove)
-            && (field == ConsumeField::Count || uses_stack_layer || uses_typed_count)
+            && matches!(
+                depleted,
+                DepletedBuff::Remove | DepletedBuff::RemoveWithZeroLayer
+            )
+            && (consume_count || uses_stack_layer || uses_typed_count)
         {
             ConsumeAction::Remove {
                 buff_uid,
-                layer: layer.filter(|_| {
-                    active
-                        .definition
-                        .as_ref()
-                        .is_some_and(BuffDefinition::clears_layer_on_depletion)
-                }),
+                layer: if matches!(depleted, DepletedBuff::RemoveWithZeroLayer) {
+                    layer
+                } else {
+                    layer.filter(|_| {
+                        active
+                            .definition
+                            .as_ref()
+                            .is_some_and(BuffDefinition::clears_layer_on_depletion)
+                    })
+                },
                 count,
             }
         } else {

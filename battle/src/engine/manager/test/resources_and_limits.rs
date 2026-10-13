@@ -1,6 +1,46 @@
 use super::*;
 
 #[test]
+fn summoned_monster_snapshot_includes_its_configured_moxie_maximum() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let changes = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60008, "Summon"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                model_id: 116_330_100,
+                position: 2,
+            },
+        })
+        .unwrap();
+
+    assert_eq!(changes.entity.ex_point_max, Some(0));
+}
+
+#[test]
 fn entity_sync_projects_current_primary_attributes_without_rewriting_the_base() {
     crate::test_support::init_config();
     let base = HeroAttribute {
@@ -206,6 +246,57 @@ fn ex_point_info_uses_current_roster_in_encounter_order() {
         .filter_map(|info| info.uid)
         .collect::<Vec<_>>();
     assert_eq!(uids, vec![-2, -3]);
+}
+
+#[test]
+fn ex_point_info_keeps_a_defeated_combatant_replaced_by_a_summon() {
+    crate::test_support::init_config();
+    let entity = |uid, position, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        position: Some(position),
+        current_hp: Some(current_hp),
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1, 100), entity(-2, 2, 0)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    let summoned = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60008, "Summon"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                model_id: 116_330_100,
+                position: 2,
+            },
+        })
+        .unwrap()
+        .entity
+        .uid
+        .unwrap();
+    managers.sync_entities(&mut fight);
+
+    assert_eq!(
+        managers
+            .ex_point_info(&fight)
+            .into_iter()
+            .filter_map(|info| info.uid)
+            .collect::<Vec<_>>(),
+        vec![-1, summoned, -2]
+    );
 }
 
 #[test]

@@ -30,6 +30,7 @@ pub(super) struct DrainState {
     after_hit: HashMap<FramePath, Vec<QueuedOp>>,
     hit_passive_skills: HashMap<FramePath, Vec<QueuedOp>>,
     hit_skills: HashMap<FramePath, Vec<QueuedOp>>,
+    before_after_hit_observers: HashMap<FramePath, Vec<QueuedOp>>,
     after_hit_skills: HashMap<FramePath, Vec<QueuedOp>>,
     after_action: HashMap<FramePath, Vec<QueuedOp>>,
     // Casts held until their action completes, with the step that cast them.
@@ -111,6 +112,14 @@ impl DrainState {
         defer(&mut self.after_hit_skills, action_path, queued);
     }
 
+    pub(super) fn defer_before_after_hit_observers(
+        &mut self,
+        action_path: Option<&[usize]>,
+        queued: Vec<QueuedOp>,
+    ) {
+        defer(&mut self.before_after_hit_observers, action_path, queued);
+    }
+
     pub(super) fn defer_hit_skills(
         &mut self,
         action_path: Option<&[usize]>,
@@ -146,6 +155,13 @@ impl DrainState {
         action_path: Option<&FramePath>,
     ) -> Option<Vec<QueuedOp>> {
         action_path.and_then(|path| self.after_hit_skills.remove(path))
+    }
+
+    pub(super) fn take_before_after_hit_observers(
+        &mut self,
+        action_path: Option<&FramePath>,
+    ) -> Option<Vec<QueuedOp>> {
+        action_path.and_then(|path| self.before_after_hit_observers.remove(path))
     }
 
     pub(super) fn defer_after_action(
@@ -314,6 +330,11 @@ impl DrainState {
                 .unwrap_or_default(),
         );
         abandoned.extend(self.hit_skills.remove(action_path).unwrap_or_default());
+        abandoned.extend(
+            self.before_after_hit_observers
+                .remove(action_path)
+                .unwrap_or_default(),
+        );
         abandoned.extend(
             self.after_hit_skills
                 .remove(action_path)

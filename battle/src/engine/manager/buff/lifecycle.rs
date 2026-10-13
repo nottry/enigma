@@ -410,8 +410,15 @@ impl BuffManager {
         self.buffs[index].buff.duration = Some(duration - 1);
         let after = self.buffs[index].buff.clone();
         if duration == 1 {
+            let mut removed = self.delete(plan.target_uid, plan.buff_uid);
+            if let Some(expired) = removed
+                .iter_mut()
+                .find(|removed| removed.buff.uid == Some(plan.buff_uid))
+            {
+                expired.buff.count = before.count;
+            }
             Some(BuffReplaceResult {
-                removed: self.delete(plan.target_uid, plan.buff_uid),
+                removed,
                 ..Default::default()
             })
         } else {
@@ -499,6 +506,15 @@ impl BuffManager {
                 .flat_map(|team| &team.entitys)
                 .any(|entity| entity.uid == Some(tracked.uid));
         }
+    }
+
+    pub(crate) fn sync_entity_order(&mut self, ordered_uids: &[i64]) {
+        self.entities.sort_by_key(|tracked| {
+            ordered_uids
+                .iter()
+                .position(|uid| *uid == tracked.uid)
+                .unwrap_or(usize::MAX)
+        });
     }
 }
 

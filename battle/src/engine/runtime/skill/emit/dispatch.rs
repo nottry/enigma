@@ -204,16 +204,44 @@ pub(in crate::engine::runtime) fn emit_ops(
     let mut fired_rules = Vec::new();
     let resume_slot = std::mem::take(&mut execution.resume_slot);
     let resume_target = std::mem::take(&mut execution.resume_target);
-    let active_phase = matches!(trigger, SkillOpTrigger::Active).then_some(
-        invocation
-            .phase
-            .unwrap_or(crate::engine::skill::action::SkillPhase::Immediate),
-    );
+    let active_phase = if matches!(trigger, SkillOpTrigger::Active) {
+        let has_source_opening_subscriber = invocation.phase.is_none()
+            && crate::engine::skill::subscriber::for_compiled_events(
+                pool,
+                managers,
+                catalog,
+                [crate::engine::event::kind::EventKind::SkillAction],
+            )?
+            .skills
+            .iter()
+            .any(|subscriber| subscriber.key.phase == Some(SkillPhase::SourceOpening));
+        Some(match invocation.phase {
+            Some(phase) => phase,
+            None if has_source_opening_subscriber
+                || skill_runs_in_phase(
+                    &effect.slots,
+                    SkillPhase::SourceOpening,
+                    invocation.plan.skill_id,
+                )? =>
+            {
+                SkillPhase::SourceOpening
+            }
+            None => SkillPhase::Immediate,
+        })
+    } else {
+        None
+    };
     let resuming_phase = resume_slot > 0
         || resume_target > 0
         || (active_phase == Some(SkillPhase::Immediate) && execution.effect_started);
     if !resuming_phase
-        && active_phase == Some(crate::engine::skill::action::SkillPhase::Immediate)
+        && matches!(
+            active_phase,
+            Some(
+                crate::engine::skill::action::SkillPhase::SourceOpening
+                    | crate::engine::skill::action::SkillPhase::Immediate
+            )
+        )
         && execution.configured_targets.is_none()
     {
         let request = TargetRequest {
@@ -379,6 +407,9 @@ pub(in crate::engine::runtime) fn emit_ops(
                 type_name: slot.behavior.spec.key.type_name.clone(),
             }
         })?;
+        if active_phase.is_some() && definition.attack_modifier_only && slot.target_from_condition {
+            continue;
+        }
         if let Some(required_event) = definition.required_event {
             let SkillOpTrigger::Event(event) = trigger else {
                 continue;
@@ -1019,6 +1050,9 @@ pub(in crate::engine::runtime) fn emit_ops(
         }));
     }
     let next_phase = match active_phase {
+        Some(crate::engine::skill::action::SkillPhase::SourceOpening) => {
+            Some(crate::engine::skill::action::SkillPhase::Immediate)
+        }
         Some(crate::engine::skill::action::SkillPhase::Immediate) if has_row_damage => {
             Some(crate::engine::skill::action::SkillPhase::Damage)
         }
@@ -1077,7 +1111,26 @@ pub(in crate::engine::runtime) fn emit_ops(
         });
     }
 
-    if publishes_lifecycle && active_phase == Some(SkillPhase::AdditionalDamage) && has_row_damage {
+    if publishes_lifecycle && active_phase == Some(SkillPhase::SourceOpening) {
+        let mut phase_completed = phase_completed_op(
+            &invocation,
+            managers,
+            catalog,
+            pool,
+            execution,
+            SkillPhase::SourceOpening,
+        );
+        if let Some(cost) = execution.take_action_cost() {
+            let RuleOp::SkillLifecycle(lifecycle) = phase_completed.op else {
+                unreachable!("a completed phase emits a skill lifecycle")
+            };
+            phase_completed.op = RuleOp::BeginSkillAction { lifecycle, cost };
+        }
+        outputs.push(phase_completed);
+    } else if publishes_lifecycle
+        && active_phase == Some(SkillPhase::AdditionalDamage)
+        && has_row_damage
+    {
         outputs.push(phase_completed_op(
             &invocation,
             managers,
@@ -1219,6 +1272,19 @@ fn later_condition_runs_in_phase(
     skill_id: i32,
 ) -> Result<bool, SkillOpError> {
     for slot in slots.iter().filter(|slot| !slot.conditions.is_empty()) {
+        if slot_runs_in_phase(slot, phase, skill_id)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn skill_runs_in_phase(
+    slots: &[SkillEffectSlot],
+    phase: SkillPhase,
+    skill_id: i32,
+) -> Result<bool, SkillOpError> {
+    for slot in slots {
         if slot_runs_in_phase(slot, phase, skill_id)? {
             return Ok(true);
         }

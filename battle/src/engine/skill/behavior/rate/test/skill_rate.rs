@@ -227,6 +227,65 @@ fn heat_scale_rate_uses_the_configured_scale_and_limit() {
 }
 
 #[test]
+fn caster_targeted_heat_scale_rate_applies_to_the_whole_attack() {
+    use crate::engine::{
+        manager::gauge::{GaugeCommand, GaugeOperation},
+        mechanic::lingering_glow,
+        skill::rule::{CommandOrigin, DefinitionKey, RuleDomain},
+    };
+
+    let mut managers = BattleManagers::default();
+    managers
+        .gauge
+        .execute_command(GaugeCommand::new(
+            CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60255, "HeatScaleAddSkillRate"),
+            },
+            lingering_glow::key(1),
+            GaugeOperation::Enable { max: Some(9999) },
+        ))
+        .unwrap();
+    managers
+        .gauge
+        .execute_command(GaugeCommand::new(
+            CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60255, "HeatScaleAddSkillRate"),
+            },
+            lingering_glow::key(1),
+            GaugeOperation::ChangeValue { delta: 12 },
+        ))
+        .unwrap();
+    let pool = TargetPool::default();
+    let mut determinism = RoundDeterminism::default();
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+    let mut target = TargetContext::default();
+
+    assert!(matches!(
+        crate::engine::skill::behavior::rule_ops(
+            BehaviorOpContext {
+                source_uid: 10,
+                source_team: 1,
+                target_uid: 10,
+                active_skill_id: 200,
+                transfer_count: 1,
+                event: None,
+                managers: &managers,
+                pool: &pool,
+                determinism: &mut determinism,
+                modifiers: &mut modifiers,
+                target: &mut target,
+            },
+            &ParsedBehavior::new(60255, "HeatScaleAddSkillRate", vec![1000, 20, 9999]),
+        ),
+        Some(ops) if ops.is_empty()
+    ));
+    assert_eq!(modifiers.rates[0].target_uid, 0);
+    assert_eq!(modifiers.rates[0].fixed_value(), Some(240));
+}
+
+#[test]
 fn purple_crystal_resolves_visible_lingering_glow_when_damage_is_planned() {
     use crate::engine::{
         manager::gauge::{GaugeCommand, GaugeManager, GaugeOperation},
@@ -334,10 +393,24 @@ fn crystal_focus_prefers_the_first_enemy_tied_for_the_highest_halo() {
 }
 
 #[test]
-fn selected_crystal_rank_row_carries_its_fixed_mass_and_focus_damage() {
+fn selected_crystal_rank_row_scales_mass_and_focus_damage_by_matching_crystals() {
+    let mut managers = BattleManagers::default();
     assert_eq!(
-        crystal_fixed_skill_rates(&[1200, 800, 1]),
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 1]),
+        Some((0, 0))
+    );
+    assert!(managers.emanation.select(10, 210));
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 1]),
+        Some((2400, 1600))
+    );
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 2]),
         Some((1200, 800))
+    );
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 4]),
+        None
     );
 }
 

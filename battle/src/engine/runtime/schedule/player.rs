@@ -74,12 +74,14 @@ pub fn run_conduit_phase(
     let devices = operations
         .iter()
         .filter_map(|operation| Some((operation.uid?, operation.index?)))
+        .enumerate()
+        .map(|(index, (source_uid, selected_group))| (source_uid, selected_group, index as i32 + 1))
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
     let mut ran_devices = HashSet::new();
     loop {
         let mut pass_ran = false;
-        for &(source_uid, group) in &devices {
+        for &(source_uid, selected_group, device_index) in &devices {
             if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
                 break;
             }
@@ -146,7 +148,8 @@ pub fn run_conduit_phase(
                     determinism,
                     context,
                     source_uid,
-                    group,
+                    selected_group,
+                    device_index,
                     position as i32 + 1,
                     skill.skill_id,
                     frame_target_uid,
@@ -177,7 +180,7 @@ pub fn run_conduit_phase(
             }
             if ran {
                 pass_ran = true;
-                ran_devices.insert((source_uid, group));
+                ran_devices.insert((source_uid, selected_group));
             }
         }
         if !pass_ran || crate::engine::round::outcome::battle_ended(fight, pool, managers) {
@@ -185,8 +188,8 @@ pub fn run_conduit_phase(
         }
     }
     if !crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-        for (source_uid, group) in devices {
-            if !ran_devices.contains(&(source_uid, group)) {
+        for (source_uid, selected_group, device_index) in devices {
+            if !ran_devices.contains(&(source_uid, selected_group)) {
                 continue;
             }
             append(
@@ -198,7 +201,7 @@ pub fn run_conduit_phase(
                     determinism,
                     context,
                     source_uid,
-                    group,
+                    device_index,
                 )?,
             );
         }
@@ -519,7 +522,7 @@ fn run_player_card_ops(
         }
         let composes_adjacent = matches!(
             &op,
-            PlayerCardOp::Move { .. } | PlayerCardOp::UseUniversal { .. }
+            PlayerCardOp::Move { .. } | PlayerCardOp::UseUniversal { .. } | PlayerCardOp::Play(_)
         );
         let blocked_card_index = match &op {
             PlayerCardOp::Play(play)

@@ -851,8 +851,8 @@ fn entity_defeat_passive_executes_each_configured_sibling_slot() {
     )
     .unwrap();
     let mut slots = dispatched
-        .skills
-        .iter()
+        .passes()
+        .flat_map(|pass| &pass.skills)
         .filter(|(subscriber, _)| subscriber.skill_id == 30865186)
         .filter_map(|(subscriber, _)| subscriber.slot_index)
         .collect::<Vec<_>>();

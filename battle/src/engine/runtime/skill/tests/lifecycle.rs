@@ -266,6 +266,125 @@ fn zero_cost_skill_publishes_exact_pre_effect_event_before_its_commands() {
 }
 
 #[test]
+fn source_opening_command_precedes_pre_effect_reactions() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(1_000),
+                passive_skill: vec![200],
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let mut opening = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(
+            BehaviorSpec::new(1, "AddBuff"),
+            vec![31270101, 1],
+            Vec::new(),
+        ),
+        TargetRequest::self_only(),
+    );
+    opening.conditions = vec![ParsedCondition {
+        opcode: 201,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(
+            crate::engine::skill::condition::none::NoneMode::SkillActionStart,
+        ),
+        raw_args: Vec::new(),
+    }];
+    opening.compiled_route =
+        crate::engine::skill::rule::route::ConditionRoute::compile(&opening.conditions);
+    let mut passive = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+        TargetRequest::self_only(),
+    );
+    passive.conditions = vec![ParsedCondition {
+        opcode: 34203,
+        type_name: "UseSkillEffectTag".to_owned(),
+        kind: ParsedConditionKind::ActiveSkillEffectTag(vec![4]),
+        raw_args: vec!["4".to_owned()],
+    }];
+    passive.compiled_route =
+        crate::engine::skill::rule::route::ConditionRoute::compile(&passive.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![opening],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 200,
+        slots: vec![passive],
+    });
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    let mut execution = SkillExecution::new(TargetContext::default());
+    let mut determinism = RoundDeterminism::default();
+
+    let opening = emit_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert!(matches!(
+        opening.ops.first(),
+        Some(SkillEmissionOp {
+            op: RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+                target_uid: 10,
+                buff_id: 31270101,
+                ..
+            }))),
+            ..
+        })
+    ));
+    assert!(matches!(
+        opening.ops.last(),
+        Some(SkillEmissionOp {
+            op: RuleOp::SkillLifecycle(
+                crate::engine::skill::action::SkillLifecycle::PhaseCompleted(action)
+            ),
+            ..
+        }) if action.phase == SkillPhase::SourceOpening
+    ));
+    let immediate = opening.continuation.expect("source opening continuation");
+    assert_eq!(immediate.phase, Some(SkillPhase::Immediate));
+
+    let started = emit_ops(
+        immediate,
+        &managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert!(matches!(
+        started.ops.first().map(|emission| &emission.op),
+        Some(RuleOp::Publish(BattleEvent::SkillEffectStarted(action)))
+            if action.phase == SkillPhase::Immediate
+    ));
+}
+
+#[test]
 fn paid_skill_publishes_immediate_commands_before_action_start_lifecycle() {
     crate::test_support::init_config();
     let fight = Fight {

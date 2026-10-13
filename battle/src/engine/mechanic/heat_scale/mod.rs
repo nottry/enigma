@@ -25,8 +25,7 @@ impl BehaviorHandler for Handler {
             if context.source_team == 0 {
                 return Some(Vec::new());
             }
-            let mut raw_amount = 0_i32;
-            let mut ops = Vec::new();
+            let mut contributions = Vec::new();
             for feature in context
                 .managers
                 .buff
@@ -39,7 +38,7 @@ impl BehaviorHandler for Handler {
                 })
             {
                 let act_id = feature.act_id()?;
-                let Some(mut buff) = context
+                let Some(buff) = context
                     .managers
                     .buff
                     .snapshot(feature.owner_uid, feature.buff_uid)
@@ -47,11 +46,24 @@ impl BehaviorHandler for Handler {
                     continue;
                 };
                 let raw = stored_heat_scale_raw_value(&buff, act_id);
-                if raw <= 0 {
+                if !buff.act_info.iter().any(|info| info.act_id == Some(act_id)) {
                     continue;
                 }
-                raw_amount = raw_amount.saturating_add(raw);
+                let raw = super::lingering_glow::adjusted_raw_gain(
+                    context.managers,
+                    context.source_team,
+                    raw,
+                );
                 let origin = super::super::skill::buff_act::feature_command_origin(&feature)?;
+                contributions.push((feature, act_id, buff, raw, origin));
+            }
+            if contributions.is_empty() {
+                return Some(Vec::new());
+            }
+            let gauge_key = super::lingering_glow::key(context.source_team);
+            let mut ops = Vec::new();
+            let mut gauge_commands = Vec::new();
+            for (feature, act_id, mut buff, raw, origin) in contributions {
                 let info = buff
                     .act_info
                     .iter_mut()
@@ -76,25 +88,30 @@ impl BehaviorHandler for Handler {
                     str_param: Some(String::new()),
                     team_type: 0,
                 }));
+                if raw == 0 {
+                    continue;
+                }
+                gauge_commands.push(
+                    GaugeCommand::new(
+                        super::super::skill::behavior::command_origin(behavior)?,
+                        gauge_key,
+                        GaugeOperation::AccumulateRawValue {
+                            amount: raw,
+                            stream: act_id,
+                        },
+                    )
+                    .attributed_to(
+                        context.source_uid,
+                        GaugeKind::LingeringGlow.shared_pool_config_effect(),
+                    )
+                    .with_raw_delta(raw),
+                );
             }
-            if raw_amount <= 0 {
-                return Some(ops);
+            if !gauge_commands.is_empty() {
+                ops.push(RuleOp::Command(BattleCommand::RawGaugeBatch(
+                    gauge_commands,
+                )));
             }
-            let amount = raw_amount / 1000;
-            let command = GaugeCommand::new(
-                super::super::skill::behavior::command_origin(behavior)?,
-                super::lingering_glow::key(context.source_team),
-                GaugeOperation::ChangeValue { delta: amount },
-            )
-            .attributed_to(
-                context.source_uid,
-                GaugeKind::LingeringGlow.shared_pool_config_effect(),
-            )
-            .with_raw_delta(raw_amount);
-            ops.extend(super::lingering_glow::value_change_rule_ops(
-                context.managers,
-                command,
-            ));
             return Some(ops);
         }
         if matches!(behavior.spec.kind, BehaviorKind::AddCardRankNext) {

@@ -65,6 +65,17 @@ fn registry_requires_exact_id_and_type() {
     assert!(!has_destination(933, "SubBuff", &[0]));
     assert!(find(1028, "AddToTarget").is_none());
     assert!(find(999, "RealDamageKill").is_none());
+    let source_attribute = find(1152, "AttrFromEntityNoLayer").unwrap();
+    assert_eq!(
+        source_attribute.state.initial,
+        Some(BuffActInitialStateRule::SourceAttackAttribute)
+    );
+    assert!(
+        source_attribute
+            .wire
+            .unwrap()
+            .projects_initial_state_on_refresh
+    );
     let device_bank = find(1149, "DeviceExPointOverflowBank").unwrap();
     assert_eq!(device_bank.kind, BuffActKind::DeviceExPointOverflowBank);
     assert!(has_destination(1149, "DeviceExPointOverflowBank", &[50]));
@@ -75,20 +86,11 @@ fn registry_requires_exact_id_and_type() {
         &[sonettobuf::effect_type_enum::EffectType::None as i32]
     );
     assert_eq!(
-        device_bank_wire.initial_state,
-        Some(super::super::super::wire::InitialStateRule::ZeroInteger)
+        device_bank.state.initial,
+        Some(BuffActInitialStateRule::ZeroInteger)
     );
     assert!(!device_bank_wire.initial_state_marker);
-    let fake_hp_wire = find(1150, "LostHpToFakeHp").unwrap().wire.unwrap();
-    assert_eq!(
-        fake_hp_wire.markers(super::super::super::wire::WirePhase::Add),
-        &[sonettobuf::effect_type_enum::EffectType::None as i32]
-    );
-    assert!(
-        fake_hp_wire
-            .markers(super::super::super::wire::WirePhase::Refresh)
-            .is_empty()
-    );
+    assert!(find(1150, "LostHpToFakeHp").is_none());
     assert_eq!(
         find(728, "ChangeRemoveBuffUseSkillParam").unwrap().kind,
         BuffActKind::ChangeRemoveBuffUseSkillParam

@@ -1042,14 +1042,13 @@ fn condition_kind_matches(
                 source_uid
             })
             .is_some_and(|source| {
-                source.ex_skill != 0
-                    && managers.is_some_and(|managers| {
-                        crate::engine::mechanic::card::CardMechanic.is_ultimate_skill(
-                            managers,
-                            context.active_skill_id,
-                            source,
-                        )
-                    })
+                managers.is_some_and(|managers| {
+                    crate::engine::mechanic::card::CardMechanic.is_ultimate_skill(
+                        managers,
+                        context.active_skill_id,
+                        source,
+                    )
+                })
             }),
         ParsedConditionKind::TargetUseExSkill => {
             context.active_skill_source_uid != 0
@@ -1092,7 +1091,7 @@ fn condition_kind_matches(
             context.active_skill_effect_tag != 0 && tags.contains(&context.active_skill_effect_tag)
         }
         ParsedConditionKind::DamageTargetCountKind(kind) => {
-            context.damage_target_count_kind == *kind
+            context.active_skill_is_attack && context.damage_target_count_kind == *kind
         }
         ParsedConditionKind::ReceivedDamageTargetCountKind(kind) => {
             context.damage_target_count_kind == *kind

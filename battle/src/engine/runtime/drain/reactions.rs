@@ -1,6 +1,9 @@
 use super::*;
 use crate::engine::{
-    manager::card::{CardCommand, CardSetUltimateAvailability},
+    manager::{
+        buff::{BuffCommand, BuffEntryHaloFanout},
+        card::{CardCommand, CardSetUltimateAvailability},
+    },
     skill::rule::{CommandOrigin, DefinitionKey, RuleDomain, output::BattleCommand},
 };
 
@@ -8,6 +11,29 @@ const ULTIMATE_AVAILABILITY_ORIGIN: CommandOrigin = CommandOrigin {
     domain: RuleDomain::Lifecycle,
     key: DefinitionKey::new(0, "UltimateAvailability"),
 };
+
+fn queued_entity_entry_halo_fanout(
+    event: &BattleEvent,
+    parent_path: Option<&[usize]>,
+) -> Option<QueuedOp> {
+    let BattleEvent::EntityEntered { target_uid } = event else {
+        return None;
+    };
+    Some(QueuedOp {
+        op: RuleOp::Command(BattleCommand::Buff(BuffCommand::FanoutEntryHalos(
+            BuffEntryHaloFanout::new(vec![*target_uid]),
+        ))),
+        trigger: SkillOpTrigger::Event(event.clone()),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: parent_path.map(|path| path.to_vec()),
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: Some(FrameOwner::EventRule),
+        subscriber_owner_uid: None,
+        caster_frame: None,
+    })
+}
 
 fn queued_invalid_ultimate_removal(
     pool: &TargetPool,
@@ -100,6 +126,7 @@ pub(super) fn dispatch_event_groups(
     execute_unscoped_after_action: bool,
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
+    lane: Option<ReactionLane>,
 ) -> Result<ReactionBatch, DrainError> {
     let all_events = event_groups.iter().flatten().cloned().collect::<Vec<_>>();
     let mut state = EventBatchState::default();
@@ -109,7 +136,7 @@ pub(super) fn dispatch_event_groups(
     });
     let mut reactions = ReactionBatch::default();
     for events in event_groups {
-        let mut group = dispatch_event_batch_inner(
+        let group = dispatch_event_batch_inner(
             pool,
             managers,
             catalog,
@@ -124,10 +151,10 @@ pub(super) fn dispatch_event_groups(
             execute_unscoped_after_action,
             publication_phase,
             owner_uids,
+            lane,
             &mut state,
             fired_once_per_action,
         )?;
-        group.order_skills(pool, managers, catalog, events)?;
         reactions.append(group);
     }
     Ok(reactions)
@@ -165,6 +192,7 @@ pub(super) fn dispatch_event_batch(
         execute_unscoped_after_action,
         publication_phase,
         owner_uids,
+        None,
         &mut EventBatchState::default(),
         &mut std::collections::HashSet::new(),
     )
@@ -173,8 +201,10 @@ pub(super) fn dispatch_event_batch(
 #[derive(Default)]
 struct EventBatchState {
     queued_attack_consumption: bool,
-    fired_once_per_target: std::collections::HashSet<OncePerTargetKey>,
-    fired_once_per_event_batch: std::collections::HashSet<ReactionMultiplicityKey>,
+    fired_once_per_target:
+        std::collections::HashSet<crate::engine::event::dispatcher::OncePerTargetKey>,
+    fired_once_per_event_batch:
+        std::collections::HashSet<crate::engine::event::dispatcher::ReactionMultiplicityKey>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -193,20 +223,24 @@ fn dispatch_event_batch_inner(
     execute_unscoped_after_action: bool,
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
+    lane: Option<ReactionLane>,
     state: &mut EventBatchState,
-    fired_once_per_action: &mut std::collections::HashSet<ReactionMultiplicityKey>,
+    fired_once_per_action: &mut std::collections::HashSet<
+        crate::engine::event::dispatcher::ReactionMultiplicityKey,
+    >,
 ) -> Result<ReactionBatch, DrainError> {
     let scoped_owner_uids = terminal_owner_scope(pool, managers, owner_uids);
     let owner_uids = scoped_owner_uids.as_deref();
     let current_skill_target = current_skill.and_then(|(_, _, target_uid)| target_uid);
     let after_publish =
         publication_phase == crate::engine::event::subscription::PublicationPhase::AfterPublish;
-    let attack_sources = if include_attack_consumption && after_publish {
+    let runs_buff_acts = !matches!(lane, Some(ReactionLane::Skills));
+    let attack_sources = if include_attack_consumption && after_publish && runs_buff_acts {
         ordered_hit_entities(attack_events, |hit| hit.source_uid)
     } else {
         Vec::new()
     };
-    let attacked_targets = if include_attack_consumption && after_publish {
+    let attacked_targets = if include_attack_consumption && after_publish && runs_buff_acts {
         ordered_hit_entities(attack_events, |hit| hit.target_uid)
     } else {
         Vec::new()
@@ -214,6 +248,7 @@ fn dispatch_event_batch_inner(
     let mut reactions = ReactionBatch::default();
     for event in events {
         if after_publish
+            && lane.is_none()
             && owner_uids.is_none_or(|owners| {
                 event
                     .target_uid()
@@ -234,7 +269,7 @@ fn dispatch_event_batch_inner(
                     *source_uid,
                     current_skill.is_some_and(|(_, skill_id, _)| catalog.is_big_skill(skill_id)),
                 ) {
-                    reactions.after_publish.push(queued_buff_act_feature_op(
+                    reactions.after_hit.push(queued_buff_act_feature_op(
                         feature,
                         op,
                         event,
@@ -279,6 +314,11 @@ fn dispatch_event_batch_inner(
                     | crate::engine::event::kind::EventKind::BuffRejected
             )
         });
+        let mut multiplicity = crate::engine::event::dispatcher::DispatchMultiplicity {
+            once_per_target: &mut state.fired_once_per_target,
+            once_per_event_batch: &mut state.fired_once_per_event_batch,
+            once_per_action: fired_once_per_action,
+        };
         let mut dispatched = dispatch_reactions(
             pool,
             managers,
@@ -290,188 +330,25 @@ fn dispatch_event_batch_inner(
             action_path,
             reentry_skill,
             current_skill_target,
-            None,
+            lane,
             owner_uids,
             execute_unscoped_after_action,
             Some(publication_phase),
+            Some(&mut multiplicity),
         )?;
-        retain_event_multiplicity(&mut dispatched, event, &mut state.fired_once_per_target);
-        retain_reaction_multiplicity(
-            &mut dispatched,
-            &mut state.fired_once_per_event_batch,
-            fired_once_per_action,
-        );
-        defer_after_hit_skill_buff_acts(&mut dispatched);
-        reactions.before_publish.extend(dispatched.before_publish);
-        reactions.after_publish.extend(dispatched.after_publish);
-        reactions.after_skill.extend(dispatched.after_skill);
-        reactions.after_hit.extend(dispatched.after_hit);
-        reactions.after_action.extend(dispatched.after_action);
+        if matches!(lane, Some(ReactionLane::Skills))
+            && matches!(event, BattleEvent::Hit(hit) if hit.share_count > 0)
+        {
+            dispatched.shared_hit_skills = std::mem::take(&mut dispatched.before_publish)
+                .into_iter()
+                .chain(std::mem::take(&mut dispatched.after_publish))
+                .chain(std::mem::take(&mut dispatched.after_skill))
+                .chain(std::mem::take(&mut dispatched.after_action))
+                .collect();
+        }
+        reactions.append(dispatched);
     }
-    plan_raw_gauge_contributions(managers, &mut reactions.before_publish)?;
-    plan_raw_gauge_contributions(managers, &mut reactions.after_publish)?;
-    plan_raw_gauge_contributions(managers, &mut reactions.after_skill)?;
-    plan_raw_gauge_contributions(managers, &mut reactions.after_hit)?;
-    plan_raw_gauge_contributions(managers, &mut reactions.after_action)?;
     Ok(reactions)
-}
-
-pub(super) fn defer_after_hit_skill_buff_acts(reactions: &mut ReactionBatch) {
-    let mut deferred = Vec::new();
-    for lane in [
-        &mut reactions.before_publish,
-        &mut reactions.after_publish,
-        &mut reactions.after_skill,
-        &mut reactions.after_action,
-    ] {
-        let (mut lane_deferred, immediate): (Vec<_>, Vec<_>) = std::mem::take(lane)
-            .into_iter()
-            .partition(waits_for_hit_skills);
-        *lane = immediate;
-        deferred.append(&mut lane_deferred);
-    }
-    reactions.after_hit.extend(deferred);
-}
-
-pub(super) fn waits_for_hit_skills(queued: &QueuedOp) -> bool {
-    matches!(
-        &queued.frame_owner,
-        Some(FrameOwner::BuffAct { key, .. })
-            if crate::engine::skill::buff_act::registry::find(key.opcode, key.type_name)
-                .is_some_and(|definition| {
-                    matches!(
-                        definition.runtime.execution_timing,
-                        crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterHitSkills
-                            | crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::BeforeAfterHitObservers
-                    )
-                })
-    )
-}
-
-pub(super) fn runs_before_after_hit_observers(queued: &QueuedOp) -> bool {
-    matches!(
-        &queued.frame_owner,
-        Some(FrameOwner::BuffAct { key, .. })
-            if crate::engine::skill::buff_act::registry::find(key.opcode, key.type_name)
-                .is_some_and(|definition| {
-                    definition.runtime.execution_timing
-                        == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::BeforeAfterHitObservers
-                })
-    )
-}
-
-type OncePerTargetKey = (
-    i64,
-    i64,
-    crate::engine::skill::rule::DefinitionKey,
-    i64,
-    i64,
-);
-
-type ReactionMultiplicityKey = (
-    i64,
-    i32,
-    Option<usize>,
-    crate::engine::skill::rule::DefinitionKey,
-);
-
-fn retain_event_multiplicity(
-    reactions: &mut ReactionBatch,
-    event: &BattleEvent,
-    fired: &mut std::collections::HashSet<OncePerTargetKey>,
-) {
-    let current = reactions
-        .before_publish
-        .iter()
-        .chain(&reactions.after_publish)
-        .chain(&reactions.after_hit)
-        .chain(&reactions.after_action)
-        .filter_map(|queued| once_per_target_key(queued, event))
-        .collect::<std::collections::HashSet<_>>();
-    reactions.before_publish.retain(|queued| {
-        once_per_target_key(queued, event).is_none_or(|key| !fired.contains(&key))
-    });
-    reactions.after_publish.retain(|queued| {
-        once_per_target_key(queued, event).is_none_or(|key| !fired.contains(&key))
-    });
-    reactions.after_hit.retain(|queued| {
-        once_per_target_key(queued, event).is_none_or(|key| !fired.contains(&key))
-    });
-    reactions.after_action.retain(|queued| {
-        once_per_target_key(queued, event).is_none_or(|key| !fired.contains(&key))
-    });
-    fired.extend(current);
-}
-
-fn once_per_target_key(queued: &QueuedOp, event: &BattleEvent) -> Option<OncePerTargetKey> {
-    let BattleEvent::Hit(hit) = event else {
-        return None;
-    };
-    let Some(FrameOwner::BuffAct {
-        owner_uid,
-        buff_uid,
-        key,
-        ..
-    }) = queued.frame_owner
-    else {
-        return None;
-    };
-    let definition = crate::engine::skill::buff_act::registry::find(key.opcode, key.type_name)?;
-    (definition.runtime.event_multiplicity
-        == crate::engine::skill::buff_act::registry::RuntimeEventMultiplicity::OncePerActionTarget)
-        .then_some((owner_uid, buff_uid, key, hit.source_uid, hit.target_uid))
-}
-
-fn retain_reaction_multiplicity(
-    reactions: &mut ReactionBatch,
-    fired_once_per_event_batch: &mut std::collections::HashSet<ReactionMultiplicityKey>,
-    fired: &mut std::collections::HashSet<ReactionMultiplicityKey>,
-) {
-    for lane in [
-        &mut reactions.before_publish,
-        &mut reactions.after_publish,
-        &mut reactions.after_skill,
-        &mut reactions.after_hit,
-        &mut reactions.after_action,
-    ] {
-        lane.retain(|queued| {
-            let Some((multiplicity, key)) = reaction_multiplicity_key(queued) else {
-                return true;
-            };
-            match multiplicity {
-                crate::engine::skill::condition::registry::ReactionMultiplicity::PerEvent => true,
-                crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerEventBatch => {
-                    fired_once_per_event_batch.insert(key)
-                }
-                crate::engine::skill::condition::registry::ReactionMultiplicity::OncePerAction => {
-                    fired.insert(key)
-                }
-            }
-        });
-    }
-}
-
-fn reaction_multiplicity_key(
-    queued: &QueuedOp,
-) -> Option<(
-    crate::engine::skill::condition::registry::ReactionMultiplicity,
-    ReactionMultiplicityKey,
-)> {
-    let RuleOp::Skill(invocation) = &queued.op else {
-        return None;
-    };
-    let key = invocation.condition_key?;
-    let definition =
-        crate::engine::skill::condition::registry::find_key(key.opcode, key.type_name)?;
-    Some((
-        definition.reaction_multiplicity,
-        (
-            invocation.plan.source_uid,
-            invocation.plan.skill_id,
-            invocation.condition_slot,
-            key,
-        ),
-    ))
 }
 
 pub(super) fn ordered_hit_entities(
@@ -491,92 +368,6 @@ pub(super) fn ordered_hit_entities(
     entities
 }
 
-fn plan_raw_gauge_contributions(
-    managers: &BattleManagers,
-    queued: &mut [QueuedOp],
-) -> Result<(), DrainError> {
-    let mut keys = Vec::new();
-    for item in queued.iter() {
-        let RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Gauge(command)) =
-            &item.op
-        else {
-            continue;
-        };
-        if matches!(
-            command.operation,
-            crate::engine::manager::gauge::GaugeOperation::AccumulateRawValue { .. }
-        ) && !keys.contains(&command.key)
-        {
-            keys.push(command.key);
-        }
-    }
-
-    for key in keys {
-        let raw_amounts = queued
-            .iter()
-            .filter_map(|item| {
-                let RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Gauge(
-                    command,
-                )) = &item.op
-                else {
-                    return None;
-                };
-                match command.operation {
-                    crate::engine::manager::gauge::GaugeOperation::AccumulateRawValue {
-                        amount,
-                        ..
-                    } if command.key == key => Some(amount),
-                    _ => None,
-                }
-            })
-            .collect::<Vec<_>>();
-        if raw_amounts.len() < 2 {
-            continue;
-        }
-        let Some(deltas) = managers.gauge.plan_raw_contributions(key, &raw_amounts) else {
-            continue;
-        };
-        if deltas.len() != raw_amounts.len() {
-            return Err(DrainError::InvalidGaugeContributionPlan {
-                key,
-                expected: raw_amounts.len(),
-                actual: deltas.len(),
-            });
-        }
-        let actual = deltas.len();
-        let mut deltas = deltas.into_iter();
-        for item in queued.iter_mut() {
-            let RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Gauge(command)) =
-                &mut item.op
-            else {
-                continue;
-            };
-            let crate::engine::manager::gauge::GaugeOperation::AccumulateRawValue {
-                amount, ..
-            } = command.operation
-            else {
-                continue;
-            };
-            if command.key == key {
-                let value_delta =
-                    deltas
-                        .next()
-                        .ok_or(DrainError::InvalidGaugeContributionPlan {
-                            key,
-                            expected: raw_amounts.len(),
-                            actual,
-                        })?;
-                command.operation =
-                    crate::engine::manager::gauge::GaugeOperation::ApplyRawContribution {
-                        raw_amount: amount,
-                        value_delta,
-                    };
-            }
-        }
-    }
-    Ok(())
-}
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn dispatch_reactions(
     pool: &TargetPool,
@@ -593,18 +384,28 @@ pub(super) fn dispatch_reactions(
     owner_uids: Option<&[i64]>,
     execute_unscoped_after_action: bool,
     publication_phase: Option<crate::engine::event::subscription::PublicationPhase>,
+    mut multiplicity: Option<&mut crate::engine::event::dispatcher::DispatchMultiplicity<'_>>,
 ) -> Result<ReactionBatch, DrainError> {
     let mut reactions = ReactionBatch::default();
-    let transformed_owner = match event {
-        BattleEvent::EntityTransformed { target_uid } => Some([*target_uid]),
+    let lifecycle_pool = matches!(
+        event,
+        BattleEvent::EntityEntered { .. } | BattleEvent::EntityTransformed { .. }
+    )
+    .then(|| pool.runtime_view(managers));
+    let pool = lifecycle_pool.as_ref().unwrap_or(pool);
+    let lifecycle_owner = match event {
+        BattleEvent::EntityEntered { target_uid }
+        | BattleEvent::EntityTransformed { target_uid } => Some([*target_uid]),
         _ => None,
     };
     let requested_owner_uids =
-        owner_uids.or_else(|| transformed_owner.as_ref().map(|owners| owners.as_slice()));
+        owner_uids.or_else(|| lifecycle_owner.as_ref().map(|owners| owners.as_slice()));
     let scoped_owner_uids = terminal_owner_scope(pool, managers, requested_owner_uids);
     let owner_uids = scoped_owner_uids.as_deref();
     let transaction_ops = if !matches!(lane, Some(ReactionLane::Skills)) {
-        crate::engine::skill::buff_act::transaction_rule_ops(managers, event)
+        crate::engine::skill::buff_act::transaction_rule_ops_for(managers, event, |definition| {
+            reaction_lane_accepts_buff_act(lane, definition.key.opcode, definition.key.type_name)
+        })
     } else {
         Vec::new()
     }
@@ -694,97 +495,50 @@ pub(super) fn dispatch_reactions(
         };
         if timing == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction {
             reactions.after_action.push(queued);
+        } else if timing
+            == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::BeforeAfterHitObservers
+        {
+            reactions.before_after_hit_observers.push(queued);
+        } else if timing
+            == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterHitSkills
+        {
+            reactions.after_hit_skills.push(queued);
         } else if publication == crate::engine::event::subscription::PublicationPhase::BeforePublish
         {
             reactions.before_publish.push(queued);
+        } else if definition.runtime.settlement_phase
+            == crate::engine::skill::buff_act::registry::RuntimeSettlementPhase::After
+        {
+            reactions.after_settlement.push(queued);
         } else {
             reactions.after_publish.push(queued);
         }
     }
-    let mut dispatched = match (owner_uids, publication_phase) {
-        (Some(owner_uids), Some(publication)) => dispatcher::dispatch_owner_event_phase(
+    let runs_before = publication_phase.is_none_or(|phase| {
+        phase == crate::engine::event::subscription::PublicationPhase::BeforePublish
+    });
+    let runs_after = publication_phase.is_none_or(|phase| {
+        phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
+    });
+    if runs_before {
+        reactions.before_publish.extend(queued_selected_stage(
             pool,
             managers,
             catalog,
             determinism,
             event,
+            parent_path,
+            reuse_path,
+            action_path,
+            reentry_skill,
+            current_skill_target,
+            lane,
             owner_uids,
-            publication,
-        )?,
-        (None, Some(publication)) => dispatcher::dispatch_event_phase(
-            pool,
-            managers,
-            catalog,
-            determinism,
-            event,
-            publication,
-        )?,
-        (Some(owner_uids), None) => dispatcher::dispatch_owner_event(
-            pool,
-            managers,
-            catalog,
-            determinism,
-            event,
-            owner_uids,
-        )?,
-        (None, None) => dispatcher::dispatch_event(pool, managers, catalog, determinism, event)?,
-    };
-    if event.kind() == crate::engine::event::kind::EventKind::BuffRejected
-        && let (Some((owner_uid, skill_id, _)), Some(publication)) =
-            (reentry_skill, publication_phase)
-    {
-        let current = dispatcher::dispatch_skill_event_phase(
-            pool,
-            managers,
-            catalog,
-            determinism,
-            (owner_uid, skill_id),
-            event,
-            publication,
-        )?;
-        for skill in current.skills {
-            if !dispatched.skills.contains(&skill) {
-                dispatched.skills.push(skill);
-            }
-        }
+            crate::engine::event::subscription::PublicationPhase::BeforePublish,
+            dispatcher::ReactionStage::Immediate,
+            multiplicity.as_deref_mut(),
+        )?);
     }
-    match lane {
-        Some(ReactionLane::Skills) => dispatched.buff_acts.clear(),
-        Some(ReactionLane::BuffActs) => dispatched.skills.clear(),
-        Some(ReactionLane::BuffActsBeforeSettlement) => {
-            dispatched.skills.clear();
-            dispatched.buff_acts.retain(|(subscriber, _)| {
-                reaction_lane_accepts_buff_act(
-                    lane,
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                )
-            });
-        }
-        Some(ReactionLane::BuffActsAfterSettlement) => {
-            dispatched.skills.clear();
-            dispatched.buff_acts.retain(|(subscriber, _)| {
-                reaction_lane_accepts_buff_act(
-                    lane,
-                    subscriber.key.definition.opcode,
-                    &subscriber.act_type,
-                )
-            });
-        }
-        None => {}
-    }
-    let (before_publish, after_publish, after_skill, after_hit) =
-        split_skills_by_timing(dispatched);
-    reactions.before_publish.extend(queued_reactions(
-        pool,
-        before_publish,
-        event,
-        parent_path,
-        reuse_path,
-        action_path,
-        reentry_skill,
-        current_skill_target,
-    )?);
     if lane.is_none()
         && let BattleEvent::SkillAction(action) = event
     {
@@ -832,40 +586,82 @@ pub(super) fn dispatch_reactions(
                     }),
             );
     }
-    let (after_action, after_publish): (Vec<_>, Vec<_>) = queued_reactions(
-        pool,
-        after_publish,
-        event,
-        parent_path,
-        reuse_path,
-        action_path,
-        reentry_skill,
-        current_skill_target,
-    )?
-    .into_iter()
-    .partition(waits_for_action);
-    reactions.after_publish.extend(after_publish);
-    reactions.after_action.extend(after_action);
-    reactions.after_skill.extend(queued_reactions(
-        pool,
-        after_skill,
-        event,
-        parent_path,
-        reuse_path,
-        action_path,
-        reentry_skill,
-        current_skill_target,
-    )?);
-    reactions.after_hit.extend(queued_reactions(
-        pool,
-        after_hit,
-        event,
-        parent_path,
-        reuse_path,
-        action_path,
-        reentry_skill,
-        current_skill_target,
-    )?);
+    if runs_after {
+        reactions.after_publish.extend(queued_selected_stage(
+            pool,
+            managers,
+            catalog,
+            determinism,
+            event,
+            parent_path,
+            reuse_path,
+            action_path,
+            reentry_skill,
+            current_skill_target,
+            lane,
+            owner_uids,
+            crate::engine::event::subscription::PublicationPhase::AfterPublish,
+            dispatcher::ReactionStage::Immediate,
+            multiplicity.as_deref_mut(),
+        )?);
+    }
+    for (stage, destination) in [
+        (
+            dispatcher::ReactionStage::AfterSettlement,
+            &mut reactions.after_settlement,
+        ),
+        (
+            dispatcher::ReactionStage::AfterSkill,
+            &mut reactions.after_skill,
+        ),
+        (
+            dispatcher::ReactionStage::SkillAfterHit,
+            &mut reactions.after_hit,
+        ),
+        (
+            dispatcher::ReactionStage::BeforeAfterHitObservers,
+            &mut reactions.before_after_hit_observers,
+        ),
+        (
+            dispatcher::ReactionStage::BuffActAfterHit,
+            &mut reactions.after_hit_skills,
+        ),
+        (
+            dispatcher::ReactionStage::AfterAction,
+            &mut reactions.after_action,
+        ),
+    ] {
+        for publication in [
+            crate::engine::event::subscription::PublicationPhase::BeforePublish,
+            crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        ] {
+            if (publication == crate::engine::event::subscription::PublicationPhase::BeforePublish
+                && !runs_before)
+                || (publication
+                    == crate::engine::event::subscription::PublicationPhase::AfterPublish
+                    && !runs_after)
+            {
+                continue;
+            }
+            destination.extend(queued_selected_stage(
+                pool,
+                managers,
+                catalog,
+                determinism,
+                event,
+                parent_path,
+                reuse_path,
+                action_path,
+                reentry_skill,
+                current_skill_target,
+                lane,
+                owner_uids,
+                publication,
+                stage,
+                multiplicity.as_deref_mut(),
+            )?);
+        }
+    }
     if lane.is_none() {
         let duration_advances = match event {
             BattleEvent::ActionQueueCommitted { team, .. } => {
@@ -915,6 +711,12 @@ pub(super) fn dispatch_reactions(
                 subscriber_owner_uid: None,
                 caster_frame: None,
             }));
+        if publication_phase.is_none_or(|phase| {
+            phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
+        }) && let Some(fanout) = queued_entity_entry_halo_fanout(event, parent_path)
+        {
+            reactions.after_publish.push(fanout);
+        }
     }
     Ok(reactions)
 }
@@ -935,35 +737,76 @@ fn reaction_lane_accepts_buff_act(lane: Option<ReactionLane>, act_id: i32, act_t
     }
 }
 
-fn split_skills_by_timing(
-    dispatched: dispatcher::DispatchBatch,
-) -> (
-    dispatcher::DispatchBatch,
-    dispatcher::DispatchBatch,
-    dispatcher::DispatchBatch,
-    dispatcher::DispatchBatch,
-) {
-    use crate::engine::event::subscription::{PublicationPhase, ReactionTiming};
-
-    let mut before = dispatcher::DispatchBatch::default();
-    let mut after = dispatcher::DispatchBatch::default();
-    let mut after_skill = dispatcher::DispatchBatch::default();
-    let mut after_hit = dispatcher::DispatchBatch::default();
-    for skill in dispatched.skills {
-        match (skill.0.key.timing, skill.0.key.publication) {
-            (ReactionTiming::AfterSkill, _) => after_skill.skills.push(skill),
-            (ReactionTiming::AfterHitSkills, _) => after_hit.skills.push(skill),
-            (_, PublicationPhase::BeforePublish) => before.skills.push(skill),
-            (_, PublicationPhase::AfterPublish) => after.skills.push(skill),
+#[allow(clippy::too_many_arguments)]
+fn queued_selected_stage(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    event: &BattleEvent,
+    parent_path: Option<&[usize]>,
+    reuse_path: Option<&[usize]>,
+    action_path: Option<&[usize]>,
+    reentry_skill: Option<(i64, i32, Option<i64>)>,
+    current_skill_target: Option<i64>,
+    lane: Option<ReactionLane>,
+    owner_uids: Option<&[i64]>,
+    publication: crate::engine::event::subscription::PublicationPhase,
+    stage: dispatcher::ReactionStage,
+    multiplicity: Option<&mut crate::engine::event::dispatcher::DispatchMultiplicity<'_>>,
+) -> Result<Vec<QueuedOp>, DrainError> {
+    let mut dispatched = dispatcher::dispatch_selected_event(
+        pool,
+        managers,
+        catalog,
+        determinism,
+        event,
+        dispatcher::DispatchSelection {
+            owner_uids,
+            publication: Some(publication),
+            lane,
+            stage,
+        },
+        multiplicity,
+    )?;
+    if !matches!(
+        lane,
+        Some(
+            ReactionLane::BuffActs
+                | ReactionLane::BuffActsBeforeSettlement
+                | ReactionLane::BuffActsAfterSettlement
+        )
+    ) && event.kind() == crate::engine::event::kind::EventKind::BuffRejected
+        && let Some((owner_uid, skill_id, _)) = reentry_skill
+    {
+        let current = dispatcher::dispatch_selected_skill_event(
+            pool,
+            managers,
+            catalog,
+            determinism,
+            event,
+            dispatcher::DispatchSkillSelection {
+                owner_skill: (owner_uid, skill_id),
+                publication,
+                stage,
+            },
+        )?;
+        for skill in current.skills {
+            if !dispatched.skills.contains(&skill) {
+                dispatched.skills.push(skill);
+            }
         }
     }
-    for buff_act in dispatched.buff_acts {
-        match buff_act.0.key.publication {
-            PublicationPhase::BeforePublish => before.buff_acts.push(buff_act),
-            PublicationPhase::AfterPublish => after.buff_acts.push(buff_act),
-        }
-    }
-    (before, after, after_skill, after_hit)
+    queued_reactions(
+        pool,
+        dispatched,
+        event,
+        parent_path,
+        reuse_path,
+        action_path,
+        reentry_skill,
+        current_skill_target,
+    )
 }
 
 pub(super) fn dispatch_owner_reactions(
@@ -984,7 +827,11 @@ pub(super) fn dispatch_owner_reactions(
         event,
         &scoped_owner_uids,
     )?;
-    queued_reactions(pool, dispatched, event, None, None, None, None, None)
+    let mut reactions = queued_reactions(pool, dispatched, event, None, None, None, None, None)?;
+    if let Some(fanout) = queued_entity_entry_halo_fanout(event, None) {
+        reactions.push(fanout);
+    }
+    Ok(reactions)
 }
 
 fn terminal_owner_scope(
@@ -1021,8 +868,36 @@ pub(super) fn queued_reactions(
     reentry_skill: Option<(i64, i32, Option<i64>)>,
     current_skill_target: Option<i64>,
 ) -> Result<Vec<QueuedOp>, DrainError> {
+    let mut reactions = Vec::new();
+    for pass in dispatched.into_passes() {
+        reactions.extend(queued_reaction_pass(
+            pool,
+            pass,
+            event,
+            parent_path,
+            reuse_path,
+            action_path,
+            reentry_skill,
+            current_skill_target,
+        )?);
+    }
+    Ok(reactions)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn queued_reaction_pass(
+    pool: &TargetPool,
+    dispatched: dispatcher::DispatchBatch,
+    event: &BattleEvent,
+    parent_path: Option<&[usize]>,
+    reuse_path: Option<&[usize]>,
+    action_path: Option<&[usize]>,
+    reentry_skill: Option<(i64, i32, Option<i64>)>,
+    current_skill_target: Option<i64>,
+) -> Result<Vec<QueuedOp>, DrainError> {
     let mut skill_groups = HashMap::<(i64, i32), Rc<RefCell<Option<FramePath>>>>::new();
-    let mut reactions = dispatched
+    let mut independent_skill_groups = HashMap::<(i64, i32), Rc<RefCell<Option<FramePath>>>>::new();
+    let skills = dispatched
         .skills
         .into_iter()
         .map(|(subscriber, op)| {
@@ -1042,7 +917,25 @@ pub(super) fn queued_reactions(
                     },
                 )
             })?;
+            Ok((subscriber, op, definition))
+        })
+        .collect::<Result<Vec<_>, DrainError>>()?;
+    let mut reactions = skills
+        .into_iter()
+        .map(|(subscriber, op, definition)| {
             let frame_scope = definition.reaction_frame_scope;
+            let frame_source_uid = match definition.reaction_frame_source {
+                crate::engine::skill::condition::registry::ReactionFrameSource::Subscriber => {
+                    subscriber.owner_uid
+                }
+                crate::engine::skill::condition::registry::ReactionFrameSource::Side => {
+                    match pool.team_type(subscriber.owner_uid) {
+                        Some(1) => crate::engine::fight::rules::ATTACKER_SIDE_UID,
+                        Some(2) => crate::engine::fight::rules::DEFENDER_SIDE_UID,
+                        _ => return Err(DrainError::MissingReactionSide(subscriber.owner_uid)),
+                    }
+                }
+            };
             let reentry_target = reentry_skill.and_then(|(owner_uid, skill_id, target_uid)| {
                 (owner_uid == subscriber.owner_uid && skill_id == subscriber.skill_id)
                     .then_some(target_uid)
@@ -1051,16 +944,28 @@ pub(super) fn queued_reactions(
             let reenters_current_skill = reentry_skill.is_some_and(|(owner_uid, skill_id, _)| {
                 owner_uid == subscriber.owner_uid && skill_id == subscriber.skill_id
             });
-            let (frame_path, parent_path) = if frame_scope
-                == crate::engine::skill::condition::registry::ReactionFrameScope::Causing
-            {
-                (reuse_path.or(parent_path).map(|path| path.to_vec()), None)
-            } else if reenters_current_skill {
-                let parent = reuse_path
-                    .and_then(|path| (path.len() > 1).then(|| path[..path.len() - 1].to_vec()));
-                (None, parent)
-            } else {
-                (None, parent_path.map(|path| path.to_vec()))
+            let (frame_path, parent_path) = match frame_scope {
+                crate::engine::skill::condition::registry::ReactionFrameScope::Causing => {
+                    (reuse_path.or(parent_path).map(|path| path.to_vec()), None)
+                }
+                crate::engine::skill::condition::registry::ReactionFrameScope::EventSibling => {
+                    let parent = parent_path
+                        .and_then(|path| (path.len() > 1).then(|| path[..path.len() - 1].to_vec()));
+                    (None, parent)
+                }
+                crate::engine::skill::condition::registry::ReactionFrameScope::Independent => {
+                    (None, None)
+                }
+                crate::engine::skill::condition::registry::ReactionFrameScope::Subscriber
+                    if reenters_current_skill =>
+                {
+                    let parent = reuse_path
+                        .and_then(|path| (path.len() > 1).then(|| path[..path.len() - 1].to_vec()));
+                    (None, parent)
+                }
+                crate::engine::skill::condition::registry::ReactionFrameScope::Subscriber => {
+                    (None, parent_path.map(|path| path.to_vec()))
+                }
             };
             let frame_group = matches!(
                 frame_scope,
@@ -1069,7 +974,7 @@ pub(super) fn queued_reactions(
             )
             .then(|| {
                 skill_groups
-                    .entry((subscriber.owner_uid, subscriber.skill_id))
+                    .entry((frame_source_uid, subscriber.skill_id))
                     .or_default()
                     .clone()
             });
@@ -1080,9 +985,16 @@ pub(super) fn queued_reactions(
                 frame_path,
                 parent_path,
                 frame_group,
-                independent_parent_group: None,
+                independent_parent_group: (frame_scope
+                    == crate::engine::skill::condition::registry::ReactionFrameScope::Independent)
+                    .then(|| {
+                        independent_skill_groups
+                            .entry((subscriber.owner_uid, subscriber.skill_id))
+                            .or_default()
+                            .clone()
+                    }),
                 frame_owner: Some(FrameOwner::Skill {
-                    source_uid: subscriber.owner_uid,
+                    source_uid: frame_source_uid,
                     skill_id: subscriber.skill_id,
                     card_index: 0,
                     target_uid: reaction_skill_target(
@@ -1185,10 +1097,6 @@ pub(super) fn queued_reactions(
                 caster_frame: None,
             }
         }));
-    }
-    // As an action starts, reactions owned by others (its targets) resolve before the actor's own.
-    if let BattleEvent::SkillEffectStarted(action) = event {
-        reactions.sort_by_key(|reaction| reaction.subscriber_owner_uid == Some(action.source_uid));
     }
     Ok(reactions)
 }
@@ -1302,19 +1210,7 @@ pub(super) fn reaction_skill_target(
     match target {
         ReactionFrameTarget::Counterparty => reaction_counterparty(pool, event, owner_uid),
         ReactionFrameTarget::Owner => Some(owner_uid),
+        ReactionFrameTarget::EventTarget => event.target_uid(),
         ReactionFrameTarget::CausingFrame => current_skill_target.or_else(|| event.target_uid()),
     }
-}
-
-// A buff act declared to run after the causing action waits for that action to complete.
-fn waits_for_action(queued: &QueuedOp) -> bool {
-    matches!(
-        &queued.frame_owner,
-        Some(FrameOwner::BuffAct { key, .. })
-            if crate::engine::skill::buff_act::registry::find(key.opcode, key.type_name)
-                .is_some_and(|definition| {
-                    definition.runtime.execution_timing
-                        == crate::engine::skill::buff_act::registry::RuntimeExecutionTiming::AfterAction
-                })
-    )
 }

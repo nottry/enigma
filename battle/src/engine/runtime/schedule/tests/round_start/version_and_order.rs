@@ -1,6 +1,126 @@
 use super::*;
 
 #[test]
+fn version_seven_round_start_event_schedule_runs_each_owners_buff_gate() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    position: Some(1),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![40],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(20),
+                    position: Some(2),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![50],
+                    buffs: vec![BuffInfo {
+                        uid: Some(1000),
+                        buff_id: Some(999),
+                        from_uid: Some(20),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(30),
+                    position: Some(3),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![60],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let slot = |condition| {
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![condition];
+        slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+        slot
+    };
+    let round_start = || ParsedCondition {
+        opcode: 103,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    };
+    let buff_gate = ParsedCondition {
+        opcode: 19103,
+        type_name: "HasBuffId".to_owned(),
+        kind: ParsedConditionKind::BuffId {
+            mode: BuffConditionMode::Present,
+            buff_ids: vec![999],
+        },
+        raw_args: vec!["999".to_owned()],
+    };
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![slot(round_start())],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![slot(buff_gate)],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 60,
+        slots: vec![slot(round_start())],
+    });
+
+    let (round, _, _, _) = run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        0,
+    )
+    .unwrap();
+
+    let targets = round
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::ExPoint(crate::engine::manager::ex_point::ExPointChanges::Value {
+                change,
+                ..
+            }) => Some(change.target_uid),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(targets, [10, 20, 30]);
+    assert_eq!(managers.ex_point.get(10), 1);
+    assert_eq!(managers.ex_point.get(20), 1);
+    assert_eq!(managers.ex_point.get(30), 1);
+}
+
+#[test]
 fn version_seven_sync_interleaves_buff_sync_and_late_setup_by_owner() {
     init_config();
     let fight = Fight {
@@ -325,6 +445,16 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
     let sync = root_for_skill(70);
     let late = root_for_skill(40);
     let priority_three = root_for_skill(50);
+    let card_cleanup = round
+        .frames
+        .iter()
+        .position(|frame| {
+            matches!(
+                frame.owner,
+                FrameOwner::RoundPhase(RoundPhase::EntityCardCleanup)
+            )
+        })
+        .expect("version seven has an entity-card-cleanup owner");
     assert_eq!(sync, late);
     assert!(settlement < sync && sync < priority_three);
     assert!(matches!(
@@ -379,14 +509,23 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
         })
     }
     assert!(contains_change(
-        &round.frames[settlement],
+        &round.frames[card_cleanup],
         |change| matches!(change, BattleChange::Card(_))
     ));
     assert!(matches!(
         round.frames[settlement].items.iter().find_map(|item| match item {
-            FrameItem::Child(child) if matches!(child.owner, FrameOwner::SetupMechanic) => {
-                Some(child)
-            }
+            FrameItem::Child(side)
+                if matches!(
+                    side.trigger,
+                    FrameTrigger::Setup {
+                        stage: SetupStage::BuffGate,
+                        priority: 0,
+                    }
+                ) => side.items.iter().find_map(|item| match item {
+                    FrameItem::Child(mechanic)
+                        if matches!(mechanic.owner, FrameOwner::SetupMechanic) => Some(mechanic),
+                    FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
+                }),
             FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
         }),
         Some(frame)
@@ -426,14 +565,24 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
             )
         )
     ));
-    assert!(round
-        .frames
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| *index != settlement)
-        .all(|(_, frame)| {
-            !contains_change(frame, |change| matches!(change, BattleChange::Card(_)))
-                && !contains_change(frame, |change| {
+    assert!(
+        round
+            .frames
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != card_cleanup)
+            .all(|(_, frame)| {
+                !contains_change(frame, |change| matches!(change, BattleChange::Card(_)))
+            })
+    );
+    assert!(
+        round
+            .frames
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| *index != settlement)
+            .all(|(_, frame)| {
+                !contains_change(frame, |change| {
                     matches!(
                         change,
                         BattleChange::Conduit(
@@ -441,7 +590,8 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
                         )
                     )
                 })
-        }));
+            })
+    );
 }
 
 #[test]
@@ -690,6 +840,75 @@ fn round_start_excludes_before_ap_resolution_from_its_phase_buckets() {
             sonettobuf::effect_type_enum::EffectType::Cardspush as i32,
             sonettobuf::effect_type_enum::EffectType::Carddecknum as i32,
         ]
+    );
+}
+
+#[test]
+fn round_start_card_event_advances_buffs_added_late_in_round_start() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                passive_skill: vec![40],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(1, "AddBuff"), vec![30810116], Vec::new()),
+        TargetRequest::self_only(),
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 104,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 40,
+        slots: vec![slot],
+    });
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let (_, next_round) = run_round_start_split(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        1,
+    )
+    .unwrap();
+
+    assert!(!managers.buff.has_buff_id(10, 30810116));
+    let round_start_card = next_round
+        .events
+        .iter()
+        .position(|event| matches!(event, BattleEvent::Kind(EventKind::RoundStartCard)))
+        .expect("round-start-card event");
+    let expired = next_round
+        .events
+        .iter()
+        .position(
+            |event| matches!(event, BattleEvent::BuffRemoved(change) if change.buff_id == 30810116),
+        )
+        .expect("duration expiry");
+    assert!(round_start_card < expired);
+    assert_eq!(
+        next_round
+            .events
+            .iter()
+            .filter(|event| matches!(event, BattleEvent::Kind(EventKind::RoundStartCard)))
+            .count(),
+        1
     );
 }
 

@@ -1,5 +1,7 @@
 use super::*;
 
+mod device_ultimate;
+
 #[test]
 fn conduit_attack_does_not_begin_without_a_living_enemy() {
     init_config();
@@ -181,7 +183,7 @@ fn conduit_source_target_uses_the_first_living_main_ally_as_its_frame_anchor() {
                 crate::engine::runtime::record::FrameOwner::ConduitSkill {
                     source_uid: 10,
                     skill_id: 31490111,
-                    card_index: 1,
+                    device_index: 1,
                     target_uid: Some(20),
                     ..
                 }
@@ -525,7 +527,7 @@ fn conduit_attacks_keep_their_lifecycle_without_becoming_active_incantations() {
     assert!(result.outcomes.iter().any(|outcome| matches!(
         outcome,
         RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(action))
-            if action.mode == SkillExecutionMode::Device
+            if action.mode == SkillExecutionMode::Device && action.card_index == 0
     )));
     assert!(result.events.iter().any(|event| matches!(
         event,

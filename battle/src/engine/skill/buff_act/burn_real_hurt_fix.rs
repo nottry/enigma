@@ -5,6 +5,7 @@ use super::{is_kind, registry::BuffActKind};
 pub fn adjusted_amount(managers: &BattleManagers, owner_uid: i64, amount: i32) -> i32 {
     let mut reduction = 0i32;
     let mut floor = 0i32;
+    let mut configured = false;
     for feature in managers.buff.active_features(&managers.hp) {
         if feature.owner_uid != owner_uid || !is_kind(&feature, BuffActKind::BurnRealHurtFix) {
             continue;
@@ -12,8 +13,12 @@ pub fn adjusted_amount(managers: &BattleManagers, owner_uid: i64, amount: i32) -
         let [_, feature_reduction, feature_floor] = feature.values.as_slice() else {
             continue;
         };
+        configured = true;
         reduction = reduction.saturating_add(*feature_reduction);
         floor = floor.max(*feature_floor);
+    }
+    if !configured {
+        return amount;
     }
 
     let scaled = (i64::from(amount) * i64::from(1000i32.saturating_sub(reduction).max(0)) / 1000)
@@ -57,5 +62,27 @@ mod tests {
     fn joe_halves_burn_damage_without_crossing_the_configured_hp_floor() {
         assert_eq!(adjusted_amount(&managers(3_000), 10, 1_000), 500);
         assert_eq!(adjusted_amount(&managers(1_800), 10, 1_000), 300);
+    }
+
+    #[test]
+    fn burn_without_a_real_hurt_fix_preserves_overkill_damage() {
+        crate::test_support::init_config();
+        let managers = BattleManagers::seeded(&Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(300),
+                    attr: Some(HeroAttribute {
+                        hp: Some(10_000),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(adjusted_amount(&managers, 10, 1_000), 1_000);
     }
 }

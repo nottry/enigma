@@ -713,6 +713,21 @@ fn reset_preserves_the_attached_catalog() {
 }
 
 #[test]
+fn redeal_eligibility_fails_closed_without_complete_catalog_identity() {
+    crate::test_support::init_config();
+    let catalog = crate::catalog::BattleCatalog::new(crate::test_support::game_data());
+    let normal = card(10, 100);
+    let missing_skill = CardInfo {
+        uid: Some(10),
+        ..Default::default()
+    };
+
+    assert!(!is_redealable(&normal, None));
+    assert!(!is_redealable(&missing_skill, Some(catalog)));
+    assert!(is_redealable(&normal, Some(catalog)));
+}
+
+#[test]
 fn refill_keeps_drawing_after_compositions_until_the_hand_is_full() {
     let mut cards = CardManager::new(vec![card(1, 10), card(2, 20), card(3, 30), card(4, 40)]);
     cards.rank_up.insert((2, 20), 21);

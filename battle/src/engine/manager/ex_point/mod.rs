@@ -517,6 +517,12 @@ impl ExPointManager {
             .unwrap_or_default()
     }
 
+    pub fn maximum(&self, uid: i64) -> Option<i32> {
+        self.states
+            .get(&uid)
+            .map(|state| Self::cap_for_state(*state))
+    }
+
     pub fn is_full(&self, uid: i64) -> bool {
         self.states.get(&uid).is_some_and(|state| {
             let cap = Self::cap_for_state(*state);

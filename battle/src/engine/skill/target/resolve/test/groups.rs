@@ -31,7 +31,7 @@ fn other_allies_anchor_their_shared_skill_frame_to_the_caster() {
 }
 
 #[test]
-fn all_allies_target_preserves_the_selected_skill_frame_target() {
+fn mass_targets_preserve_the_selected_skill_frame_target() {
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![entity_at(10, 1), entity_at(11, 2)],
@@ -51,6 +51,7 @@ fn all_allies_target_preserves_the_selected_skill_frame_target() {
 
     assert!(preserves_selected_frame_target(130, 10, -1, &pool, attack));
     assert!(preserves_selected_frame_target(101, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(202, 10, -1, &pool, attack));
     assert!(preserves_selected_frame_target(1, 10, 11, &pool, attack));
     assert!(!preserves_selected_frame_target(1, 10, -1, &pool, attack));
 }
@@ -181,7 +182,7 @@ fn group_targets_keep_roster_order_for_attacks_and_reactions() {
 }
 
 #[test]
-fn multi_target_actions_keep_roster_order_independent_of_the_selected_target() {
+fn enemy_side_attacks_put_the_selected_primary_before_the_roster_order() {
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![entity_at(10, 1)],
@@ -211,7 +212,7 @@ fn multi_target_actions_keep_roster_order_independent_of_the_selected_target() {
                 ..Default::default()
             },
         ),
-        vec![-10, -11, -12]
+        vec![-11, -10, -12]
     );
 
     assert_eq!(

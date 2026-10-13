@@ -171,6 +171,75 @@ fn grant_reservations_advance_the_uid_lane_even_when_the_buff_refreshes() {
 }
 
 #[test]
+fn heat_scale_counter_reapply_keeps_state_and_consumes_one_normal_uid() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    manager.seed(&fight);
+    let grant = || {
+        BuffCommand::Grant(BuffGrant {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(1, "AddBuff"),
+            },
+            source_uid: 10,
+            target_uid: 10,
+            buff_id: 30810301,
+            amount: None,
+            occurrences: 1,
+            child_uid_reservations: 0,
+        })
+    };
+    let initial = manager
+        .execute(&HpManager::default(), grant())
+        .unwrap()
+        .change
+        .added
+        .expect("initial heat-scale counter");
+    let initial_uid = initial.buff.uid.expect("counter uid");
+    manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::SetState(BuffSetState {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(1062, "HeatScaleDecrCounter"),
+                },
+                target_uid: 10,
+                buff_uid: initial_uid,
+                ex_info: Some(37),
+                params: None,
+                act_info: None,
+            }),
+        )
+        .unwrap();
+
+    let changes = manager.execute(&HpManager::default(), grant()).unwrap();
+    let following = manager
+        .add(&HpManager::default(), 10, 10, 31340007, 0)
+        .unwrap();
+
+    assert_eq!(initial_uid, 1002);
+    assert!(changes.change.added.is_none());
+    assert!(changes.change.removed.is_empty());
+    assert!(changes.change.refreshed.is_empty());
+    assert_eq!(manager.snapshot(10, initial_uid).unwrap().ex_info, Some(37));
+    assert_eq!(following.buff.uid, Some(1006));
+}
+
+#[test]
 fn include_type_seven_does_not_reserve_hidden_uids() {
     crate::test_support::init_config();
     let fight = Fight {

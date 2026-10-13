@@ -459,7 +459,6 @@ fn action_start_subscribers_settle_before_the_ultimate_cost_frame() {
         skill_id: 999,
         slots: Vec::new(),
     });
-
     let result = run_player_action_queue(
         &mut managers,
         &pool,

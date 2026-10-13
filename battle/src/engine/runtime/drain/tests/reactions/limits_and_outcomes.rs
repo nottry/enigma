@@ -67,8 +67,8 @@ fn lucy_entity_defeat_follow_up_respects_its_configured_round_limit() {
         .unwrap();
         let effect = catalog.get(passive_skill).unwrap();
         let subscriber = dispatched
-            .skills
-            .iter()
+            .passes()
+            .flat_map(|pass| &pass.skills)
             .map(|(subscriber, _)| subscriber)
             .find(|subscriber| {
                 subscriber.skill_id == passive_skill
@@ -518,5 +518,8 @@ fn active_skill_publishes_hits_between_after_damage_and_after_hit_rows() {
         .unwrap();
 
     assert!(fear_act_info < fear_delete);
-    assert!(fear < attacked && attacked < combustion_cleanup && combustion_cleanup < shock_wave);
+    assert!(
+        fear < attacked && attacked < combustion_cleanup && combustion_cleanup < shock_wave,
+        "fear={fear} attacked={attacked} combustion_cleanup={combustion_cleanup} shock_wave={shock_wave}"
+    );
 }

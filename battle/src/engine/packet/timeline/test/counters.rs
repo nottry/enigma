@@ -69,7 +69,8 @@ fn zero_cost_conduit_activation_projects_zero_markers() {
     let frame = SemanticFrame {
         owner: FrameOwner::ConduitAction {
             source_uid: 10,
-            group: 1,
+            selected_group: 3,
+            device_index: 2,
             skill_position: 1,
             target_uid: Some(-1),
         },
@@ -100,7 +101,7 @@ fn zero_cost_conduit_activation_projects_zero_markers() {
                 owner: FrameOwner::ConduitSkill {
                     source_uid: 10,
                     skill_id: 31490111,
-                    card_index: 1,
+                    device_index: 2,
                     target_uid: Some(-1),
                 },
                 trigger: crate::engine::runtime::record::FrameTrigger::Active,
@@ -118,6 +119,8 @@ fn zero_cost_conduit_activation_projects_zero_markers() {
 
     let steps = project(&[frame]).unwrap();
     assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].card_index, Some(2));
+    assert_eq!(steps[0].support_hero_id, Some(1));
     let effects = &steps[0].act_effect;
     assert_eq!(
         effects
@@ -169,7 +172,7 @@ fn zero_cost_conduit_activation_projects_zero_markers() {
     );
     assert_eq!(
         child.fight_step.as_ref().and_then(|step| step.card_index),
-        Some(1)
+        Some(2)
     );
 }
 

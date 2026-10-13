@@ -68,6 +68,7 @@ pub enum BattleCommand {
     ExPoint(ExPointCommand),
     Eureka(EurekaCommand),
     Gauge(GaugeCommand),
+    RawGaugeBatch(Vec<GaugeCommand>),
     Emitter(EmitterCommand),
     Entity(EntityCommand),
     EntitySkill(EntitySkillCommand),
@@ -98,6 +99,8 @@ pub enum RuleOp {
     Publish(crate::engine::event::payload::BattleEvent),
     Skill(SkillInvocation),
     SkillLifecycle(SkillLifecycle),
+    DeathSettlement(crate::engine::manager::hp::DeathTransition),
+    TerminalSettlement,
     BeginSkillAction {
         lifecycle: SkillLifecycle,
         cost: ExPointCommand,

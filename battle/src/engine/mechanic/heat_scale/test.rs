@@ -11,7 +11,11 @@ use super::*;
 #[test]
 fn intermezzo_restores_and_clears_every_stored_value() {
     crate::test_support::init_config();
-    let stored = [(21, 30810301, 945), (22, 30810302, 3_982)];
+    let stored = [
+        (21, 30810301, 945),
+        (22, 30810302, 3_982),
+        (23, 30810303, 0),
+    ];
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![FightEntityInfo {
@@ -88,11 +92,9 @@ fn intermezzo_restores_and_clears_every_stored_value() {
             RuleOp::BuffActInfoMarker(first_marker),
             RuleOp::Command(BattleCommand::Buff(BuffCommand::SetInternalState(second))),
             RuleOp::BuffActInfoMarker(second_marker),
-            RuleOp::Command(BattleCommand::Gauge(GaugeCommand {
-                operation: GaugeOperation::AccumulateRawValue { amount: 4_927, .. },
-                raw_delta: Some(4_927),
-                ..
-            }))
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::SetInternalState(third))),
+            RuleOp::BuffActInfoMarker(third_marker),
+            RuleOp::Command(BattleCommand::RawGaugeBatch(commands))
         ] if first.buff_uid == 21
             && first.act_info.as_ref().is_some_and(|info| info[0].param == [0])
             && first_marker.buff_uid == 21
@@ -101,6 +103,22 @@ fn intermezzo_restores_and_clears_every_stored_value() {
             && second.act_info.as_ref().is_some_and(|info| info[0].param == [0])
             && second_marker.buff_uid == 22
             && second_marker.params == [0]
+            && third.buff_uid == 23
+            && third.act_info.as_ref().is_some_and(|info| info[0].param == [0])
+            && third_marker.buff_uid == 23
+            && third_marker.params == [0]
+            && matches!(commands.as_slice(), [
+                GaugeCommand {
+                    operation: GaugeOperation::AccumulateRawValue { amount: 945, .. },
+                    raw_delta: Some(945),
+                    ..
+                },
+                GaugeCommand {
+                    operation: GaugeOperation::AccumulateRawValue { amount: 3_982, .. },
+                    raw_delta: Some(3_982),
+                    ..
+                }
+            ])
     ));
     for op in ops {
         match op {
@@ -109,6 +127,9 @@ fn intermezzo_restores_and_clears_every_stored_value() {
             }
             RuleOp::Command(BattleCommand::Gauge(command)) => {
                 managers.execute_gauge(command).unwrap();
+            }
+            RuleOp::Command(BattleCommand::RawGaugeBatch(commands)) => {
+                managers.execute_raw_gauge_batch(commands).unwrap();
             }
             _ => {}
         }
@@ -212,11 +233,12 @@ fn intermezzo_preserves_sub_stack_raw_progress() {
 
     assert!(ops.iter().any(|op| matches!(
         op,
-        RuleOp::Command(BattleCommand::Gauge(GaugeCommand {
-            operation: GaugeOperation::AccumulateRawValue { amount: 973, .. },
-            raw_delta: Some(973),
-            ..
-        }))
+        RuleOp::Command(BattleCommand::RawGaugeBatch(commands))
+            if matches!(commands.as_slice(), [GaugeCommand {
+                operation: GaugeOperation::AccumulateRawValue { amount: 973, .. },
+                raw_delta: Some(973),
+                ..
+            }])
     )));
     for op in ops {
         match op {
@@ -225,6 +247,9 @@ fn intermezzo_preserves_sub_stack_raw_progress() {
             }
             RuleOp::Command(BattleCommand::Gauge(command)) => {
                 managers.execute_gauge(command).unwrap();
+            }
+            RuleOp::Command(BattleCommand::RawGaugeBatch(commands)) => {
+                managers.execute_raw_gauge_batch(commands).unwrap();
             }
             _ => {}
         }

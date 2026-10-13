@@ -220,6 +220,22 @@ fn exact_dead_alias_subscribes_to_entity_death() {
         find_key(812, "Dead").map(|definition| definition.reaction_frame_target),
         Some(ReactionFrameTarget::Owner)
     );
+    assert_eq!(
+        find_key(812, "Dead").map(|definition| definition.reaction_observer_scope),
+        Some(ReactionObserverScope::EventTarget)
+    );
+
+    let death = find_key(8, "Dead").unwrap();
+    assert_eq!(
+        death.reaction_observer_scope,
+        ReactionObserverScope::AnySubscriber
+    );
+    assert_eq!(death.reaction_frame_source, ReactionFrameSource::Side);
+    assert_eq!(
+        death.reaction_frame_target,
+        ReactionFrameTarget::EventTarget
+    );
+    assert_eq!(death.reaction_timing, ReactionTiming::Immediate);
 }
 
 #[test]
@@ -238,6 +254,10 @@ fn exact_self_exit_aliases_follow_the_exiting_owner() {
             }
         );
         assert_eq!(definition.reaction_frame_target, ReactionFrameTarget::Owner);
+        assert_eq!(
+            definition.reaction_observer_scope,
+            ReactionObserverScope::EventTarget
+        );
         assert!(parse(opcode, "Dead", &[]).is_none());
         assert!(parse(opcode, "SelfExit", &["1".into()]).is_none());
     }

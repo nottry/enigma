@@ -72,43 +72,36 @@ pub(super) fn sort_buff_by_hp_ops(
     let origin = super::command_origin(behavior)?;
     let mut ops = Vec::new();
     for (target_uid, _) in enemies {
-        let current = context.managers.buff.buff_id_amount(target_uid, buff_id);
         let assigned = remaining.min(stack_limit).max(0);
         remaining -= assigned;
-        if assigned == current {
-            continue;
-        }
-
         let buff_uid = context
             .managers
             .buff
             .active_for(target_uid)
             .find(|buff| buff.buff_id == Some(buff_id))
             .and_then(|buff| buff.uid);
-        let command = match (buff_uid, assigned) {
-            (Some(buff_uid), 0) => BuffCommand::Remove(BuffRemove {
-                origin,
-                target_uid,
-                selector: BuffRemoveSelector::Uid(buff_uid),
-            }),
-            (Some(buff_uid), assigned) => BuffCommand::SetAmount(BuffSetAmount {
-                origin,
-                target_uid,
-                buff_uid,
-                amount: BuffAmount::Layer(assigned),
-            }),
-            (None, assigned) if assigned > 0 => BuffCommand::Grant(BuffGrant {
-                origin,
-                source_uid: context.source_uid,
-                target_uid,
-                buff_id,
-                amount: Some(assigned),
-                occurrences: 1,
-                child_uid_reservations: 0,
-            }),
-            (None, _) => continue,
-        };
-        ops.push(RuleOp::Command(BattleCommand::Buff(command)));
+        if let Some(buff_uid) = buff_uid {
+            ops.push(RuleOp::Command(BattleCommand::Buff(
+                BuffCommand::RemoveAfterTrigger(BuffRemove {
+                    origin,
+                    target_uid,
+                    selector: BuffRemoveSelector::Uid(buff_uid),
+                }),
+            )));
+        }
+        if assigned > 0 {
+            ops.push(RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(
+                BuffGrant {
+                    origin,
+                    source_uid: context.source_uid,
+                    target_uid,
+                    buff_id,
+                    amount: Some(assigned),
+                    occurrences: 1,
+                    child_uid_reservations: 0,
+                },
+            ))));
+        }
     }
     Some(ops)
 }

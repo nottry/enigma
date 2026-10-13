@@ -196,6 +196,89 @@ fn depleted_stacked_consume_keeps_the_last_visible_layer_in_the_delete_snapshot(
 }
 
 #[test]
+fn depleted_capped_stack_reports_zero_in_the_delete_snapshot() {
+    crate::test_support::init_config();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(116330001),
+                    uid: Some(20),
+                    layer: Some(7),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    let changes = manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::Consume(BuffConsume {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(50014, "ConsumeBuffByTypeId"),
+                },
+                target_uid: 10,
+                selector: BuffSelector::IdOrType(116330001),
+                amount: 10,
+                depleted: DepletedBuff::Remove,
+            }),
+        )
+        .unwrap();
+
+    assert!(manager.snapshot(10, 20).is_none());
+    assert_eq!(changes.change.removed[0].before_amount, 7);
+    assert_eq!(changes.change.removed[0].buff.layer, Some(0));
+}
+
+#[test]
+fn explicit_zero_layer_removal_clears_a_depleted_stack_snapshot() {
+    crate::test_support::init_config();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(31270101),
+                    uid: Some(20),
+                    layer: Some(3),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    let changes = manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::Consume(BuffConsume {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(60260, "ConsumeBuffLayerAndOtherAddBuff"),
+                },
+                target_uid: 10,
+                selector: BuffSelector::IdOrType(31270101),
+                amount: 3,
+                depleted: DepletedBuff::RemoveWithZeroLayer,
+            }),
+        )
+        .unwrap();
+
+    assert!(manager.snapshot(10, 20).is_none());
+    assert_eq!(changes.change.removed[0].buff.layer, Some(0));
+}
+
+#[test]
 fn depleted_layer_consume_reports_zero_in_the_delete_snapshot() {
     crate::test_support::init_config();
     let mut manager = BuffManager::default();

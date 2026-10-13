@@ -21,10 +21,10 @@ pub use command::{
     CardDeckRankUpRange, CardDraw, CardEnchantHand, CardEnergyAllocation, CardEnergyChange,
     CardHandLimitChange, CardInvalidatePlayed, CardMarkTemporary, CardOpeningDraw,
     CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange, CardRankFailure, CardRankResult,
-    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue,
-    CardRemoveAiOwner, CardRemoveOwner, CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards,
-    CardSetUltimateAvailability, CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange,
-    QueuedCardRankUp, QueuedUseCard, TemporaryCardKind,
+    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
+    CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards, CardSetUltimateAvailability,
+    CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange, QueuedCardRankUp,
+    QueuedUseCard, TemporaryCardKind,
 };
 pub use deck::CardDeck;
 use deck::CardInstanceId;
@@ -714,7 +714,10 @@ impl CardManager {
     }
 
     pub(crate) fn redealable_cards(&self) -> impl Iterator<Item = &CardInfo> {
-        self.hand().iter().filter(|card| is_redealable(card))
+        let catalog = self.deck.catalog();
+        self.hand()
+            .iter()
+            .filter(move |card| is_redealable(card, catalog))
     }
 
     pub(crate) fn redealable_count(&self) -> usize {
@@ -761,7 +764,7 @@ impl CardManager {
             .deck
             .hand_mut()
             .iter_mut()
-            .filter(|card| is_redealable(card))
+            .filter(|card| is_redealable(card, catalog))
         {
             let Some(mut replacement) = replacements.next() else {
                 break;
@@ -1082,12 +1085,14 @@ impl CardManager {
     }
 }
 
-fn is_redealable(card: &CardInfo) -> bool {
+fn is_redealable(card: &CardInfo, catalog: Option<crate::catalog::BattleCatalog>) -> bool {
+    let Some(skill_id) = card.skill_id else {
+        return false;
+    };
     !card.temp_card.unwrap_or_default()
         && card.uid.unwrap_or_default() != 0
-        && !card
-            .skill_id
-            .is_some_and(crate::engine::skill::effect::catalog::configured_is_big_skill)
+        && !crate::engine::skill::effect::catalog::configured_is_big_skill(skill_id)
+        && catalog.is_some_and(|catalog| !catalog.is_special_power_card(skill_id))
 }
 
 #[cfg(test)]

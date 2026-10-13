@@ -531,6 +531,47 @@ fn action_expired_add_to_target_carrier_reserves_child_before_reapply() {
 }
 
 #[test]
+fn action_expiry_preserves_the_removed_stack_layer() {
+    crate::test_support::init_config();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(2130015),
+                    from_uid: Some(-1),
+                    layer: Some(2),
+                    count: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    let expired = manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::ExpireAction(BuffRemove {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(9, "OwnerCastSkillSlot"),
+                },
+                target_uid: 10,
+                selector: BuffRemoveSelector::Uid(20),
+            }),
+        )
+        .unwrap();
+
+    assert_eq!(expired.change.removed[0].buff.layer, Some(2));
+    assert_eq!(expired.change.removed[0].buff.count, Some(0));
+}
+
+#[test]
 fn emitter_attack_count_carrier_reserves_two_normal_uids_before_reapply() {
     crate::test_support::init_config();
     let mut manager = BuffManager::default();

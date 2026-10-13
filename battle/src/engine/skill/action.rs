@@ -6,6 +6,7 @@ use crate::engine::skill::rule::{CommandOrigin, DefinitionKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkillPhase {
+    SourceOpening,
     Immediate,
     Damage,
     AdditionalDamage,

@@ -583,7 +583,9 @@ fn additional_skill_owners(pool: &TargetPool, managers: &BattleManagers) -> Vec<
     managers
         .entity
         .passive_overrides()
-        .filter(|(owner_uid, _)| pool.entity(*owner_uid).is_none())
+        .filter(|(owner_uid, _)| {
+            pool.entity(*owner_uid).is_none() && managers.hp.current(*owner_uid) > 0
+        })
         .flat_map(|(owner_uid, passive_skills)| {
             passive_skills
                 .iter()

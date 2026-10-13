@@ -13,13 +13,13 @@ pub struct BuffActWireDefinition {
     add: &'static [i32],
     static_read: &'static [i32],
     refresh: &'static [i32],
-    pub initial_state: Option<InitialStateRule>,
     pub initial_state_marker: bool,
     pub initial_private_state: Option<InitialPrivateStateRule>,
     pub max_hp: Option<MaxHpWireRule>,
     pub pre_add: Option<WireEffect>,
     pub snapshot_reserve: Option<SnapshotReserveRule>,
     pub refreshes_unchanged: bool,
+    pub projects_initial_state_on_refresh: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,23 +33,6 @@ pub struct WireEffect {
     pub effect_type: i32,
     pub effect_num: i32,
     pub effect_num1: i32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InitialStateRule {
-    CrystalSelection,
-    ConduitCardSelection,
-    ButterflyAllowedSkillKinds,
-    ZeroInteger,
-    HeatScale,
-    CurrentHpPermille,
-    SourceAttackThreshold,
-    SourceAttackAttribute,
-    SourceAttackCapacity,
-    FirstArgument,
-    SecondArgument,
-    StringCounter,
-    GrantValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,13 +61,13 @@ impl BuffActWireDefinition {
             add,
             static_read,
             refresh,
-            initial_state: None,
             initial_state_marker: true,
             initial_private_state: None,
             max_hp: None,
             pre_add: None,
             snapshot_reserve: None,
             refreshes_unchanged: false,
+            projects_initial_state_on_refresh: false,
         }
     }
 
@@ -94,13 +77,13 @@ impl BuffActWireDefinition {
             add: markers,
             static_read: &[],
             refresh: &[],
-            initial_state: None,
             initial_state_marker: true,
             initial_private_state: None,
             max_hp: None,
             pre_add: None,
             snapshot_reserve: None,
             refreshes_unchanged: false,
+            projects_initial_state_on_refresh: false,
         }
     }
 
@@ -110,23 +93,17 @@ impl BuffActWireDefinition {
             add: markers,
             static_read: &[],
             refresh: markers,
-            initial_state: None,
             initial_state_marker: true,
             initial_private_state: None,
             max_hp: None,
             pre_add: None,
             snapshot_reserve: None,
             refreshes_unchanged: false,
+            projects_initial_state_on_refresh: false,
         }
     }
 
-    pub const fn with_initial_state(mut self, rule: InitialStateRule) -> Self {
-        self.initial_state = Some(rule);
-        self
-    }
-
-    pub const fn with_embedded_initial_state(mut self, rule: InitialStateRule) -> Self {
-        self.initial_state = Some(rule);
+    pub const fn without_initial_state_marker(mut self) -> Self {
         self.initial_state_marker = false;
         self
     }
@@ -165,6 +142,11 @@ impl BuffActWireDefinition {
         self
     }
 
+    pub const fn with_initial_state_refresh_projection(mut self) -> Self {
+        self.projects_initial_state_on_refresh = true;
+        self
+    }
+
     pub fn snapshot_reserve_str(self, params: Option<&str>) -> Option<String> {
         match self.snapshot_reserve? {
             SnapshotReserveRule::ActCommonParamsTail => Some(
@@ -190,7 +172,6 @@ impl BuffActWireDefinition {
         !self.add.is_empty()
             || !self.static_read.is_empty()
             || !self.refresh.is_empty()
-            || self.initial_state.is_some()
             || self.initial_private_state.is_some()
             || self.max_hp.is_some()
             || self.pre_add.is_some()

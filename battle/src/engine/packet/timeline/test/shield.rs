@@ -406,6 +406,12 @@ fn shield_transaction_projects_carrier_refresh_and_stacked_value() {
     );
     assert_eq!(effects[0].effect_num, Some(1_500));
     assert_eq!(effects[1].effect_type, Some(EffectType::Buffupdate as i32));
+
+    managers.hp.set_shield(10, 6_500);
+    let changes = crate::engine::manager::shield::execute(&mut managers, command).unwrap();
+    let effects = project_change_for_test(&BattleChange::Shield(Box::new(changes))).unwrap();
+    assert_eq!(effects.len(), 1);
+    assert_eq!(effects[0].effect_type, Some(EffectType::Buffupdate as i32));
 }
 
 #[test]

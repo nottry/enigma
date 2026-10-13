@@ -164,10 +164,7 @@ fn attribute_snapshot_rule_ops_for_team(
         let remaining = state.current / 2;
         let depleted = state.current - remaining;
         let team_uids = managers.buff.alive_team_uids(create.team, &managers.hp);
-        let renew_team_snapshot = rule == AttributeSnapshotRule::RenewTeam
-            && team_uids
-                .iter()
-                .any(|target_uid| !managers.buff.has_buff_id(*target_uid, buff_id));
+        let renew_team_snapshot = rule == AttributeSnapshotRule::RenewTeam;
         let targets = team_uids
             .into_iter()
             .filter(|target_uid| {
@@ -319,14 +316,7 @@ pub fn value_change_rule_ops(
         let GaugeOwner::Team(team) = command.key.owner else {
             return Vec::new();
         };
-        let modifier = heat_scale::lingering_glow_gain_modifier(
-            &managers.buff.active_features(&managers.hp),
-            team,
-        );
-        let adjusted_raw = (i64::from(raw_delta)
-            * i64::from(1_000_i32.saturating_add(modifier.max(-1_000)))
-            / 1_000)
-            .clamp(0, i64::from(i32::MAX)) as i32;
+        let adjusted_raw = adjusted_raw_gain(managers, team, raw_delta);
         command.operation = GaugeOperation::AccumulateRawValue {
             amount: adjusted_raw,
             stream: command.origin.key.opcode.max(1),
@@ -337,6 +327,19 @@ pub fn value_change_rule_ops(
         }
     }
     vec![RuleOp::Command(BattleCommand::Gauge(command))]
+}
+
+pub fn adjusted_raw_gain(
+    managers: &crate::engine::manager::BattleManagers,
+    team: i32,
+    raw_delta: i32,
+) -> i32 {
+    let modifier = heat_scale::lingering_glow_gain_modifier(
+        &managers.buff.active_features(&managers.hp),
+        team,
+    );
+    (i64::from(raw_delta) * i64::from(1_000_i32.saturating_add(modifier.max(-1_000))) / 1_000)
+        .clamp(0, i64::from(i32::MAX)) as i32
 }
 
 pub fn visible_counter_info(

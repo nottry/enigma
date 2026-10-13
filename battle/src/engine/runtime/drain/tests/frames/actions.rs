@@ -347,6 +347,101 @@ fn settled_player_death_removes_owned_cards_in_the_same_frame() {
 }
 
 #[test]
+fn non_action_death_settles_after_its_reaction_and_card_cleanup() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3002),
+                team_type: Some(1),
+                current_hp: Some(10_000),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(100101),
+                team_type: Some(2),
+                current_hp: Some(1),
+                passive_skill: vec![2345],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(500),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+    let origin = CommandOrigin {
+        domain: RuleDomain::Lifecycle,
+        key: DefinitionKey::new(0, "TestDeathSettlement"),
+    };
+    let result = run(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::from_fight(config::configs::get(), &fight),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [RuleOp::Command(BattleCommand::Hp(
+            crate::engine::manager::hp::HpCommand::Kill(crate::engine::manager::hp::HpKill {
+                origin,
+                source_uid: 10,
+                target_uid: -1,
+                config_effect: 1,
+            }),
+        ))],
+    )
+    .unwrap();
+
+    fn collect(step: &sonettobuf::FightStep, order: &mut Vec<&'static str>) {
+        if step.act_id == Some(2345) {
+            order.push("reaction");
+        }
+        for effect in &step.act_effect {
+            match effect.effect_type {
+                Some(value)
+                    if value
+                        == sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32 =>
+                {
+                    order.push("cleanup");
+                }
+                Some(value) if value == sonettobuf::effect_type_enum::EffectType::Dead as i32 => {
+                    order.push("death");
+                }
+                _ => {}
+            }
+            if let Some(child) = effect.fight_step.as_ref() {
+                collect(child, order);
+            }
+        }
+    }
+
+    let mut order = Vec::new();
+    for step in crate::engine::packet::timeline::project(&result.frames).unwrap() {
+        collect(&step, &mut order);
+    }
+    assert_eq!(order, ["reaction", "cleanup", "death"]);
+}
+
+#[test]
 fn ally_action_settles_the_acting_owners_take_stage_buff() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -417,7 +512,7 @@ fn ally_action_settles_the_acting_owners_take_stage_buff() {
 }
 
 #[test]
-fn an_action_start_queues_its_targets_reactions_before_the_actors() {
+fn queued_reactions_preserve_dispatch_pass_order() {
     use crate::engine::{
         event::{kind::EventKind, subscription::SubscriptionKey},
         skill::subscriber::SkillSubscriber,
@@ -470,10 +565,19 @@ fn an_action_start_queues_its_targets_reactions_before_the_actors() {
     let queued = queued_reactions(
         &TargetPool::default(),
         dispatcher::DispatchBatch {
-            skills: vec![
-                reaction(10, 433911, DefinitionKey::new(403203, "SkillExtraType")),
-                reaction(-1, 109380003, DefinitionKey::new(502202, "ActiveUseSkill")),
-            ],
+            skills: vec![reaction(
+                -1,
+                109380003,
+                DefinitionKey::new(502202, "ActiveUseSkill"),
+            )],
+            following: vec![dispatcher::DispatchBatch {
+                skills: vec![reaction(
+                    10,
+                    433911,
+                    DefinitionKey::new(403203, "SkillExtraType"),
+                )],
+                ..Default::default()
+            }],
             ..Default::default()
         },
         &started,

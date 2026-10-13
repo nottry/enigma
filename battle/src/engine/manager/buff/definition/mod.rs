@@ -260,6 +260,17 @@ impl BuffDefinition {
         &self,
         phase: crate::engine::skill::buff_act::wire::WirePhase,
     ) -> Vec<i32> {
+        if phase == crate::engine::skill::buff_act::wire::WirePhase::Refresh
+            && self.features.iter().any(|feature| {
+                feature.arguments_supported
+                    && feature.initial_state.is_some()
+                    && feature
+                        .wire
+                        .is_some_and(|wire| wire.projects_initial_state_on_refresh)
+            })
+        {
+            return Vec::new();
+        }
         self.features
             .iter()
             .filter(|feature| {
@@ -273,6 +284,17 @@ impl BuffDefinition {
                     .flat_map(move |definition| definition.markers(phase).iter().copied())
             })
             .collect()
+    }
+
+    pub(super) fn projects_initial_state_on_refresh(&self, act_id: i32) -> bool {
+        self.features.iter().any(|feature| {
+            feature.arguments_supported
+                && feature.values.first() == Some(&act_id)
+                && feature.initial_state.is_some()
+                && feature
+                    .wire
+                    .is_some_and(|wire| wire.projects_initial_state_on_refresh)
+        })
     }
 
     pub(super) fn marker_effect_num(
@@ -412,7 +434,7 @@ impl BuffDefinition {
         team_type: i32,
         current_hp: i32,
     ) -> Vec<super::BuffActInfoMarkerResult> {
-        use crate::engine::skill::buff_act::wire::InitialStateRule;
+        use crate::engine::skill::buff_act::registry::BuffActInitialStateRule;
 
         self.features
             .iter()
@@ -420,10 +442,10 @@ impl BuffDefinition {
                 if !feature.arguments_supported {
                     return None;
                 }
-                let definition = feature.wire?;
+                feature.wire?;
                 let act_id = feature.values.first().copied()?;
-                let (params, str_param, marker_team) = match definition.initial_state? {
-                    InitialStateRule::CrystalSelection => (
+                let (params, str_param, marker_team) = match feature.initial_state? {
+                    BuffActInitialStateRule::CrystalSelection => (
                         vec![
                             feature.values.get(1).copied().unwrap_or_default(),
                             feature.values.get(2).copied().unwrap_or_default(),
@@ -432,41 +454,40 @@ impl BuffDefinition {
                         String::new(),
                         team_type,
                     ),
-                    InitialStateRule::ConduitCardSelection => (
+                    BuffActInitialStateRule::ConduitCardSelection => (
                         crate::engine::skill::buff_act::conduit_select::initial_params(
                             feature.values.get(1..)?,
                         )?,
                         String::new(),
                         team_type,
                     ),
-                    InitialStateRule::ButterflyAllowedSkillKinds => (
+                    BuffActInitialStateRule::ButterflyAllowedSkillKinds => (
                         feature.values.get(3..)?.to_vec(),
                         format!("{},0,0", feature.values.get(1)?),
                         team_type,
                     ),
-                    InitialStateRule::ZeroInteger => (vec![0], String::new(), 0),
-                    InitialStateRule::HeatScale => (vec![0], String::new(), 0),
-                    InitialStateRule::CurrentHpPermille => (
+                    BuffActInitialStateRule::ZeroInteger => (vec![0], String::new(), 0),
+                    BuffActInitialStateRule::HeatScale => (vec![0], String::new(), 0),
+                    BuffActInitialStateRule::CurrentHpPermille => (
                         Vec::new(),
                         (current_hp * feature.values.get(1).copied().unwrap_or_default() / 1000)
                             .to_string(),
                         0,
                     ),
-                    InitialStateRule::SourceAttackThreshold
-                    | InitialStateRule::SourceAttackAttribute
-                    | InitialStateRule::SourceAttackCapacity => return None,
-                    InitialStateRule::FirstArgument => (
+                    BuffActInitialStateRule::SourceAttackThreshold
+                    | BuffActInitialStateRule::SourceAttackAttribute => return None,
+                    BuffActInitialStateRule::FirstArgument => (
                         vec![feature.values.get(1).copied().unwrap_or_default()],
                         String::new(),
                         0,
                     ),
-                    InitialStateRule::SecondArgument => (
+                    BuffActInitialStateRule::SecondArgument => (
                         vec![feature.values.get(2).copied().unwrap_or_default()],
                         String::new(),
                         0,
                     ),
-                    InitialStateRule::StringCounter => (Vec::new(), "0".to_owned(), 0),
-                    InitialStateRule::GrantValue => return None,
+                    BuffActInitialStateRule::StringCounter => (Vec::new(), "0".to_owned(), 0),
+                    BuffActInitialStateRule::GrantValue => return None,
                 };
                 Some(super::BuffActInfoMarkerResult {
                     target_uid,
@@ -484,9 +505,8 @@ impl BuffDefinition {
         self.features.iter().any(|feature| {
             feature.arguments_supported
                 && feature.values.first() == Some(&act_id)
-                && feature
-                    .wire
-                    .is_some_and(|wire| wire.initial_state.is_some() && wire.initial_state_marker)
+                && feature.initial_state.is_some()
+                && feature.wire.is_some_and(|wire| wire.initial_state_marker)
         })
     }
 
@@ -517,12 +537,12 @@ impl BuffDefinition {
             .features
             .iter()
             .filter_map(|feature| {
-                use crate::engine::skill::buff_act::wire::InitialStateRule;
+                use crate::engine::skill::buff_act::registry::BuffActInitialStateRule;
 
-                let initial_state = feature.wire?.initial_state?;
+                let initial_state = feature.initial_state?;
                 let act_id = *feature.values.first()?;
                 match initial_state {
-                    InitialStateRule::SourceAttackThreshold => Some(sonettobuf::BuffActInfo {
+                    BuffActInitialStateRule::SourceAttackThreshold => Some(sonettobuf::BuffActInfo {
                         act_id: Some(act_id),
                         param: Vec::new(),
                         str_param: Some(
@@ -533,7 +553,7 @@ impl BuffDefinition {
                             .to_string(),
                         ),
                     }),
-                    InitialStateRule::SourceAttackAttribute => {
+                    BuffActInitialStateRule::SourceAttackAttribute => {
                         let (attr_id, value) =
                             crate::engine::skill::buff_act::attr_from_entity_no_layer::snapshot(
                                 source_attack?,
@@ -545,15 +565,7 @@ impl BuffDefinition {
                             str_param: Some(format!("{}#{value}", attr_id.id())),
                         })
                     }
-                    InitialStateRule::SourceAttackCapacity => Some(sonettobuf::BuffActInfo {
-                        act_id: Some(act_id),
-                        param: crate::engine::skill::buff_act::lost_hp_to_fake_hp::initial_state(
-                            source_attack?,
-                            feature.values.get(1..)?,
-                        )?,
-                        str_param: Some(String::new()),
-                    }),
-                    InitialStateRule::GrantValue => {
+                    BuffActInitialStateRule::GrantValue => {
                         let value = grant_values
                             .iter()
                             .find_map(|(actual, value)| (*actual == act_id).then_some(*value))?;
@@ -687,7 +699,9 @@ impl BuffDefinition {
     }
 
     pub(super) fn merges_timed_layers(&self) -> bool {
-        self.has_include_type(BuffIncludeType::Stacked12)
+        [BuffIncludeType::Layer, BuffIncludeType::Stacked12]
+            .into_iter()
+            .any(|kind| self.has_include_type(kind))
     }
 
     pub(super) fn reserves_child_on_layer_refresh(&self) -> bool {
@@ -707,6 +721,10 @@ impl BuffDefinition {
 
     pub(super) fn clears_layer_on_depletion(&self) -> bool {
         self.is_layer_type()
+            || (!self.is_no_show
+                && self.cannot_remove
+                && self.has_include_type(BuffIncludeType::Stacked)
+                && self.stack_max_layer() > 0)
     }
 
     pub(super) fn uses_typed_count(&self) -> bool {
@@ -893,9 +911,16 @@ impl BuffDefinition {
                             crate::engine::skill::buff_act::registry::BuffActKind::HaloBase
                                 | crate::engine::skill::buff_act::registry::BuffActKind::MasterHalo
                                 | crate::engine::skill::buff_act::registry::BuffActKind::LayerMasterHalo
+                                | crate::engine::skill::buff_act::registry::BuffActKind::HeatScaleDecrCounter
                         )
                     )
                 }))
+    }
+
+    pub(super) fn reserves_normal_uid_on_kept_reapply(&self) -> bool {
+        self.features
+            .iter()
+            .any(|feature| feature.kind == Some(BuffActKind::HeatScaleDecrCounter))
     }
 
     pub(super) fn is_enhanced_passive_variant_of(&self, incoming: &Self) -> bool {

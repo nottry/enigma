@@ -27,8 +27,8 @@ pub(crate) use command::BuffPlan;
 pub use command::{
     BuffAccumulateActValue, BuffAccumulateCappedActState, BuffAmount, BuffChangeDuration,
     BuffChanges, BuffChildUidReservation, BuffCommand, BuffCommandError, BuffConsume, BuffConvert,
-    BuffDispel, BuffDurationAdvance, BuffGrant, BuffGrantChild, BuffGrantRelation,
-    BuffGrantUidReservation, BuffLifecycleTransition, BuffMasterHaloFanout, BuffRefreshDuration,
+    BuffDispel, BuffDurationAdvance, BuffEntryHaloFanout, BuffGrant, BuffGrantChild,
+    BuffGrantRelation, BuffGrantUidReservation, BuffLifecycleTransition, BuffRefreshDuration,
     BuffRefreshDurationBySelector, BuffRefreshWire, BuffRemove, BuffRemoveSelector, BuffReplace,
     BuffRoundStartDurationSync, BuffSelector, BuffSetAmount, BuffSetState, BuffSpecialCount,
     BuffStateSnapshotWire, DepletedBuff, RelatedBuffGrant,

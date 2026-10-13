@@ -32,7 +32,15 @@ fn generic_round_end_keys_keep_their_exact_timing() {
     );
     assert_eq!(
         parse(305, "None", &[]),
-        Some(ParsedConditionKind::None(NoneMode::RoundEnd))
+        Some(ParsedConditionKind::None(NoneMode::RoundEndAfterSettlement))
+    );
+}
+
+#[test]
+fn entity_entry_reactions_are_siblings_of_the_causing_event_skill() {
+    assert_eq!(
+        find_key(5, "EnterFight").map(|definition| definition.reaction_frame_scope),
+        Some(ReactionFrameScope::EventSibling)
     );
 }
 
@@ -41,6 +49,26 @@ fn round_end_frames_target_the_passive_owner() {
     assert_eq!(
         find_key(302, "None").map(|definition| definition.reaction_frame_target),
         Some(ReactionFrameTarget::Owner)
+    );
+}
+
+#[test]
+fn replacement_round_end_reactions_own_an_independent_frame() {
+    let definition = find_key(305, "None").unwrap();
+    assert_eq!(
+        definition.role,
+        ConditionRole::Trigger {
+            event: EventKind::RoundEndAfterOwnerSettlement,
+            phase: None,
+        }
+    );
+    assert_eq!(
+        definition.reaction_frame_scope,
+        ReactionFrameScope::Independent
+    );
+    assert_eq!(
+        find_key(306, "None").map(|definition| definition.reaction_frame_scope),
+        Some(ReactionFrameScope::Subscriber)
     );
 }
 
@@ -85,6 +113,24 @@ fn cast_time_effect_tag_uses_the_pre_effect_event() {
         find_key(34203, "UseSkillEffectTag").map(|definition| definition.role),
         Some(ConditionRole::Trigger {
             event: EventKind::SkillEffectStarted,
+            phase: Some(SkillPhase::Immediate),
+        })
+    );
+}
+
+#[test]
+fn source_opening_uses_its_own_pre_reaction_phase() {
+    assert_eq!(
+        find_key(201, "None").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::SourceOpening),
+        })
+    );
+    assert_eq!(
+        find_key(203, "None").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
             phase: Some(SkillPhase::Immediate),
         })
     );
@@ -583,6 +629,29 @@ fn round_start_unconditional_condition_keeps_its_entity_frame() {
         }
     );
     assert_eq!(definition.setup_frame_scope, SetupFrameScope::Entity);
+}
+
+#[test]
+fn small_round_end_buff_type_threshold_keeps_its_exact_route() {
+    assert_eq!(
+        parse(
+            51301,
+            "HasTypeIdBuffMoreThan",
+            &["116330004".into(), "3".into()]
+        ),
+        Some(ParsedConditionKind::BuffTypeCount {
+            type_ids: vec![116330004],
+            compare: super::super::super::ConditionCompare::GreaterThanOrEqual,
+            threshold: 3,
+        })
+    );
+    assert_eq!(
+        find_key(51301, "HasTypeIdBuffMoreThan").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SmallRoundEnd,
+            phase: None,
+        })
+    );
 }
 
 #[test]

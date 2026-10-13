@@ -197,10 +197,10 @@ fn exact_target_team_career_count_keeps_its_round_start_route() {
 }
 
 #[test]
-fn only_the_proven_enter_fight_key_reactivates_after_transform() {
+fn enter_fight_reactivates_for_the_entered_or_transformed_owner() {
     assert_eq!(
         find_key(5, "EnterFight").unwrap().reactivation_events,
-        &[EventKind::EntityTransformed]
+        &[EventKind::EntityEntered, EventKind::EntityTransformed]
     );
     assert!(
         find_key(595002, "TargetIncludeHero")
@@ -459,7 +459,7 @@ fn small_round_end_buff_and_status_gates_keep_separate_exact_keys() {
 }
 
 #[test]
-fn round_end_buff_id_gate_keeps_its_exact_key() {
+fn after_settlement_buff_id_gate_keeps_its_exact_key() {
     assert_eq!(
         parse(19304, "HasBuffId", &["11410032".into()]),
         Some(ParsedConditionKind::BuffId {
@@ -470,7 +470,7 @@ fn round_end_buff_id_gate_keeps_its_exact_key() {
     assert_eq!(
         find_key(19304, "HasBuffId").map(|definition| definition.role),
         Some(ConditionRole::Trigger {
-            event: EventKind::RoundEnd,
+            event: EventKind::RoundEndAfterSettlement,
             phase: None,
         })
     );

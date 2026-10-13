@@ -359,6 +359,13 @@ pub fn run_entity_settlement(
     };
     let mut result = DrainResult::default();
     let mut settlement_changes = Vec::new();
+    let mut active_owner_uids = owner_uids
+        .iter()
+        .copied()
+        .filter(|owner_uid| {
+            pool.entity(*owner_uid).is_none() || managers.hp.current(*owner_uid) > 0
+        })
+        .collect::<Vec<_>>();
     for step in schedule {
         let next = match step {
             SettlementStep::OwnerEvent(kind) => {
@@ -371,7 +378,7 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::BuffActs,
                     )?;
                     let mut skills = drain::run_grouped_owner_event(
@@ -381,13 +388,28 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::Skills,
                     )?;
                     if skills.events.first() == Some(&event) {
                         skills.events.remove(0);
                     }
                     append(&mut result, skills);
+                    let owner_settled = BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement);
+                    let mut after_owners = drain::run_grouped_owner_event(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        owner_settled.clone(),
+                        &active_owner_uids,
+                        drain::ReactionLane::Skills,
+                    )?;
+                    if after_owners.events.first() == Some(&owner_settled) {
+                        after_owners.events.remove(0);
+                    }
+                    append(&mut result, after_owners);
                     result
                 } else {
                     let mut result = drain::run_grouped_owner_event(
@@ -397,7 +419,7 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::Skills,
                     )?;
                     if *kind == EventKind::RoundEndEntitySettlement {
@@ -408,7 +430,7 @@ pub fn run_entity_settlement(
                             determinism,
                             context,
                             event.clone(),
-                            owner_uids,
+                            &active_owner_uids,
                             drain::ReactionLane::BuffActs,
                         )?;
                         if buff_acts.events.first() == Some(&event) {
@@ -426,7 +448,7 @@ pub fn run_entity_settlement(
                     catalog,
                     determinism,
                     context,
-                    owner_uids,
+                    &active_owner_uids,
                 )?;
                 settlement_changes = settlement
                     .events
@@ -450,7 +472,7 @@ pub fn run_entity_settlement(
                 context,
                 [RuleOp::Command(BattleCommand::Eureka(
                     EurekaCommand::ResetRound {
-                        owner_uids: owner_uids.to_vec(),
+                        owner_uids: active_owner_uids.clone(),
                     },
                 ))],
             )?,
@@ -464,6 +486,11 @@ pub fn run_entity_settlement(
             append_round_phase(&mut result, next);
         } else {
             append(&mut result, next);
+        }
+        if matches!(step, SettlementStep::Settlement) {
+            active_owner_uids.retain(|owner_uid| {
+                pool.entity(*owner_uid).is_none() || managers.hp.current(*owner_uid) > 0
+            });
         }
     }
     Ok(EntitySettlement {

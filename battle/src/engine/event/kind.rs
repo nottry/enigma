@@ -49,5 +49,6 @@ pub enum EventKind {
     // After the final settlement's buff durations advance.
     RoundEndAfterFinalSettlement,
     RoundEndAfterSettlement,
+    RoundEndAfterOwnerSettlement,
     Riposte,
 }

@@ -109,7 +109,7 @@ impl SkillEffectCatalog {
             .or_else(|| self.effects.get(&skill_id))
     }
 
-    pub fn random_skill_references(&self, skill_id: i32) -> Vec<i32> {
+    pub fn random_skill_choice_references(&self, skill_id: i32) -> Vec<i32> {
         let Some(effect) = self.get(skill_id) else {
             return Vec::new();
         };
@@ -120,9 +120,7 @@ impl SkillEffectCatalog {
                 let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
                 matches!(
                     definition.kind,
-                    BehaviorKind::RandomUseSkill
-                        | BehaviorKind::CrystalReuse
-                        | BehaviorKind::RemoveBuffUseSkill
+                    BehaviorKind::RandomUseSkill | BehaviorKind::RemoveBuffUseSkill
                 )
                 .then(|| (definition.references)(&slot.behavior).skills)
             })

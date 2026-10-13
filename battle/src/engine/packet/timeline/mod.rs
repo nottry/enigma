@@ -140,33 +140,37 @@ fn project_frame(
         FrameOwner::ConduitSkill {
             source_uid,
             skill_id,
-            card_index,
+            device_index,
             target_uid,
         } => Ok(Some(normalize_framed_step(
             EffectPacket::conduit_skill_fight_step(
                 *skill_id,
                 *source_uid,
                 target_uid.unwrap_or_default(),
-                *card_index,
+                *device_index,
                 effects,
             ),
         ))),
         FrameOwner::ConduitAction {
             source_uid,
-            group,
+            selected_group: _,
+            device_index,
             skill_position,
             target_uid,
         } => Ok(Some(normalize_framed_step(
             EffectPacket::conduit_fight_step(
                 *source_uid,
                 target_uid.unwrap_or_default(),
-                *group,
+                *device_index,
                 *skill_position,
                 effects,
             ),
         ))),
-        FrameOwner::ConduitStopped { source_uid, group } => Ok(Some(normalize_framed_step(
-            EffectPacket::conduit_fight_step(*source_uid, 0, *group, 1, effects),
+        FrameOwner::ConduitStopped {
+            source_uid,
+            device_index,
+        } => Ok(Some(normalize_framed_step(
+            EffectPacket::conduit_fight_step(*source_uid, 0, *device_index, 1, effects),
         ))),
         FrameOwner::BuffAct {
             owner_uid,

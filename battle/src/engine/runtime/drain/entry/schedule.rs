@@ -18,6 +18,8 @@ pub fn run_command_group(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::DeathSettlement(_)
+                | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }
                 | RuleOp::BuffFeatureMarker { .. }
                 | RuleOp::EffectMarker { .. }
@@ -376,6 +378,55 @@ pub fn run_skill_setup_schedule(
         SetupFrameContainer::Standalone,
         SetupDispatch::Skills,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_version_seven_round_start_event_setup(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    const OWNER_SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::RoundStart, 1), (SetupStage::BuffGate, 0)];
+    const TRANSITION_SCHEDULE: &[(SetupStage, i32)] = &[(SetupStage::RoundTransitionStart, 1)];
+
+    let mut result = DrainResult::default();
+    for owner_uid in owner_uids {
+        let owner_result = run_setup_schedule_with_dispatch(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            OWNER_SCHEDULE,
+            Some(std::slice::from_ref(owner_uid)),
+            SetupFrameContainer::RoundPhase,
+            SetupDispatch::All,
+        )?;
+        result.outcomes.extend(owner_result.outcomes);
+        result.events.extend(owner_result.events);
+        result.frames.extend(owner_result.frames);
+    }
+    for owner_uid in owner_uids {
+        let owner_result = run_setup_schedule_with_dispatch(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            TRANSITION_SCHEDULE,
+            Some(std::slice::from_ref(owner_uid)),
+            SetupFrameContainer::RoundPhase,
+            SetupDispatch::All,
+        )?;
+        result.outcomes.extend(owner_result.outcomes);
+        result.events.extend(owner_result.events);
+        result.frames.extend(owner_result.frames);
+    }
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]

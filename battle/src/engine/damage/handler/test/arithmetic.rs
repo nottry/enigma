@@ -135,6 +135,47 @@ fn burn_reduces_ordinary_healing_but_not_full_restores() {
 }
 
 #[test]
+fn injury_rate_does_not_scale_with_the_owning_buffs_layer() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(1_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(1),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    ..Default::default()
+                }),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(116330001),
+                    uid: Some(20),
+                    layer: Some(5),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+
+    assert_eq!(super::heal::modified(1_000, 10, -1, &managers), 700);
+}
+
+#[test]
 fn nasty_wound_reduces_healing_taken_by_its_configured_value() {
     crate::test_support::init_config();
     let fight = sonettobuf::Fight {

@@ -246,6 +246,7 @@ pub(super) fn apply_event_context(
             context.active_skill_is_attack = action.is_attack;
             context.active_skill_rank = action.rank;
             context.active_skill_type = action.skill_type;
+            context.damage_target_count_kind = action.skill_type;
             context.active_skill_effect_tag = action.effect_tag;
             context.active_skill_assassinate = action.assassinate;
             context.active_skill_mode = action.mode;
@@ -269,6 +270,7 @@ pub(super) fn apply_event_context(
             context.active_skill_is_attack = action.is_attack;
             context.active_skill_rank = action.rank;
             context.active_skill_type = action.skill_type;
+            context.damage_target_count_kind = action.skill_type;
             context.active_skill_effect_tag = action.effect_tag;
             context.additional_moxie = action.additional_moxie;
             context.active_skill_mode = action.mode;

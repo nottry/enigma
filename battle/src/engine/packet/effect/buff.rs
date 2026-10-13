@@ -118,6 +118,12 @@ impl EffectPacket {
                 Self::buff_add(added)
             });
         }
+        effects.extend(
+            changes
+                .refresh_initial_state_markers
+                .iter()
+                .map(Self::buff_act_info_marker),
+        );
         for (index, refreshed) in change.refreshed.iter().enumerate() {
             let snapshot_markers = changes
                 .state_snapshot_wire
@@ -164,17 +170,19 @@ impl EffectPacket {
         change
             .pre_markers
             .iter()
-            .map(|marker| {
-                Self::buff_act_info_with_team_and_str(
-                    marker.target_uid,
-                    marker.buff_uid,
-                    marker.act_id,
-                    marker.params.clone(),
-                    marker.str_param.clone().unwrap_or_default(),
-                    marker.team_type,
-                )
-            })
+            .map(Self::buff_act_info_marker)
             .collect()
+    }
+
+    fn buff_act_info_marker(marker: &BuffActInfoMarkerResult) -> ActEffect {
+        Self::buff_act_info_with_team_and_str(
+            marker.target_uid,
+            marker.buff_uid,
+            marker.act_id,
+            marker.params.clone(),
+            marker.str_param.clone().unwrap_or_default(),
+            marker.team_type,
+        )
     }
 
     fn buff_add_body(change: &BuffApplyResult) -> Vec<ActEffect> {

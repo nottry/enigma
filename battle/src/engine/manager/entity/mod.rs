@@ -17,6 +17,7 @@ pub(crate) enum RosterLane {
     Main,
     Reserve,
     Special,
+    Replaced,
     Inactive,
 }
 
@@ -214,6 +215,15 @@ impl EntityManager {
                     .get(&command.source_uid)
                     .copied()
                     .ok_or(EntityCommandError::MissingSource)?;
+                let defeated_index = self.order.iter().position(|uid| {
+                    self.teams.get(uid) == Some(&team_type)
+                        && self.roster_lanes.get(uid) == Some(&RosterLane::Main)
+                        && self
+                            .identities
+                            .get(uid)
+                            .is_some_and(|entity| entity.position == Some(position))
+                        && hp.current(*uid) <= 0
+                });
                 let uid = self.next_special_uid;
                 let entity = Defender::build_monster(catalog, model_id, uid, position, team_type)
                     .map_err(|_| EntityCommandError::MissingModel)?;
@@ -223,6 +233,12 @@ impl EntityManager {
                 self.roster_lanes.insert(uid, RosterLane::Main);
                 self.order.push(uid);
                 self.identity_order.push(uid);
+                if let Some(defeated_index) = defeated_index {
+                    let defeated_uid = self.order[defeated_index];
+                    self.roster_lanes.insert(defeated_uid, RosterLane::Replaced);
+                    let summoned_index = self.order.len() - 1;
+                    self.order.swap(defeated_index, summoned_index);
+                }
                 entity
             }
             EntityOperation::SummonSpecial { model_id } => {
@@ -547,7 +563,12 @@ impl EntityManager {
             .filter(|uid| {
                 matches!(
                     self.roster_lanes.get(uid),
-                    Some(RosterLane::Main | RosterLane::Reserve | RosterLane::Inactive)
+                    Some(
+                        RosterLane::Main
+                            | RosterLane::Reserve
+                            | RosterLane::Replaced
+                            | RosterLane::Inactive
+                    )
                 )
             })
             .filter(|uid| hp.current(*uid) <= 0)

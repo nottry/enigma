@@ -109,11 +109,11 @@ fn skill_target_choices(
     }
 
     fn visit(catalog: &SkillEffectCatalog, step: &FightStep, choices: &mut Vec<SkillTargetChoice>) {
-        if let Some((skill_id, source_uid)) = step
+        let actor = step
             .act_id
             .filter(|skill_id| *skill_id > 0)
-            .zip(step.from_id.filter(|source_uid| *source_uid != 0))
-        {
+            .zip(step.from_id.filter(|source_uid| *source_uid != 0));
+        if let Some((skill_id, source_uid)) = actor {
             let mut choice = SkillTargetChoice {
                 skill_id,
                 source_uid,
@@ -335,7 +335,7 @@ fn crit_choices(
 
 fn random_skill_choices(catalog: &SkillEffectCatalog, round: &FightRound) -> Vec<i32> {
     fn visit(catalog: &SkillEffectCatalog, step: &FightStep, choices: &mut Vec<i32>) {
-        let references = catalog.random_skill_references(step.act_id.unwrap_or_default());
+        let references = catalog.random_skill_choice_references(step.act_id.unwrap_or_default());
         for child in step
             .act_effect
             .iter()
