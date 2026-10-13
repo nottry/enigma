@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(
             deaths
                 .iter()
-                .map(|death| death.target_uid)
+                .map(|death| death.transition().target_uid)
                 .collect::<Vec<_>>(),
             vec![11]
         );

@@ -624,10 +624,21 @@ fn attack_consumption_waits_for_hit_reactions() {
     .unwrap();
 
     assert!(reactions.after_publish.is_empty());
-    assert_eq!(reactions.after_hit.len(), 1);
+    assert_eq!(
+        reactions
+            .after_hit
+            .iter()
+            .filter(|queued| !matches!(queued.op, RuleOp::SubscriberGroupComplete))
+            .count(),
+        1
+    );
     assert!(matches!(
         reactions.after_hit[0].op,
         RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(_)))
+    ));
+    assert!(matches!(
+        reactions.after_hit.last().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
     ));
 }
 
@@ -708,7 +719,17 @@ fn damage_based_rebound_routes_once_and_removes_the_counter() {
     .unwrap();
     let mut queue = std::collections::VecDeque::from(dispatched.into_ordered());
 
-    assert_eq!(queue.len(), 3);
+    assert_eq!(
+        queue
+            .iter()
+            .filter(|queued| !matches!(queued.op, RuleOp::SubscriberGroupComplete))
+            .count(),
+        3
+    );
+    assert!(matches!(
+        queue.back().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
+    ));
     let result = drain_queue_with_frames(
         &mut managers,
         &pool,
@@ -857,10 +878,34 @@ fn shared_damage_subscription_carries_event_batch_ownership() {
     )
     .unwrap();
 
+    let first = first.into_ordered();
+    let second = second.into_ordered();
+    assert_eq!(
+        first
+            .iter()
+            .filter(|queued| matches!(queued.op, RuleOp::SubscriberGroupComplete))
+            .count(),
+        1
+    );
+    assert_eq!(
+        second
+            .iter()
+            .filter(|queued| matches!(queued.op, RuleOp::SubscriberGroupComplete))
+            .count(),
+        1
+    );
+    assert!(matches!(
+        first.last().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
+    ));
+    assert!(matches!(
+        second.last().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
+    ));
+
     let casts = first
-        .into_ordered()
         .into_iter()
-        .chain(second.into_ordered())
+        .chain(second)
         .filter_map(|queued| match queued.op {
             RuleOp::Skill(
                 invocation @ SkillInvocation {

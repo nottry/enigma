@@ -350,7 +350,7 @@ fn hp_batch_preserves_command_death_order() {
         outcome
             .take_deaths()
             .into_iter()
-            .map(|death| death.target_uid)
+            .map(|death| death.transition().target_uid)
             .collect::<Vec<_>>(),
         vec![-2, -1]
     );

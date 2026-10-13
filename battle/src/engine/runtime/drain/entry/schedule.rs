@@ -19,6 +19,7 @@ pub fn run_command_group(
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
                 | RuleOp::DeathSettlement(_)
+                | RuleOp::SubscriberGroupComplete
                 | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }
                 | RuleOp::BuffFeatureMarker { .. }
@@ -40,7 +41,7 @@ pub fn run_command_group(
                 frame_group: None,
                 independent_parent_group: None,
                 frame_owner: None,
-                subscriber_owner_uid: None,
+                subscriber: None,
                 caster_frame: None,
             }
         })

@@ -140,9 +140,29 @@ struct QueuedOp {
     frame_group: Option<Rc<RefCell<Option<FramePath>>>>,
     independent_parent_group: Option<Rc<RefCell<Option<FramePath>>>>,
     frame_owner: Option<FrameOwner>,
-    subscriber_owner_uid: Option<i64>,
+    subscriber: Option<SubscriberContext>,
     // The reaction step that cast a held skill, recreated when the skill runs.
     caster_frame: Option<FrameOwner>,
+}
+
+#[derive(Clone)]
+struct SubscriberContext {
+    owner_uid: i64,
+    group: Option<Rc<RefCell<SubscriberDeathGroup>>>,
+}
+
+impl SubscriberContext {
+    fn new(owner_uid: i64) -> Self {
+        Self {
+            owner_uid,
+            group: None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct SubscriberDeathGroup {
+    deaths: Vec<(crate::engine::manager::hp::PendingDeath, FramePath)>,
 }
 
 fn queued_defeated_owner_card_cleanup(
@@ -183,7 +203,7 @@ fn queued_defeated_owner_card_cleanup(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::RoundPhase(RoundPhase::EntityCardCleanup)),
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     })
 }
@@ -206,7 +226,7 @@ fn queued_death_settlement(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::EventRule),
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }
 }
@@ -221,7 +241,7 @@ fn queued_terminal_settlement(event: BattleEvent, parent_path: &[usize]) -> Queu
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }
 }
@@ -314,6 +334,73 @@ impl ReactionBatch {
             .chain(self.after_skill)
             .chain(self.after_action)
             .collect()
+    }
+
+    fn assign_subscriber_death_groups(&mut self, action_path: Option<&[usize]>) {
+        if action_path.is_some() {
+            assign_subscriber_death_groups(&mut [
+                &mut self.before_publish,
+                &mut self.after_publish,
+                &mut self.after_settlement,
+                &mut self.after_skill,
+                &mut self.after_hit,
+                &mut self.before_after_hit_observers,
+                &mut self.after_hit_skills,
+                &mut self.shared_hit_skills,
+                &mut self.after_action,
+            ]);
+        } else {
+            assign_subscriber_death_groups(&mut [
+                &mut self.before_publish,
+                &mut self.after_publish,
+                &mut self.after_settlement,
+                &mut self.after_skill,
+                &mut self.after_action,
+            ]);
+        }
+    }
+}
+
+fn assign_subscriber_death_groups(queues: &mut [&mut Vec<QueuedOp>]) {
+    for queued in queues.iter_mut() {
+        queued.retain(|op| !matches!(op.op, RuleOp::SubscriberGroupComplete));
+    }
+    let mut groups = HashMap::<i64, Rc<RefCell<SubscriberDeathGroup>>>::new();
+    let mut latest = HashMap::<i64, (usize, usize)>::new();
+    for (queue_index, queued) in queues.iter_mut().enumerate() {
+        for (op_index, op) in queued.iter_mut().enumerate() {
+            let Some(subscriber) = op.subscriber.as_mut() else {
+                continue;
+            };
+            let group = groups.entry(subscriber.owner_uid).or_default().clone();
+            subscriber.group = Some(group);
+            latest.insert(subscriber.owner_uid, (queue_index, op_index));
+        }
+    }
+
+    let mut completions = latest.into_iter().collect::<Vec<_>>();
+    completions.sort_unstable_by_key(|(_, location)| std::cmp::Reverse(*location));
+    for (owner_uid, (queue_index, op_index)) in completions {
+        let after = &queues[queue_index][op_index];
+        let subscriber = after
+            .subscriber
+            .as_ref()
+            .expect("subscriber completion follows subscriber work")
+            .clone();
+        debug_assert_eq!(subscriber.owner_uid, owner_uid);
+        let completion = QueuedOp {
+            op: RuleOp::SubscriberGroupComplete,
+            trigger: after.trigger.clone(),
+            skill_execution: None,
+            frame_path: None,
+            parent_path: None,
+            frame_group: None,
+            independent_parent_group: None,
+            frame_owner: None,
+            subscriber: Some(subscriber),
+            caster_frame: None,
+        };
+        queues[queue_index].insert(op_index + 1, completion);
     }
 }
 
@@ -559,7 +646,7 @@ fn drain_queue_with_deferred(
         frame_group,
         independent_parent_group,
         frame_owner,
-        subscriber_owner_uid,
+        subscriber,
         caster_frame,
     }) = queue.pop_front()
     {
@@ -583,9 +670,8 @@ fn drain_queue_with_deferred(
         }
         if crate::engine::diagnostics::enabled(crate::engine::diagnostics::TraceArea::Drain) {
             let summary = format!("{op:?}").chars().take(240).collect::<String>();
-            eprintln!(
-                "drain depth={depth} owner={subscriber_owner_uid:?} frame={frame_owner:?} op={summary}"
-            );
+            let owner_uid = subscriber.as_ref().map(|subscriber| subscriber.owner_uid);
+            eprintln!("drain depth={depth} owner={owner_uid:?} frame={frame_owner:?} op={summary}");
         }
 
         // Previous operations may have changed HP, buffs, entities, or resources.
@@ -608,14 +694,16 @@ fn drain_queue_with_deferred(
             .and_then(|group| state.action_reaction_link(group))
             .or_else(|| state.reaction_child_link(frame_path.as_ref()))
             .or_else(|| state.reaction_child_link(parent_path.as_ref()));
-        if matches!(trigger, SkillOpTrigger::Event(_))
+        if !matches!(op, RuleOp::SubscriberGroupComplete)
+            && matches!(trigger, SkillOpTrigger::Event(_))
             && !frame_group_started
             && managers
                 .terminal_outcome()
                 .and_then(|outcome| outcome.winning_team())
                 .is_some_and(|winning_team| {
-                    subscriber_owner_uid
-                        .and_then(|owner_uid| base_pool.team_type(owner_uid))
+                    subscriber
+                        .as_ref()
+                        .and_then(|subscriber| base_pool.team_type(subscriber.owner_uid))
                         .is_some_and(|team| team != winning_team)
                 })
         {
@@ -651,6 +739,32 @@ fn drain_queue_with_deferred(
             parent_path
         };
         match op {
+            RuleOp::SubscriberGroupComplete => {
+                let group = subscriber
+                    .as_ref()
+                    .and_then(|subscriber| subscriber.group.as_ref())
+                    .expect("subscriber group completion keeps its group identity");
+                let deaths = state
+                    .take_subscriber_deaths(group)
+                    .into_iter()
+                    .filter(|(death, _)| managers.hp.is_current_death(*death))
+                    .map(|(death, parent_path)| (death.transition(), parent_path))
+                    .collect::<Vec<_>>();
+                let mut settlements = deaths
+                    .iter()
+                    .map(|(death, parent_path)| queued_death_settlement(*death, parent_path))
+                    .collect::<Vec<_>>();
+                if let Some((death, parent_path)) = deaths.first() {
+                    settlements.push(queued_terminal_settlement(
+                        BattleEvent::EntityDied(crate::engine::event::payload::EntityDiedEvent {
+                            source_uid: death.source_uid,
+                            target_uid: death.target_uid,
+                        }),
+                        parent_path,
+                    ));
+                }
+                prepend(queue, settlements);
+            }
             RuleOp::TerminalSettlement => {
                 commit_terminal(managers, base_pool, context, state, &mut result.events);
             }
@@ -759,7 +873,8 @@ fn drain_queue_with_deferred(
                 {
                     for death in deaths
                         .into_iter()
-                        .filter(|death| managers.hp.current(death.target_uid) == 0)
+                        .filter(|death| managers.hp.is_current_death(*death))
+                        .map(crate::engine::manager::hp::PendingDeath::transition)
                     {
                         push_change(
                             &mut result.frames,
@@ -888,7 +1003,7 @@ fn drain_queue_with_deferred(
                                 frame_group: None,
                                 independent_parent_group: None,
                                 frame_owner: None,
-                                subscriber_owner_uid: None,
+                                subscriber: subscriber.clone(),
                                 caster_frame: None,
                             };
                             // Like manager follow-ups, wait for the enclosing action; with no
@@ -917,7 +1032,7 @@ fn drain_queue_with_deferred(
                                 frame_group: None,
                                 independent_parent_group: None,
                                 frame_owner: Some(frame_owner),
-                                subscriber_owner_uid: None,
+                                subscriber: subscriber.clone(),
                                 caster_frame: None,
                             },
                             None => QueuedOp {
@@ -929,7 +1044,7 @@ fn drain_queue_with_deferred(
                                 frame_group: None,
                                 independent_parent_group: None,
                                 frame_owner: None,
-                                subscriber_owner_uid: None,
+                                subscriber: subscriber.clone(),
                                 caster_frame: None,
                             },
                         }),
@@ -945,7 +1060,7 @@ fn drain_queue_with_deferred(
                         frame_group: None,
                         independent_parent_group: None,
                         frame_owner: None,
-                        subscriber_owner_uid: None,
+                        subscriber: subscriber.clone(),
                         caster_frame: None,
                     });
                 }
@@ -1006,7 +1121,7 @@ fn drain_queue_with_deferred(
                         frame_group,
                         independent_parent_group,
                         frame_owner,
-                        subscriber_owner_uid,
+                        subscriber,
                         caster_frame,
                     });
                     prepend(queue, observers);
@@ -1287,6 +1402,7 @@ fn drain_queue_with_deferred(
                     before_reactions
                         .before_publish
                         .append(&mut started_reactions.after_publish);
+                    before_reactions.assign_subscriber_death_groups(action_scope.as_deref());
                     started_after_reactions = Some(started_reactions);
                 }
                 result.events.extend(events.iter().cloned());
@@ -1605,9 +1721,9 @@ fn drain_queue_with_deferred(
                 // Active-action deaths wait for the shared HitPassives release.
                 let settled_deaths = pending_deaths
                     .into_iter()
-                    .filter(|death| managers.hp.current(death.target_uid) == 0)
+                    .filter(|death| managers.hp.is_current_death(*death))
                     .collect::<Vec<_>>();
-                let mut terminal_death = settled_deaths.first().copied();
+                let mut terminal_death = settled_deaths.first().map(|death| death.transition());
                 let mut cleanup_deaths = Vec::new();
                 let mut non_action_deaths = Vec::new();
                 let active_action_scope = action_scope.as_ref().filter(|path| {
@@ -1616,15 +1732,29 @@ fn drain_queue_with_deferred(
                 if let Some(action_scope) = active_action_scope {
                     state.record_deaths(action_scope.clone(), settled_deaths.iter().copied());
                 } else {
-                    cleanup_deaths.extend(settled_deaths.iter().copied());
-                    non_action_deaths.extend(settled_deaths.iter().copied());
+                    cleanup_deaths.extend(settled_deaths.iter().map(|death| death.transition()));
+                    if let Some(group) = subscriber
+                        .as_ref()
+                        .and_then(|subscriber| subscriber.group.as_ref())
+                    {
+                        state.record_subscriber_deaths(
+                            group,
+                            &event_scope,
+                            settled_deaths.iter().copied(),
+                        );
+                        terminal_death = None;
+                    } else {
+                        non_action_deaths
+                            .extend(settled_deaths.iter().map(|death| death.transition()));
+                    }
                 }
                 if releases_pending_hits && let Some(action_scope) = active_action_scope {
                     let deaths = state
                         .take_deaths(action_scope)
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|death| managers.hp.current(death.target_uid) == 0)
+                        .filter(|death| managers.hp.is_current_death(*death))
+                        .map(crate::engine::manager::hp::PendingDeath::transition)
                         .collect::<Vec<_>>();
                     for death in &deaths {
                         push_change(
@@ -1764,7 +1894,7 @@ fn drain_queue_with_deferred(
                         frame_group: None,
                         independent_parent_group: None,
                         frame_owner: deferred_followup_owner.clone(),
-                        subscriber_owner_uid: None,
+                        subscriber: subscriber.clone(),
                         caster_frame: None,
                     };
                     if let Some(skill_path) = skill_path {

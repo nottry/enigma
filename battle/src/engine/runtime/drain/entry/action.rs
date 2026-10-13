@@ -19,7 +19,7 @@ pub fn run(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         })
         .collect::<VecDeque<_>>();
@@ -44,7 +44,7 @@ pub fn run_skill(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }]);
     drain_queue(managers, pool, catalog, determinism, context, &mut queue)
@@ -115,7 +115,7 @@ pub fn run_action_with_cost(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         })
         .collect::<VecDeque<_>>();
@@ -128,7 +128,7 @@ pub fn run_action_with_cost(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     });
     drain_queue_with_frames(
@@ -224,7 +224,7 @@ pub fn run_conduit_action(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
         QueuedOp {
@@ -242,7 +242,7 @@ pub fn run_conduit_action(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
     ]);
@@ -258,7 +258,7 @@ pub fn run_conduit_action(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         });
     }
@@ -272,7 +272,7 @@ pub fn run_conduit_action(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         });
     }
@@ -291,7 +291,7 @@ pub fn run_conduit_action(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
         QueuedOp {
@@ -320,7 +320,7 @@ pub fn run_conduit_action(
                 device_index,
                 target_uid: frame_target_uid,
             }),
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
         QueuedOp {
@@ -337,7 +337,7 @@ pub fn run_conduit_action(
             frame_group: Some(skill_frame.clone()),
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
         QueuedOp {
@@ -354,7 +354,7 @@ pub fn run_conduit_action(
             frame_group: Some(skill_frame),
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         },
     ]);
@@ -401,7 +401,7 @@ pub fn run_conduit_stop(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }]);
     drain_queue_with_frames(

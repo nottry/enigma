@@ -30,7 +30,7 @@ fn queued_entity_entry_halo_fanout(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::EventRule),
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     })
 }
@@ -78,7 +78,7 @@ fn queued_invalid_ultimate_removal(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::EventRule),
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     })
 }
@@ -105,7 +105,7 @@ fn queued_buff_act_feature_op(
             buff_id: feature.buff_id,
             key,
         }),
-        subscriber_owner_uid: Some(feature.owner_uid),
+        subscriber: Some(SubscriberContext::new(feature.owner_uid)),
         caster_frame: None,
     })
 }
@@ -160,6 +160,7 @@ pub(super) fn dispatch_event_groups(
         )?;
         reactions.append(group);
     }
+    reactions.assign_subscriber_death_groups(action_path);
     Ok(reactions)
 }
 
@@ -180,7 +181,7 @@ pub(super) fn dispatch_event_batch(
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
 ) -> Result<ReactionBatch, DrainError> {
-    dispatch_event_batch_inner(
+    let mut reactions = dispatch_event_batch_inner(
         pool,
         managers,
         catalog,
@@ -198,7 +199,9 @@ pub(super) fn dispatch_event_batch(
         None,
         &mut EventBatchState::default(),
         &mut std::collections::HashSet::new(),
-    )
+    )?;
+    reactions.assign_subscriber_death_groups(action_path);
+    Ok(reactions)
 }
 
 #[derive(Default)]
@@ -483,7 +486,7 @@ pub(super) fn dispatch_reactions(
                 buff_id: feature.buff_id,
                 key: definition.key,
             }),
-            subscriber_owner_uid: Some(feature.owner_uid),
+            subscriber: Some(SubscriberContext::new(feature.owner_uid)),
             caster_frame: None,
         };
         if timing == crate::engine::event::subscription::ReactionTiming::AfterAction {
@@ -570,7 +573,7 @@ pub(super) fn dispatch_reactions(
                             buff_id: expiry.buff_id,
                             key: expiry.trigger.key(),
                         }),
-                        subscriber_owner_uid: None,
+                        subscriber: None,
                         caster_frame: None,
                     }),
             );
@@ -701,7 +704,7 @@ pub(super) fn dispatch_reactions(
                 frame_group: None,
                 independent_parent_group: None,
                 frame_owner: Some(FrameOwner::EventRule),
-                subscriber_owner_uid: None,
+                subscriber: None,
                 caster_frame: None,
             }));
         if publication_phase.is_none_or(|phase| {
@@ -832,6 +835,7 @@ pub(super) fn dispatch_owner_reactions(
     if let Some(fanout) = queued_entity_entry_halo_fanout(event, None) {
         reactions.push(fanout);
     }
+    assign_subscriber_death_groups(&mut [&mut reactions]);
     Ok(reactions)
 }
 
@@ -1018,7 +1022,7 @@ fn queued_reaction_pass(
                     )
                     .or(reentry_target),
                 }),
-                subscriber_owner_uid: Some(subscriber.owner_uid),
+                subscriber: Some(SubscriberContext::new(subscriber.owner_uid)),
                 caster_frame: None,
             })
         })
@@ -1105,7 +1109,7 @@ fn queued_reaction_pass(
                         }
                     },
                 ),
-                subscriber_owner_uid: Some(subscriber.owner_uid),
+                subscriber: Some(SubscriberContext::new(subscriber.owner_uid)),
                 caster_frame: None,
             }
         }));

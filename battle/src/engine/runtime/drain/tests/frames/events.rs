@@ -181,7 +181,7 @@ fn bloodtithe_spend_keeps_atomic_changes_in_their_semantic_frames() {
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }]);
 
@@ -567,4 +567,281 @@ fn lifecycle_event_enters_the_same_subscriber_drain() {
 
     assert!(after_death.outcomes.is_empty());
     assert_eq!(managers.ex_point.get(10), 1);
+}
+
+#[test]
+fn unscoped_deferred_lane_does_not_strand_death_settlement() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::RoundEndEntitySettlement,
+    ));
+    let queued = |op| QueuedOp {
+        op,
+        trigger: trigger.clone(),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: Some(SubscriberContext::new(-1)),
+        caster_frame: None,
+    };
+    let mut reactions = ReactionBatch {
+        after_publish: vec![queued(RuleOp::Command(BattleCommand::Hp(
+            crate::engine::manager::hp::HpCommand::Kill(crate::engine::manager::hp::HpKill {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(701, "TestDamage"),
+                },
+                source_uid: 10,
+                target_uid: -1,
+                config_effect: 1,
+            }),
+        )))],
+        after_hit_skills: vec![queued(RuleOp::BuffFeatureMarker {
+            target_uid: -1,
+            effect_type: 357,
+            effect_num: 1,
+            buff_act_id: 702,
+        })],
+        ..Default::default()
+    };
+    reactions.assign_subscriber_death_groups(None);
+    assert!(matches!(
+        reactions.after_publish.last().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
+    ));
+    assert!(
+        !reactions
+            .after_hit_skills
+            .iter()
+            .any(|queued| matches!(queued.op, RuleOp::SubscriberGroupComplete))
+    );
+
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut reactions.into_ordered().into(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 0);
+    assert_eq!(
+        result
+            .outcomes
+            .iter()
+            .filter(|outcome| matches!(outcome, RuleOutcome::DeathSettlement(_)))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn death_outside_the_subscriber_group_supersedes_its_pending_transition() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::default();
+    let mut determinism = RoundDeterminism::default();
+    let mut result = DrainResult::default();
+    let mut state = DrainState::new(TargetContext::default());
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::RoundEndEntitySettlement,
+    ));
+    let queued = |op, subscriber: Option<SubscriberContext>| QueuedOp {
+        op,
+        trigger: trigger.clone(),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber,
+        caster_frame: None,
+    };
+    let kill = |source_uid, opcode, name| {
+        RuleOp::Command(BattleCommand::Hp(
+            crate::engine::manager::hp::HpCommand::Kill(crate::engine::manager::hp::HpKill {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(opcode, name),
+                },
+                source_uid,
+                target_uid: -1,
+                config_effect: 1,
+            }),
+        ))
+    };
+    let outer_group = Rc::new(RefCell::new(SubscriberDeathGroup::default()));
+    let outer = SubscriberContext {
+        owner_uid: -1,
+        group: Some(outer_group),
+    };
+    drain_nested_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        [queued(kill(10, 701, "OuterDamage"), Some(outer.clone()))].into(),
+        &mut result,
+        &mut state,
+    )
+    .unwrap();
+
+    drain_nested_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        [
+            queued(
+                RuleOp::Command(BattleCommand::Hp(
+                    crate::engine::manager::hp::HpCommand::Heal(
+                        crate::engine::manager::hp::HpHeal {
+                            origin: CommandOrigin {
+                                domain: RuleDomain::BuffAct,
+                                key: DefinitionKey::new(702, "NestedRevive"),
+                            },
+                            source_uid: 11,
+                            target_uid: -1,
+                            amount: 1,
+                            config_effect: 1,
+                            kind: crate::engine::manager::hp::HpHealKind::Revive,
+                        },
+                    ),
+                )),
+                None,
+            ),
+            queued(kill(11, 703, "NestedDamage"), None),
+        ]
+        .into(),
+        &mut result,
+        &mut state,
+    )
+    .unwrap();
+    drain_nested_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        [queued(RuleOp::SubscriberGroupComplete, Some(outer))].into(),
+        &mut result,
+        &mut state,
+    )
+    .unwrap();
+
+    assert_eq!(
+        result
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                RuleOutcome::DeathSettlement(death) => Some(*death),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        [crate::engine::manager::hp::DeathTransition {
+            source_uid: 11,
+            target_uid: -1,
+        }]
+    );
+}
+
+#[test]
+fn deferred_same_owner_batches_share_one_final_completion() {
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::SkillAction,
+    ));
+    let queued = |buff_act_id| QueuedOp {
+        op: RuleOp::BuffFeatureMarker {
+            target_uid: 10,
+            effect_type: 357,
+            effect_num: 1,
+            buff_act_id,
+        },
+        trigger: trigger.clone(),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: Some(SubscriberContext::new(10)),
+        caster_frame: None,
+    };
+    let action_path = vec![0];
+    let batch = |buff_act_id| {
+        let mut reactions = ReactionBatch {
+            after_hit_skills: vec![queued(buff_act_id)],
+            ..Default::default()
+        };
+        reactions.assign_subscriber_death_groups(Some(&action_path));
+        reactions.after_hit_skills
+    };
+    let mut state = DrainState::new(TargetContext::default());
+    state.defer_after_hit_skills(Some(&action_path), batch(701));
+    state.defer_after_hit_skills(Some(&action_path), batch(702));
+    let queued = state.take_after_hit_skills(Some(&action_path)).unwrap();
+
+    assert_eq!(
+        queued
+            .iter()
+            .filter(|queued| matches!(queued.op, RuleOp::SubscriberGroupComplete))
+            .count(),
+        1
+    );
+    assert!(matches!(
+        queued.last().map(|queued| &queued.op),
+        Some(RuleOp::SubscriberGroupComplete)
+    ));
 }

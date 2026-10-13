@@ -505,7 +505,7 @@ fn project_change(
                 }
             }
             if let Some(death) = changes.death {
-                effects.push(EffectPacket::dead(death.target_uid));
+                effects.push(EffectPacket::dead(death.transition().target_uid));
             }
             effects
         }

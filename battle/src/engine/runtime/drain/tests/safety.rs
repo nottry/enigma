@@ -10,7 +10,7 @@ fn queued(op: RuleOp) -> QueuedOp {
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }
 }
@@ -493,7 +493,7 @@ fn terminal_skips_unstarted_losing_subscribers_by_presentation_frame_owner() {
                 frame_group: Some(Rc::new(RefCell::new(Some(path.clone())))),
                 independent_parent_group: None,
                 frame_owner: Some(owner.clone()),
-                subscriber_owner_uid: Some(-1),
+                subscriber: Some(SubscriberContext::new(-1)),
                 caster_frame: None,
             },
             QueuedOp {
@@ -517,7 +517,7 @@ fn terminal_skips_unstarted_losing_subscribers_by_presentation_frame_owner() {
                 frame_group: Some(Rc::new(RefCell::new(None))),
                 independent_parent_group: None,
                 frame_owner: Some(losing_frame_owner),
-                subscriber_owner_uid: Some(-2),
+                subscriber: Some(SubscriberContext::new(-2)),
                 caster_frame: None,
             },
         ]);

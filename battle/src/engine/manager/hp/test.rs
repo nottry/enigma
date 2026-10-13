@@ -100,7 +100,7 @@ fn damage_command_commits_shield_hp_crit_and_death_once() {
     assert_eq!(changes.hp.unwrap().hurt.unwrap().reduce_hp, -50);
     assert_eq!(changes.applied_damage(), 70);
     assert!(changes.hp.unwrap().hurt.unwrap().is_crit);
-    assert_eq!(changes.death.unwrap().target_uid, 10);
+    assert_eq!(changes.death.unwrap().transition().target_uid, 10);
     assert_eq!(
         changes.events(),
         vec![
@@ -586,4 +586,85 @@ fn kill_bypasses_shield_and_publishes_only_the_death_transition() {
     ));
     changes.death.take();
     assert!(changes.caused_death());
+}
+
+#[test]
+fn revive_and_rekill_invalidates_the_prior_death_transition() {
+    let mut hp = HpManager::default();
+    hp.states.insert(
+        10,
+        HpState {
+            current: 1,
+            max: 100,
+            base_max: 100,
+        },
+    );
+    let origin = CommandOrigin {
+        domain: RuleDomain::BuffAct,
+        key: DefinitionKey::new(1, "TestHpTransition"),
+    };
+    let outer = hp
+        .execute_command(HpCommand::Kill(HpKill {
+            origin,
+            source_uid: 1,
+            target_uid: 10,
+            config_effect: 1,
+        }))
+        .unwrap()
+        .death
+        .unwrap();
+    hp.execute_command(HpCommand::Heal(HpHeal {
+        origin,
+        source_uid: 2,
+        target_uid: 10,
+        amount: 1,
+        config_effect: 1,
+        kind: HpHealKind::Revive,
+    }))
+    .unwrap();
+    let nested = hp
+        .execute_command(HpCommand::Kill(HpKill {
+            origin,
+            source_uid: 2,
+            target_uid: 10,
+            config_effect: 1,
+        }))
+        .unwrap()
+        .death
+        .unwrap();
+
+    assert!(!hp.is_current_death(outer));
+    assert!(hp.is_current_death(nested));
+    assert_eq!(nested.transition().source_uid, 2);
+
+    hp.heal(10, 1, 1).unwrap();
+    assert!(!hp.is_current_death(nested));
+
+    let before_register = hp
+        .execute_command(HpCommand::Kill(HpKill {
+            origin,
+            source_uid: 2,
+            target_uid: 10,
+            config_effect: 1,
+        }))
+        .unwrap()
+        .death
+        .unwrap();
+    hp.register(&FightEntityInfo {
+        uid: Some(10),
+        current_hp: Some(1),
+        ..Default::default()
+    });
+    let after_register = hp
+        .execute_command(HpCommand::Kill(HpKill {
+            origin,
+            source_uid: 3,
+            target_uid: 10,
+            config_effect: 1,
+        }))
+        .unwrap()
+        .death
+        .unwrap();
+    assert!(!hp.is_current_death(before_register));
+    assert!(hp.is_current_death(after_register));
 }

@@ -121,7 +121,7 @@ fn after_skill_reaction_waits_for_remaining_ops_in_the_skill_frame() {
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         }
     }
@@ -291,7 +291,7 @@ fn active_skill_rates_freeze_after_immediate_reactions_and_before_later_gauge_ch
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     };
     let mut queue = VecDeque::from([

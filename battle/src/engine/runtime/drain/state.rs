@@ -5,12 +5,15 @@ use std::{
 };
 
 use crate::engine::{
-    manager::hp::DeathTransition,
+    manager::hp::PendingDeath,
     runtime::record::{FrameOwner, FramePath},
     skill::{rule::DefinitionKey, target::TargetContext},
 };
 
-use super::{DefenderCardCleanupOwner, DrainBudget, DrainError, QueuedOp};
+use super::{
+    DefenderCardCleanupOwner, DrainBudget, DrainError, QueuedOp, SubscriberDeathGroup,
+    assign_subscriber_death_groups,
+};
 
 type FrameGroup = Rc<RefCell<Option<FramePath>>>;
 type DeferredCast = (Option<FrameOwner>, QueuedOp);
@@ -47,7 +50,7 @@ pub(super) struct DrainState {
     event_batch_reactions: HashMap<u64, HashSet<ActionReactionKey>>,
     next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
-    deaths: HashMap<FramePath, Vec<DeathTransition>>,
+    deaths: HashMap<FramePath, Vec<PendingDeath>>,
     target_modifiers: HashMap<FramePath, i32>,
     budget: DrainBudget,
     context: TargetContext,
@@ -423,13 +426,39 @@ impl DrainState {
     pub(super) fn record_deaths(
         &mut self,
         action_path: FramePath,
-        deaths: impl IntoIterator<Item = DeathTransition>,
+        deaths: impl IntoIterator<Item = PendingDeath>,
     ) {
         self.deaths.entry(action_path).or_default().extend(deaths);
     }
 
-    pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<DeathTransition>> {
+    pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<PendingDeath>> {
         self.deaths.remove(action_path)
+    }
+
+    pub(super) fn record_subscriber_deaths(
+        &mut self,
+        group: &Rc<RefCell<SubscriberDeathGroup>>,
+        parent_path: &FramePath,
+        deaths: impl IntoIterator<Item = PendingDeath>,
+    ) {
+        let mut group = group.borrow_mut();
+        for death in deaths {
+            let current = (death, parent_path.clone());
+            if let Some(existing) = group.deaths.iter_mut().find(|(recorded, _)| {
+                recorded.transition().target_uid == death.transition().target_uid
+            }) {
+                *existing = current;
+            } else {
+                group.deaths.push(current);
+            }
+        }
+    }
+
+    pub(super) fn take_subscriber_deaths(
+        &mut self,
+        group: &Rc<RefCell<SubscriberDeathGroup>>,
+    ) -> Vec<(PendingDeath, FramePath)> {
+        std::mem::take(&mut group.borrow_mut().deaths)
     }
 }
 
@@ -443,5 +472,6 @@ fn defer(
     };
     let existing = deferred.entry(action_path.to_vec()).or_default();
     queued.append(existing);
+    assign_subscriber_death_groups(&mut [&mut queued]);
     *existing = queued;
 }

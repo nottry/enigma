@@ -151,7 +151,7 @@ impl RuleOutcome {
         }
     }
 
-    pub(crate) fn take_deaths(&mut self) -> Vec<crate::engine::manager::hp::DeathTransition> {
+    pub(crate) fn take_deaths(&mut self) -> Vec<crate::engine::manager::hp::PendingDeath> {
         match self {
             Self::Hp(execution) => execution.changes.take_deaths_with_shares(),
             Self::HpBatch(changes) => changes
@@ -492,6 +492,9 @@ pub(crate) fn execute_rule_op_with(
             Ok(RuleOutcome::PublishedEvent)
         }
         RuleOp::DeathSettlement(death) => Ok(RuleOutcome::DeathSettlement(death)),
+        RuleOp::SubscriberGroupComplete => {
+            unreachable!("subscriber group completion is owned by the runtime drain")
+        }
         RuleOp::TerminalSettlement => {
             unreachable!("terminal settlement is owned by the runtime drain")
         }

@@ -362,7 +362,7 @@ fn append_skill_setup_stage(
                 card_index: 0,
                 target_uid: Some(subscriber.owner_uid),
             }),
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         });
     }
@@ -508,7 +508,7 @@ fn append_buff_act_setup_stage(
                 frame_group: None,
                 independent_parent_group: None,
                 frame_owner: None,
-                subscriber_owner_uid: None,
+                subscriber: None,
                 caster_frame: None,
             });
         }

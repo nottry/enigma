@@ -9,7 +9,7 @@ pub fn run_event(
     event: BattleEvent,
 ) -> Result<DrainResult, DrainError> {
     let current_pool = subscriber_view(pool, managers, &event);
-    let initial = dispatch_reactions(
+    let mut initial = dispatch_reactions(
         &current_pool,
         managers,
         catalog,
@@ -25,8 +25,9 @@ pub fn run_event(
         context.current_round > 0,
         None,
         None,
-    )?
-    .into_ordered();
+    )?;
+    initial.assign_subscriber_death_groups(None);
+    let initial = initial.into_ordered();
     run_event_queue(
         managers,
         pool,
@@ -119,7 +120,7 @@ pub fn run_round_start_card_event(
             frame_group: None,
             independent_parent_group: None,
             frame_owner: None,
-            subscriber_owner_uid: None,
+            subscriber: None,
             caster_frame: None,
         })
         .collect::<VecDeque<_>>();
@@ -230,7 +231,7 @@ fn drain_group_event_lane(
     frames: Vec<SemanticFrame>,
 ) -> Result<DrainResult, DrainError> {
     let current_pool = subscriber_view(pool, managers, event);
-    let mut queue = dispatch_reactions(
+    let mut reactions = dispatch_reactions(
         &current_pool,
         managers,
         catalog,
@@ -246,9 +247,9 @@ fn drain_group_event_lane(
         context.current_round > 0,
         None,
         None,
-    )?
-    .into_ordered()
-    .into();
+    )?;
+    reactions.assign_subscriber_death_groups(None);
+    let mut queue = reactions.into_ordered().into();
     drain_queue_with_frames(
         managers,
         pool,
@@ -290,7 +291,7 @@ pub fn run_grouped_owner_event(
                 _ => root.clone(),
             };
             let current_pool = subscriber_view(pool, managers, &event);
-            let mut queue = dispatch_reactions(
+            let mut reactions = dispatch_reactions(
                 &current_pool,
                 managers,
                 catalog,
@@ -306,9 +307,9 @@ pub fn run_grouped_owner_event(
                 context.current_round > 0,
                 None,
                 None,
-            )?
-            .into_ordered()
-            .into();
+            )?;
+            reactions.assign_subscriber_death_groups(None);
+            let mut queue = reactions.into_ordered().into();
             let next = drain_queue_with_frames(
                 managers,
                 pool,
