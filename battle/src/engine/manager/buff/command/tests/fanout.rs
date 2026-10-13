@@ -606,17 +606,19 @@ fn identical_indefinite_halo_grant_keeps_master_and_children() {
 }
 
 #[test]
-fn halo_layer_refresh_reserves_its_observed_uid() {
+fn halo_layer_refresh_reserves_parent_and_child_uids() {
     crate::test_support::init_config();
     let fight = Fight {
         version: Some(7),
         defender: Some(FightTeam {
-            entitys: vec![FightEntityInfo {
-                uid: Some(-1),
-                team_type: Some(2),
-                current_hp: Some(100),
-                ..Default::default()
-            }],
+            entitys: (-3..=-1)
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    team_type: Some(2),
+                    current_hp: Some(100),
+                    ..Default::default()
+                })
+                .collect(),
             ..Default::default()
         }),
         ..Default::default()
@@ -644,7 +646,15 @@ fn halo_layer_refresh_reserves_its_observed_uid() {
     let plan = manager.plan(&hp, grant()).unwrap();
 
     assert_eq!(grant_plan(&plan).action, GrantAction::RefreshLayer);
-    assert!(grant_plan(&plan).layer_refresh_uid.is_some());
+    assert_eq!(grant_plan(&plan).layer_refresh_uid.unwrap().uid, 1005);
+    assert_eq!(
+        grant_plan(&plan)
+            .fanout_refreshes
+            .iter()
+            .filter_map(|refresh| refresh.uid_reservation.map(|plan| plan.uid))
+            .collect::<Vec<_>>(),
+        vec![1006, 1007]
+    );
 }
 
 #[test]

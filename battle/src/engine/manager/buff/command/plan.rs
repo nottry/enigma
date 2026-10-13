@@ -991,9 +991,7 @@ impl BuffManager {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        if self.shared_uid_lane
-            && crate::engine::buff::halo::has_layer_master(self.catalog(), route.buff_id)
-        {
+        if self.shared_uid_lane && !fanout_refreshes.is_empty() {
             let reservations = super::uid_policy::children_after_sequence(
                 self,
                 route.target_uid,
