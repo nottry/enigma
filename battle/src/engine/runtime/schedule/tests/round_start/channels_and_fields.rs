@@ -804,7 +804,7 @@ fn round_transition_renews_timed_team_attributes_on_reserves() {
         ))
         .unwrap();
 
-    run_round_start_after_ai_split(
+    let (round, _, _, _) = run_round_start_after_ai_split(
         &mut managers,
         &pool,
         crate::engine::skill::effect::catalog::global(),
@@ -815,11 +815,48 @@ fn round_transition_renews_timed_team_attributes_on_reserves() {
     )
     .unwrap();
 
+    let renewed = round
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Buff(result) => result.change.added.as_ref(),
+            _ => None,
+        })
+        .filter(|added| added.buff.buff_id == Some(31340007))
+        .map(|added| (added.target_uid, added.buff.uid.unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(renewed.len(), 2);
+    assert_eq!(
+        renewed
+            .iter()
+            .map(|(target_uid, _)| *target_uid)
+            .collect::<Vec<_>>(),
+        vec![10, 11]
+    );
+    assert_ne!(renewed[0].1, renewed[1].1);
     assert!(managers.buff.snapshot(11, old_attribute_uid).is_none());
+    assert_eq!(
+        managers
+            .buff
+            .active_for(10)
+            .filter(|buff| buff.buff_id == Some(31340007))
+            .count(),
+        1
+    );
+    assert_eq!(
+        managers
+            .buff
+            .active_for(11)
+            .filter(|buff| buff.buff_id == Some(31340007))
+            .count(),
+        1
+    );
     assert!(
         managers
             .buff
             .active_for(11)
             .any(|buff| buff.buff_id == Some(31340007) && buff.uid != Some(old_attribute_uid))
     );
+    let next = managers.buff.add(&managers.hp, 10, 10, 101, 1).unwrap();
+    assert_eq!(next.buff.uid, Some(1006));
 }

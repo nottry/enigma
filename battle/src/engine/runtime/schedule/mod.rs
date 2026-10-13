@@ -67,7 +67,10 @@ const ROUND_START_BEFORE_DURATION_SETUP: &[(SetupStage, i32)] = &[
     (SetupStage::RoundStartCondition, 102),
 ];
 
-const ROUND_START_SETTLEMENT_SETUP: &[(SetupStage, i32)] = &[(SetupStage::RoundStart, 3)];
+const ROUND_START_SETTLEMENT_SETUP: &[(SetupStage, i32)] = &[
+    (SetupStage::RoundStart, 3),
+    (SetupStage::RoundTransitionStart, 3),
+];
 
 const ROUND_START_THRESHOLD_SETUP: &[(SetupStage, i32)] = &[(SetupStage::RoundStart, 4)];
 

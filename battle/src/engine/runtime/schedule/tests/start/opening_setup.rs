@@ -868,3 +868,112 @@ fn version_seven_opening_groups_sync_and_late_setup() {
         [40, 50]
     );
 }
+
+#[test]
+fn lingering_glow_opening_grants_team_attributes_under_its_opening_owner() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3134),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![31340141, 31340142, 31340143, 31340140],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let (opening, _) = run_start(
+        managers.catalog(),
+        &mut managers,
+        &pool,
+        crate::engine::skill::effect::catalog::global(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        CardSetup {
+            hand: Vec::new(),
+            draw_pile: Vec::new(),
+            deck_num: 0,
+        },
+        0,
+    )
+    .unwrap();
+
+    let granted = opening
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Buff(result) => result.change.added.as_ref(),
+            _ => None,
+        })
+        .filter(|added| added.buff.buff_id == Some(31340007))
+        .map(|added| added.target_uid)
+        .collect::<Vec<_>>();
+    assert_eq!(granted, [10, 11]);
+
+    fn contains_attribute_grant(frame: &SemanticFrame) -> bool {
+        frame.items.iter().any(|item| match item {
+            FrameItem::Change(change) => matches!(
+                change.as_ref(),
+                BattleChange::Buff(result)
+                    if result
+                        .change
+                        .added
+                        .iter()
+                        .any(|added| added.buff.buff_id == Some(31340007))
+            ),
+            FrameItem::Child(child) => contains_attribute_grant(child),
+            FrameItem::Cue(_) => false,
+        })
+    }
+    let settlement = opening
+        .frames
+        .iter()
+        .find(|frame| {
+            matches!(
+                frame.owner,
+                FrameOwner::RoundPhase(RoundPhase::RoundStartSettlement)
+            )
+        })
+        .expect("opening has a round-start settlement owner");
+    let owner = settlement.items.iter().find_map(|item| match item {
+        FrameItem::Child(frame)
+            if matches!(frame.owner, FrameOwner::SetupMechanic)
+                && matches!(
+                    frame.trigger,
+                    FrameTrigger::Setup {
+                        stage: SetupStage::OpeningBuffGate,
+                        priority: 0,
+                    }
+                ) =>
+        {
+            Some(frame)
+        }
+        FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
+    });
+    assert!(owner.is_some_and(|frame| contains_attribute_grant(frame)));
+}

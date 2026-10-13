@@ -720,18 +720,6 @@ pub fn run_start(
                     &owner_uids,
                 )?;
                 append_opening_round_phase(&mut settlement, skill_setup);
-                append_opening_round_phase(
-                    &mut settlement,
-                    drain::run_buff_act_setup_schedule_in_opening_round_phase(
-                        managers,
-                        pool,
-                        catalog,
-                        determinism,
-                        context,
-                        &[(stage, priority)],
-                        Some(&owner_uids),
-                    )?,
-                );
             } else {
                 append_round_phase(
                     &mut settlement,
@@ -745,6 +733,20 @@ pub fn run_start(
                         &owner_uids,
                     )?,
                 );
+            }
+            let opening_buff_gate = drain::run_buff_act_setup_schedule_in_opening_round_phase(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                &[(SetupStage::OpeningBuffGate, priority)],
+                Some(&owner_uids),
+            )?;
+            if version7_opening {
+                append_opening_round_phase(&mut settlement, opening_buff_gate);
+            } else {
+                append_round_phase(&mut settlement, opening_buff_gate);
             }
             let reset_ops = if version7_opening {
                 managers.conduit.action_phase_start_commands(1)

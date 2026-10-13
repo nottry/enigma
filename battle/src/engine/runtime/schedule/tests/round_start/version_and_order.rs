@@ -514,18 +514,14 @@ fn version_seven_runs_late_setup_before_priority_three_setup() {
     ));
     assert!(matches!(
         round.frames[settlement].items.iter().find_map(|item| match item {
-            FrameItem::Child(side)
+            FrameItem::Child(mechanic)
                 if matches!(
-                    side.trigger,
+                    mechanic.trigger,
                     FrameTrigger::Setup {
-                        stage: SetupStage::BuffGate,
-                        priority: 0,
+                        stage: SetupStage::RoundTransitionStart,
+                        priority: 3,
                     }
-                ) => side.items.iter().find_map(|item| match item {
-                    FrameItem::Child(mechanic)
-                        if matches!(mechanic.owner, FrameOwner::SetupMechanic) => Some(mechanic),
-                    FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
-                }),
+                ) && matches!(mechanic.owner, FrameOwner::SetupMechanic) => Some(mechanic),
             FrameItem::Change(_) | FrameItem::Cue(_) | FrameItem::Child(_) => None,
         }),
         Some(frame)

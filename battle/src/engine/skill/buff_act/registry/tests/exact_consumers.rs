@@ -283,8 +283,8 @@ fn registry_requires_exact_id_and_type() {
         glow.setup.routes,
         &[
             (SetupStage::BattleStart, 0),
-            (SetupStage::BuffGate, 0),
-            (SetupStage::RoundStart, 3),
+            (SetupStage::OpeningBuffGate, 0),
+            (SetupStage::RoundTransitionStart, 3),
         ]
     );
     assert_eq!(
@@ -292,11 +292,11 @@ fn registry_requires_exact_id_and_type() {
         (SetupFrameScope::IndependentStep, 1)
     );
     assert_eq!(
-        glow.setup_frame(SetupStage::BuffGate, 0),
+        glow.setup_frame(SetupStage::OpeningBuffGate, 0),
         (SetupFrameScope::MechanicFrame, 0)
     );
     assert_eq!(
-        glow.setup_frame(SetupStage::RoundStart, 3),
+        glow.setup_frame(SetupStage::RoundTransitionStart, 3),
         (SetupFrameScope::RootMechanicFrame, 0)
     );
     assert!(
