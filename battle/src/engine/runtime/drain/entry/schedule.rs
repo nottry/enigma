@@ -102,6 +102,30 @@ pub fn run_setup_schedule_for_owners_in_round_phase(
         schedule,
         Some(owner_uids),
         SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_setup_schedule_for_owners_in_round_phase_with_death_cleanup(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_setup_schedule_with_container(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        Some(owner_uids),
+        SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -124,6 +148,7 @@ pub fn run_setup_schedule_for_owners_in_opening_round_phase(
         schedule,
         Some(owner_uids),
         SetupFrameContainer::OpeningRoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -190,6 +215,7 @@ pub fn run_opening_settlement_skills_in_owner_order(
         owner_uids,
         false,
         SetupFrameContainer::OpeningRoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
     )?;
     result.outcomes.extend(remaining.outcomes);
     result.events.extend(remaining.events);
@@ -240,6 +266,7 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
                 &[(stage, priority)],
                 Some(std::slice::from_ref(owner_uid)),
                 SetupFrameContainer::RoundPhase,
+                DefenderCardCleanupOwner::ScheduledRoundPhase,
             )?;
             result.outcomes.extend(owner_result.outcomes);
             result.events.extend(owner_result.events);
@@ -266,6 +293,7 @@ pub fn run_opening_sync_setup_in_owner_order(
         context,
         owner_uids,
         SetupFrameContainer::Standalone,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -286,6 +314,7 @@ pub fn run_round_sync_setup_in_owner_order(
         context,
         owner_uids,
         SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
     )
 }
 
@@ -298,6 +327,7 @@ fn run_sync_setup_in_owner_order(
     context: TargetContext,
     owner_uids: &[i64],
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
 ) -> Result<DrainResult, DrainError> {
     const SCHEDULE: &[(SetupStage, i32)] =
         &[(SetupStage::BuffSync, 0), (SetupStage::RoundStartLate, 0)];
@@ -317,6 +347,7 @@ fn run_sync_setup_in_owner_order(
                 &[],
                 false,
                 frame_container,
+                cleanup_owner,
             )?;
             result.outcomes.extend(owner_result.outcomes);
             result.events.extend(owner_result.events);
@@ -337,6 +368,7 @@ fn run_sync_setup_in_owner_order(
             owner_uids,
             stage == SetupStage::RoundStartLate,
             frame_container,
+            cleanup_owner,
         )?;
         result.outcomes.extend(remaining.outcomes);
         result.events.extend(remaining.events);
@@ -390,6 +422,7 @@ pub fn run_version_seven_round_start_event_setup(
             OWNER_SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::RoundPhase,
+            DefenderCardCleanupOwner::ScheduledRoundPhase,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
@@ -405,6 +438,7 @@ pub fn run_version_seven_round_start_event_setup(
             TRANSITION_SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::RoundPhase,
+            DefenderCardCleanupOwner::ScheduledRoundPhase,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
@@ -444,6 +478,7 @@ fn run_setup_schedule_with_container(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     for &(stage, priority) in schedule {
@@ -459,6 +494,7 @@ fn run_setup_schedule_with_container(
             &[],
             false,
             frame_container,
+            cleanup_owner,
         )?;
         result.outcomes.extend(stage_result.outcomes);
         result.events.extend(stage_result.events);
@@ -492,6 +528,7 @@ fn run_skill_setup_schedule_with_container(
             &[],
             false,
             frame_container,
+            DefenderCardCleanupOwner::DeathAction,
         )?;
         result.outcomes.extend(stage_result.outcomes);
         result.events.extend(stage_result.events);

@@ -210,7 +210,7 @@ fn after_hit_settles_the_acting_owners_take_stage_buff() {
 }
 
 #[test]
-fn settled_player_death_removes_owned_cards_in_the_same_frame() {
+fn scheduled_defender_cleanup_policy_keeps_player_cleanup_in_the_death_frame() {
     let entity = |uid, team_type| FightEntityInfo {
         uid: Some(uid),
         team_type: Some(team_type),
@@ -302,13 +302,27 @@ fn settled_player_death_removes_owned_cards_in_the_same_frame() {
     }
     .into();
     invocation.target = SkillTarget::Explicit(10);
-    let result = run(
+    let mut queue = VecDeque::from([QueuedOp {
+        op: RuleOp::Skill(invocation),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: None,
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber_owner_uid: None,
+        caster_frame: None,
+    }]);
+    let result = drain_queue_with_frames_and_cleanup_owner(
         &mut managers,
         &pool,
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [RuleOp::Skill(invocation)],
+        &mut queue,
+        Vec::new(),
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
     )
     .unwrap();
 
@@ -439,6 +453,7 @@ fn non_action_death_settles_after_its_reaction_and_card_cleanup() {
         collect(&step, &mut order);
     }
     assert_eq!(order, ["reaction", "cleanup", "death"]);
+    assert!(managers.card.ai_queue().is_empty());
 }
 
 #[test]

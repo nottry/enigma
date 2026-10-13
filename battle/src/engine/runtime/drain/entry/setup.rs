@@ -49,6 +49,7 @@ pub fn run_setup_stage(
         &[],
         false,
         SetupFrameContainer::Standalone,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -75,6 +76,7 @@ pub fn run_setup_stage_for_owners(
         &[],
         false,
         SetupFrameContainer::Standalone,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -101,6 +103,7 @@ pub fn run_opening_setup_stage_for_owners(
         &[],
         true,
         SetupFrameContainer::Standalone,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -131,6 +134,7 @@ pub(super) fn run_skill_then_buff_act_setup_stage_filtered(
     excluded_owner_uids: &[i64],
     include_both_sides_opening: bool,
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
 ) -> Result<DrainResult, DrainError> {
     let mut state = SetupStageState::default();
     append_skill_setup_stage(
@@ -145,6 +149,7 @@ pub(super) fn run_skill_then_buff_act_setup_stage_filtered(
         excluded_owner_uids,
         include_both_sides_opening,
         frame_container,
+        cleanup_owner,
         &mut state,
     )?;
     append_buff_act_setup_stage(
@@ -157,6 +162,7 @@ pub(super) fn run_skill_then_buff_act_setup_stage_filtered(
         priority,
         owner_uids,
         excluded_owner_uids,
+        cleanup_owner,
         &mut state,
     )?;
     Ok(state.result)
@@ -175,6 +181,7 @@ pub(super) fn run_skill_setup_stage_filtered(
     excluded_owner_uids: &[i64],
     include_both_sides_opening: bool,
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
 ) -> Result<DrainResult, DrainError> {
     let mut state = SetupStageState::default();
     append_skill_setup_stage(
@@ -189,6 +196,7 @@ pub(super) fn run_skill_setup_stage_filtered(
         excluded_owner_uids,
         include_both_sides_opening,
         frame_container,
+        cleanup_owner,
         &mut state,
     )?;
     Ok(state.result)
@@ -217,6 +225,7 @@ pub(super) fn run_buff_act_setup_stage_filtered(
         priority,
         owner_uids,
         excluded_owner_uids,
+        DefenderCardCleanupOwner::DeathAction,
         &mut state,
     )?;
     Ok(state.result)
@@ -235,6 +244,7 @@ fn append_skill_setup_stage(
     excluded_owner_uids: &[i64],
     include_both_sides_opening: bool,
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
     state: &mut SetupStageState,
 ) -> Result<(), DrainError> {
     let context = context_for_setup_stage(context, stage);
@@ -356,7 +366,7 @@ fn append_skill_setup_stage(
             caster_frame: None,
         });
     }
-    let stage_result = drain_queue_with_frames(
+    let stage_result = drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -364,6 +374,7 @@ fn append_skill_setup_stage(
         context,
         &mut queue,
         frames,
+        cleanup_owner,
     )?;
     state.append(stage_result);
     Ok(())
@@ -380,6 +391,7 @@ fn append_buff_act_setup_stage(
     priority: i32,
     owner_uids: Option<&[i64]>,
     excluded_owner_uids: &[i64],
+    cleanup_owner: DefenderCardCleanupOwner,
     state: &mut SetupStageState,
 ) -> Result<(), DrainError> {
     let context = context_for_setup_stage(context, stage);
@@ -501,7 +513,7 @@ fn append_buff_act_setup_stage(
             });
         }
     }
-    let buff_act_result = drain_queue_with_frames(
+    let buff_act_result = drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -509,6 +521,7 @@ fn append_buff_act_setup_stage(
         context,
         &mut queue,
         frames,
+        cleanup_owner,
     )?;
     state.append(buff_act_result);
     Ok(())

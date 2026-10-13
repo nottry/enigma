@@ -1,5 +1,29 @@
 use super::*;
 
+fn contains_effect(step: &sonettobuf::FightStep, effect_type: i32, target_uid: i64) -> bool {
+    step.act_effect.iter().any(|effect| {
+        effect.effect_type == Some(effect_type) && effect.target_id == Some(target_uid)
+            || effect
+                .fight_step
+                .as_ref()
+                .is_some_and(|child| contains_effect(child, effect_type, target_uid))
+    })
+}
+
+fn skill_contains_effect(
+    step: &sonettobuf::FightStep,
+    skill_id: i32,
+    effect_type: i32,
+    target_uid: i64,
+) -> bool {
+    step.act_id == Some(skill_id) && contains_effect(step, effect_type, target_uid)
+        || step.act_effect.iter().any(|effect| {
+            effect.fight_step.as_ref().is_some_and(|child| {
+                skill_contains_effect(child, skill_id, effect_type, target_uid)
+            })
+        })
+}
+
 #[test]
 fn ai_self_target_skills_ignore_the_selected_opponent() {
     init_config();
@@ -311,11 +335,14 @@ fn version_seven_card_cleanup_follows_deferred_round_start_settlement() {
     let fight = Fight {
         version: Some(7),
         attacker: Some(FightTeam {
-            entitys: vec![entity(10, 1, 100)],
+            entitys: vec![FightEntityInfo {
+                passive_skill: vec![100],
+                ..entity(10, 1, 100)
+            }],
             ..Default::default()
         }),
         defender: Some(FightTeam {
-            entitys: vec![entity(-1, 2, 0)],
+            entitys: vec![entity(-1, 2, 100)],
             ..Default::default()
         }),
         ..Default::default()
@@ -337,11 +364,30 @@ fn version_seven_card_cleanup_follows_deferred_round_start_settlement() {
             },
         ))
         .unwrap();
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(60015, "Kill"), Vec::new(), Vec::new()),
+        TargetRequest {
+            code: 202,
+            raw: Vec::new(),
+        },
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 103,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![slot],
+    });
 
     let (round, _, _, _) = run_round_start_after_ai_split(
         &mut managers,
         &pool,
-        &SkillEffectCatalog::default(),
+        &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
         &[],
@@ -358,6 +404,126 @@ fn version_seven_card_cleanup_follows_deferred_round_start_settlement() {
 
     assert!(position(RoundPhase::RoundStartSettlement) < position(RoundPhase::EntityCardCleanup));
     assert!(position(RoundPhase::RoundStartSync) < position(RoundPhase::EntityCardCleanup));
+    assert_eq!(managers.hp.current(-1), 0);
+    assert!(managers.card.ai_queue().is_empty());
+
+    let steps = crate::engine::packet::timeline::project(&round.frames).unwrap();
+    assert!(steps.iter().any(|step| skill_contains_effect(
+        step,
+        100,
+        sonettobuf::effect_type_enum::EffectType::Dead as i32,
+        -1,
+    )));
+    assert!(!steps.iter().any(|step| skill_contains_effect(
+        step,
+        100,
+        sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32,
+        -1,
+    )));
+    let cleanup = steps
+        .iter()
+        .position(|step| {
+            contains_effect(
+                step,
+                sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32,
+                -1,
+            )
+        })
+        .expect("dead defender cards are cleaned in a standalone step");
+    let deck_count = steps
+        .iter()
+        .position(|step| {
+            step.act_effect.iter().any(|effect| {
+                effect.effect_type
+                    == Some(sonettobuf::effect_type_enum::EffectType::Carddecknum as i32)
+            })
+        })
+        .expect("deck count follows round-start cleanup");
+    assert!(cleanup < deck_count);
+}
+
+#[test]
+fn defender_round_start_death_cleans_its_cards_in_the_death_action() {
+    init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                passive_skill: vec![101],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(60015, "Kill"), Vec::new(), Vec::new()),
+        TargetRequest {
+            code: crate::engine::skill::target::request::SOURCE_TARGET_CODE,
+            raw: Vec::new(),
+        },
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 103,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 101,
+        slots: vec![slot],
+    });
+
+    let round = run_before_ai_round_start(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        2,
+        &[],
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 0);
+    assert!(managers.card.ai_queue().is_empty());
+    let steps = crate::engine::packet::timeline::project(&round.frames).unwrap();
+    assert!(steps.iter().any(|step| skill_contains_effect(
+        step,
+        101,
+        sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32,
+        -1,
+    )));
 }
 
 #[test]

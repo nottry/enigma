@@ -10,7 +10,7 @@ use crate::engine::{
     skill::{rule::DefinitionKey, target::TargetContext},
 };
 
-use super::{DrainBudget, DrainError, QueuedOp};
+use super::{DefenderCardCleanupOwner, DrainBudget, DrainError, QueuedOp};
 
 type FrameGroup = Rc<RefCell<Option<FramePath>>>;
 type DeferredCast = (Option<FrameOwner>, QueuedOp);
@@ -53,6 +53,7 @@ pub(super) struct DrainState {
     context: TargetContext,
     depth: usize,
     death_settlement_depth: usize,
+    defender_card_cleanup_owner: DefenderCardCleanupOwner,
 }
 
 impl DrainState {
@@ -61,6 +62,18 @@ impl DrainState {
             context,
             ..Self::default()
         }
+    }
+
+    pub(super) fn with_defender_card_cleanup_owner(
+        mut self,
+        owner: DefenderCardCleanupOwner,
+    ) -> Self {
+        self.defender_card_cleanup_owner = owner;
+        self
+    }
+
+    pub(super) fn defender_card_cleanup_owner(&self) -> DefenderCardCleanupOwner {
+        self.defender_card_cleanup_owner
     }
 
     pub(super) fn context(&self) -> TargetContext {

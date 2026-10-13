@@ -150,10 +150,14 @@ fn queued_defeated_owner_card_cleanup(
     managers: &BattleManagers,
     death: crate::engine::manager::hp::DeathTransition,
     parent_path: &[usize],
+    owner: DefenderCardCleanupOwner,
 ) -> Option<QueuedOp> {
     let team_type = pool
         .team_type(death.target_uid)
         .or_else(|| managers.buff.team_type(death.target_uid))?;
+    if !owner.queues_in_drain(team_type) {
+        return None;
+    }
     Some(QueuedOp {
         op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Card(
             crate::engine::manager::card::CardCommand::remove_owner(
@@ -317,6 +321,19 @@ mod entry;
 mod reactions;
 mod state;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum DefenderCardCleanupOwner {
+    #[default]
+    DeathAction,
+    ScheduledRoundPhase,
+}
+
+impl DefenderCardCleanupOwner {
+    fn queues_in_drain(self, team_type: i32) -> bool {
+        team_type == 1 || self == Self::DeathAction
+    }
+}
+
 pub use entry::*;
 #[cfg(test)]
 use reactions::{
@@ -354,7 +371,30 @@ fn drain_queue_with_frames(
     queue: &mut VecDeque<QueuedOp>,
     frames: Vec<SemanticFrame>,
 ) -> Result<DrainResult, DrainError> {
-    let mut state = DrainState::new(context);
+    drain_queue_with_frames_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        queue,
+        frames,
+        DefenderCardCleanupOwner::DeathAction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drain_queue_with_frames_and_cleanup_owner(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    queue: &mut VecDeque<QueuedOp>,
+    frames: Vec<SemanticFrame>,
+    cleanup_owner: DefenderCardCleanupOwner,
+) -> Result<DrainResult, DrainError> {
+    let mut state = DrainState::new(context).with_defender_card_cleanup_owner(cleanup_owner);
     drain_queue_with_deferred(
         managers,
         pool,
@@ -819,7 +859,13 @@ fn drain_queue_with_deferred(
                 let mut outputs = defeated_owner_card_cleanups
                     .into_iter()
                     .filter_map(|death| {
-                        queued_defeated_owner_card_cleanup(pool, managers, death, &frame_path)
+                        queued_defeated_owner_card_cleanup(
+                            pool,
+                            managers,
+                            death,
+                            &frame_path,
+                            state.defender_card_cleanup_owner(),
+                        )
                     })
                     .collect::<Vec<_>>();
                 for emission in emission.ops {
@@ -1605,7 +1651,13 @@ fn drain_queue_with_deferred(
                     .map(Vec::as_slice)
                     .unwrap_or(event_scope.as_slice());
                 after_publish.extend(cleanup_deaths.into_iter().filter_map(|death| {
-                    queued_defeated_owner_card_cleanup(pool, managers, death, cleanup_parent_path)
+                    queued_defeated_owner_card_cleanup(
+                        pool,
+                        managers,
+                        death,
+                        cleanup_parent_path,
+                        state.defender_card_cleanup_owner(),
+                    )
                 }));
                 let death_settlements = non_action_deaths
                     .into_iter()

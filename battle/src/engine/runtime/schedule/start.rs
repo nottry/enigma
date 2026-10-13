@@ -1316,7 +1316,7 @@ fn run_round_start_before_duration(
     }
     append_round_phase(
         &mut round_start_event,
-        drain::run_setup_schedule_for_owners_in_round_phase(
+        drain::run_setup_schedule_for_owners_in_round_phase_with_death_cleanup(
             managers,
             pool,
             catalog,
