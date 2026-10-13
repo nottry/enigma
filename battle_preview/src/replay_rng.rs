@@ -1,6 +1,8 @@
 use battle::tooling::{
     opening_hand_size,
-    replay::{HandRankChoice, ReplayBattle, RoundDeterminism, SkillTargetChoice},
+    replay::{
+        CrystalReuseChoice, HandRankChoice, ReplayBattle, RoundDeterminism, SkillTargetChoice,
+    },
     scan::{SkillEffectCatalog, SkillEffectSlot},
     ultimate_ignores_limit,
 };
@@ -92,6 +94,7 @@ pub fn seed_round_determinism(
     runtime.seed_skill_targets(skill_target_choices(catalog, round));
     runtime.seed_random_skills(random_skill_choices(catalog, round));
     runtime.seed_shell_moxie_choices(shell_moxie_choices(config::configs::get(), round));
+    runtime.seed_crystal_reuse_choices(crystal_reuse_choices(catalog, round));
     let (hidden, additional, indirect_heals) = crit_choices(config::configs::get(), round);
     runtime.seed_crits(hidden, additional, indirect_heals);
 }
@@ -347,6 +350,49 @@ fn random_skill_choices(catalog: &SkillEffectCatalog, round: &FightRound) -> Vec
             {
                 choices.push(child.act_id.unwrap());
             }
+            visit(catalog, child, choices);
+        }
+    }
+
+    let mut choices = Vec::new();
+    for step in &round.fight_step {
+        visit(catalog, step, &mut choices);
+    }
+    choices
+}
+
+fn crystal_reuse_choices(
+    catalog: &SkillEffectCatalog,
+    round: &FightRound,
+) -> Vec<CrystalReuseChoice> {
+    fn visit(
+        catalog: &SkillEffectCatalog,
+        step: &FightStep,
+        choices: &mut Vec<CrystalReuseChoice>,
+    ) {
+        if let Some((skill_id, source_uid)) = step.act_id.zip(step.from_id) {
+            let child_skills = step
+                .act_effect
+                .iter()
+                .filter_map(|effect| {
+                    let child = effect.fight_step.as_ref()?;
+                    Some((child.act_id?, child.from_id?))
+                })
+                .collect::<Vec<_>>();
+            choices.extend(catalog.crystal_reuse_references(skill_id).into_iter().map(
+                |result_skill_id| CrystalReuseChoice {
+                    source_uid,
+                    skill_id,
+                    result_skill_id,
+                    success: child_skills.contains(&(result_skill_id, source_uid)),
+                },
+            ));
+        }
+        for child in step
+            .act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+        {
             visit(catalog, child, choices);
         }
     }
@@ -656,6 +702,86 @@ mod tests {
         assert_eq!(
             shell_moxie_choices(config::configs::get(), &round),
             vec![false, true, false]
+        );
+    }
+
+    #[test]
+    fn crystal_reuse_import_preserves_failures_before_a_success() {
+        crate::init_test_config();
+        let parent = |child: Option<(i32, i64)>| FightStep {
+            act_id: Some(31340151),
+            from_id: Some(10),
+            act_effect: child
+                .into_iter()
+                .map(|(skill_id, source_uid)| sonettobuf::ActEffect {
+                    fight_step: Some(FightStep {
+                        act_id: Some(skill_id),
+                        from_id: Some(source_uid),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        };
+        let round = FightRound {
+            fight_step: vec![
+                parent(Some((31340152, 30))),
+                FightStep {
+                    act_id: Some(31340151),
+                    from_id: Some(10),
+                    act_effect: vec![sonettobuf::ActEffect {
+                        fight_step: Some(FightStep {
+                            act_id: Some(1),
+                            from_id: Some(10),
+                            act_effect: vec![sonettobuf::ActEffect {
+                                fight_step: Some(FightStep {
+                                    act_id: Some(31340152),
+                                    from_id: Some(10),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+                parent(None),
+                parent(Some((31340152, 10))),
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            crystal_reuse_choices(battle::tooling::scan::effect_catalog::global(), &round),
+            vec![
+                CrystalReuseChoice {
+                    source_uid: 10,
+                    skill_id: 31340151,
+                    result_skill_id: 31340152,
+                    success: false,
+                },
+                CrystalReuseChoice {
+                    source_uid: 10,
+                    skill_id: 31340151,
+                    result_skill_id: 31340152,
+                    success: false,
+                },
+                CrystalReuseChoice {
+                    source_uid: 10,
+                    skill_id: 31340151,
+                    result_skill_id: 31340152,
+                    success: false,
+                },
+                CrystalReuseChoice {
+                    source_uid: 10,
+                    skill_id: 31340151,
+                    result_skill_id: 31340152,
+                    success: true,
+                },
+            ]
         );
     }
 }

@@ -14,7 +14,9 @@ pub mod replay {
         manager::card::{CardOpType, CardSetup},
         runtime::{
             BattleRuntime as ReplayBattle,
-            determinism::{HandRankChoice, RoundDeterminism, SkillTargetChoice},
+            determinism::{
+                CrystalReuseChoice, HandRankChoice, RoundDeterminism, SkillTargetChoice,
+            },
         },
     };
 

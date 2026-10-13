@@ -25,6 +25,14 @@ pub struct AiSkillChoice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrystalReuseChoice {
+    pub source_uid: i64,
+    pub skill_id: i32,
+    pub result_skill_id: i32,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConditionRandomChoice {
     pub skill_id: i32,
     pub opcode: i32,
@@ -57,6 +65,7 @@ pub struct RoundDeterminism {
     hidden_crit_choices: HashMap<(i32, i64), VecDeque<bool>>,
     indirect_heal_crit_choices: HashMap<(i32, i64, i64), VecDeque<bool>>,
     shell_moxie_choices: VecDeque<bool>,
+    crystal_reuse_choices: VecDeque<CrystalReuseChoice>,
     additional_crit_choices: HashMap<(i32, i64, i64), VecDeque<bool>>,
     scripted_condition_random: HashSet<(i32, i32)>,
     next_ai_card_snapshots: VecDeque<Vec<CardInfo>>,
@@ -333,6 +342,35 @@ impl RoundDeterminism {
         self.shell_moxie_choices
             .pop_front()
             .unwrap_or_else(|| self.roll_permille(chance))
+    }
+
+    pub fn roll_crystal_reuse(
+        &mut self,
+        source_uid: i64,
+        skill_id: i32,
+        result_skill_id: i32,
+        chance: i32,
+    ) -> bool {
+        if let Some(index) = self.crystal_reuse_choices.iter().position(|choice| {
+            choice.source_uid == source_uid
+                && choice.skill_id == skill_id
+                && choice.result_skill_id == result_skill_id
+        }) {
+            return self
+                .crystal_reuse_choices
+                .remove(index)
+                .expect("matched crystal reuse choice remains queued")
+                .success;
+        }
+        self.roll_permille(chance)
+    }
+
+    pub fn replace_crystal_reuse_choices(
+        &mut self,
+        choices: impl IntoIterator<Item = CrystalReuseChoice>,
+    ) {
+        self.crystal_reuse_choices.clear();
+        self.crystal_reuse_choices.extend(choices);
     }
 
     /// Consumes a captured additional-damage observation for a formula whose critical result is

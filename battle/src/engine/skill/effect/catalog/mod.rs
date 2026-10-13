@@ -128,6 +128,25 @@ impl SkillEffectCatalog {
             .collect()
     }
 
+    pub fn crystal_reuse_references(&self, skill_id: i32) -> Vec<i32> {
+        let Some(effect) = self.get(skill_id) else {
+            return Vec::new();
+        };
+        effect
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
+                (definition.kind == BehaviorKind::CrystalReuse
+                    && definition
+                        .supports
+                        .is_none_or(|supports| supports(&slot.behavior)))
+                .then(|| (definition.references)(&slot.behavior).skills)
+            })
+            .flatten()
+            .collect()
+    }
+
     pub fn random_condition_keys(&self) -> Vec<(i32, i32)> {
         fn append(
             conditions: &[crate::engine::skill::condition::ParsedCondition],
