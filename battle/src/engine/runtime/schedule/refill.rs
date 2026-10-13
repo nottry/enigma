@@ -334,13 +334,16 @@ pub fn run_post_action_refill_settlement(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
 ) -> Result<DrainResult, DrainError> {
-    let mut replenishment = buff_act::ex_point_overflow_bank::replenishment_rule_ops(managers);
-    replenishment.extend(buff_act::device_ex_point_overflow_bank::replenishment_rule_ops(managers));
-    if replenishment.is_empty() {
-        Ok(DrainResult::default())
-    } else {
-        drain::run_buff_act_ops(managers, pool, catalog, determinism, context, replenishment)
-    }
+    drain::run_command_group(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        [RuleOp::Publish(BattleEvent::Kind(
+            EventKind::PostActionRefill,
+        ))],
+    )
 }
 
 /// Emits the semantic round-deal cue without mutating card storage.

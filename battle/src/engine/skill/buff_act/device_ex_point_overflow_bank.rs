@@ -14,58 +14,6 @@ use crate::engine::{
     },
 };
 
-pub fn replenishment_rule_ops(managers: &BattleManagers) -> Vec<(BuffActSubscriber, RuleOp)> {
-    managers
-        .buff
-        .active_features(&managers.hp)
-        .into_iter()
-        .filter(|feature| {
-            super::is_kind(
-                feature,
-                super::registry::BuffActKind::DeviceExPointOverflowBank,
-            )
-        })
-        .filter_map(|feature| {
-            let subscriber = super::subscriber_from_feature(feature, EventKind::ExPointChanged)?;
-            let stored = current(
-                &managers
-                    .buff
-                    .snapshot(subscriber.owner_uid, subscriber.buff_uid)?,
-                subscriber.key.definition.opcode,
-            )?;
-            if stored <= 0
-                || !subscriber.owner_alive
-                || managers.ex_point.is_full(subscriber.owner_uid)
-                || managers.buff.has_buff_act_kind(
-                    subscriber.owner_uid,
-                    super::registry::BuffActKind::ExPointCantAdd,
-                )
-                || managers.buff.has_buff_act_kind(
-                    subscriber.owner_uid,
-                    super::registry::BuffActKind::TransferAddExPoint,
-                )
-            {
-                return None;
-            }
-            let origin = super::command_origin(&subscriber)?;
-            let owner_uid = subscriber.owner_uid;
-            Some((
-                subscriber,
-                RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
-                    ExPointChange {
-                        origin,
-                        source_uid: owner_uid,
-                        target_uid: owner_uid,
-                        delta: stored,
-                        config_effect: 0,
-                        effect_type: EffectType::Expointchange as i32,
-                    },
-                ))),
-            ))
-        })
-        .collect()
-}
-
 pub fn rule_ops(
     managers: &BattleManagers,
     subscriber: &BuffActSubscriber,
@@ -78,10 +26,50 @@ pub fn rule_ops(
         return Some(Vec::new());
     }
     match event {
+        BattleEvent::Kind(EventKind::PostActionRefill) => {
+            replenishment_rule_ops(managers, subscriber)
+        }
         BattleEvent::ExPointOverflow(change) => store_rule_ops(managers, subscriber, change),
         BattleEvent::ExPointChanged(change) => consume_rule_ops(managers, subscriber, change),
         _ => Some(Vec::new()),
     }
+}
+
+fn replenishment_rule_ops(
+    managers: &BattleManagers,
+    subscriber: &BuffActSubscriber,
+) -> Option<Vec<BuffActRuleOp>> {
+    let stored = current(
+        &managers
+            .buff
+            .snapshot(subscriber.owner_uid, subscriber.buff_uid)?,
+        subscriber.key.definition.opcode,
+    )?;
+    if stored <= 0
+        || !subscriber.owner_alive
+        || managers.ex_point.is_full(subscriber.owner_uid)
+        || managers.buff.has_buff_act_kind(
+            subscriber.owner_uid,
+            super::registry::BuffActKind::ExPointCantAdd,
+        )
+        || managers.buff.has_buff_act_kind(
+            subscriber.owner_uid,
+            super::registry::BuffActKind::TransferAddExPoint,
+        )
+    {
+        return Some(Vec::new());
+    }
+    let origin = super::command_origin(subscriber)?;
+    Some(vec![BuffActRuleOp::subscriber(RuleOp::Command(
+        BattleCommand::ExPoint(ExPointCommand::Change(ExPointChange {
+            origin,
+            source_uid: subscriber.owner_uid,
+            target_uid: subscriber.owner_uid,
+            delta: stored,
+            config_effect: 0,
+            effect_type: EffectType::Expointchange as i32,
+        })),
+    ))])
 }
 
 fn store_rule_ops(
@@ -240,14 +228,25 @@ mod tests {
         })
     }
 
+    fn subscriber(managers: &BattleManagers, event: EventKind) -> BuffActSubscriber {
+        let feature = managers
+            .buff
+            .active_features(&managers.hp)
+            .into_iter()
+            .find(|feature| {
+                super::super::is_kind(
+                    feature,
+                    super::super::registry::BuffActKind::DeviceExPointOverflowBank,
+                )
+            })
+            .expect("device overflow bank feature should be active");
+        super::super::subscriber_from_feature(feature, event).unwrap()
+    }
+
     #[test]
     fn device_overflow_accumulates_only_up_to_the_configured_reserve() {
         let managers = managers(48, 90);
-        let subscriber = replenishment_rule_ops(&managers)
-            .into_iter()
-            .next()
-            .expect("stored device energy should schedule replenishment")
-            .0;
+        let subscriber = subscriber(&managers, EventKind::ExPointOverflow);
         let event = BattleEvent::ExPointOverflow(ExPointChangeEvent {
             origin: CommandOrigin {
                 domain: RuleDomain::Behavior,
@@ -283,18 +282,19 @@ mod tests {
     #[test]
     fn replenishment_uses_device_energy_and_reduces_only_the_applied_amount() {
         let managers = managers(15, 90);
-        let replenishment = replenishment_rule_ops(&managers);
-        let [(subscriber, op)] = replenishment.as_slice() else {
+        let subscriber = subscriber(&managers, EventKind::PostActionRefill);
+        let replenishment = replenishment_rule_ops(&managers, &subscriber).unwrap();
+        let [op] = replenishment.as_slice() else {
             panic!("stored device energy should schedule one replenishment");
         };
         assert!(matches!(
-            op,
+            &op.op,
             RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
                 ExPointChange { delta: 15, .. }
             )))
         ));
         let event = BattleEvent::ExPointChanged(ExPointChangeEvent {
-            origin: super::super::command_origin(subscriber).unwrap(),
+            origin: super::super::command_origin(&subscriber).unwrap(),
             source_uid: 10,
             target_uid: 10,
             kind: ExPointKind::DevicePower,
@@ -305,7 +305,7 @@ mod tests {
             overflow: 5,
         });
 
-        let ops = rule_ops(&managers, subscriber, &event).unwrap();
+        let ops = rule_ops(&managers, &subscriber, &event).unwrap();
         assert!(matches!(
             &ops[0].op,
             RuleOp::Command(BattleCommand::Buff(BuffCommand::SetInternalState(

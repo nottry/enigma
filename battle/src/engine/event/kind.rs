@@ -37,6 +37,7 @@ pub enum EventKind {
     SkillCast,
     ActionQueueCommitted,
     PlayerActionsResolved,
+    PostActionRefill,
     BeAttacked,
     BeAttackedDefense,
     AllyAction,

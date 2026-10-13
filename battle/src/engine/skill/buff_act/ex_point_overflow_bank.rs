@@ -12,54 +12,6 @@ use crate::engine::{
     },
 };
 
-pub fn replenishment_rule_ops(managers: &BattleManagers) -> Vec<(BuffActSubscriber, RuleOp)> {
-    managers
-        .buff
-        .active_features(&managers.hp)
-        .into_iter()
-        .filter(|feature| {
-            super::is_kind(feature, super::registry::BuffActKind::ExPointOverflowBank)
-        })
-        .filter_map(|feature| {
-            let subscriber = super::subscriber_from_feature(feature, EventKind::ExPointChanged)?;
-            let stored = current(
-                &managers
-                    .buff
-                    .snapshot(subscriber.owner_uid, subscriber.buff_uid)?,
-            );
-            if stored <= 0
-                || !subscriber.owner_alive
-                || managers.ex_point.is_full(subscriber.owner_uid)
-                || managers.buff.has_buff_act_kind(
-                    subscriber.owner_uid,
-                    super::registry::BuffActKind::ExPointCantAdd,
-                )
-                || managers.buff.has_buff_act_kind(
-                    subscriber.owner_uid,
-                    super::registry::BuffActKind::TransferAddExPoint,
-                )
-            {
-                return None;
-            }
-            let origin = super::command_origin(&subscriber)?;
-            let owner_uid = subscriber.owner_uid;
-            Some((
-                subscriber,
-                RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
-                    ExPointChange {
-                        origin,
-                        source_uid: owner_uid,
-                        target_uid: owner_uid,
-                        delta: stored,
-                        config_effect: 0,
-                        effect_type: sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
-                    },
-                ))),
-            ))
-        })
-        .collect()
-}
-
 pub fn rule_ops(
     managers: &BattleManagers,
     subscriber: &BuffActSubscriber,
@@ -72,10 +24,49 @@ pub fn rule_ops(
         return Some(Vec::new());
     }
     match event {
+        BattleEvent::Kind(EventKind::PostActionRefill) => {
+            replenishment_rule_ops(managers, subscriber)
+        }
         BattleEvent::ExPointOverflow(change) => store_rule_ops(managers, subscriber, change),
         BattleEvent::ExPointChanged(change) => consume_rule_ops(managers, subscriber, change),
         _ => Some(Vec::new()),
     }
+}
+
+fn replenishment_rule_ops(
+    managers: &BattleManagers,
+    subscriber: &BuffActSubscriber,
+) -> Option<Vec<BuffActRuleOp>> {
+    let stored = current(
+        &managers
+            .buff
+            .snapshot(subscriber.owner_uid, subscriber.buff_uid)?,
+    );
+    if stored <= 0
+        || !subscriber.owner_alive
+        || managers.ex_point.is_full(subscriber.owner_uid)
+        || managers.buff.has_buff_act_kind(
+            subscriber.owner_uid,
+            super::registry::BuffActKind::ExPointCantAdd,
+        )
+        || managers.buff.has_buff_act_kind(
+            subscriber.owner_uid,
+            super::registry::BuffActKind::TransferAddExPoint,
+        )
+    {
+        return Some(Vec::new());
+    }
+    let origin = super::command_origin(subscriber)?;
+    Some(vec![BuffActRuleOp::subscriber(RuleOp::Command(
+        BattleCommand::ExPoint(ExPointCommand::Change(ExPointChange {
+            origin,
+            source_uid: subscriber.owner_uid,
+            target_uid: subscriber.owner_uid,
+            delta: stored,
+            config_effect: 0,
+            effect_type: sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
+        })),
+    ))])
 }
 
 fn store_rule_ops(
@@ -303,13 +294,14 @@ mod tests {
     fn replenishment_requests_the_stored_amount_through_the_resource_manager() {
         let managers = managers_with_bank(2, 3);
 
-        let ops = replenishment_rule_ops(&managers);
+        let subscriber = subscriber(EventKind::PostActionRefill);
+        let ops = replenishment_rule_ops(&managers, &subscriber).unwrap();
 
         assert_eq!(ops.len(), 1);
-        assert_eq!(ops[0].0.owner_uid, 10);
-        assert_eq!(ops[0].0.key.event, EventKind::ExPointChanged);
+        assert_eq!(subscriber.owner_uid, 10);
+        assert_eq!(subscriber.key.event, EventKind::PostActionRefill);
         assert!(matches!(
-            ops[0].1,
+            ops[0].op,
             RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
                 ExPointChange {
                     origin: CommandOrigin {
@@ -363,7 +355,11 @@ mod tests {
     #[test]
     fn blocked_or_self_overflowed_replenishment_keeps_bank_state() {
         let managers = managers_with_bank(2, 5);
-        assert!(replenishment_rule_ops(&managers).is_empty());
+        assert!(
+            replenishment_rule_ops(&managers, &subscriber(EventKind::PostActionRefill))
+                .unwrap()
+                .is_empty()
+        );
         let changed_subscriber = subscriber(EventKind::ExPointChanged);
         let origin = super::super::command_origin(&changed_subscriber).unwrap();
         let blocked = BattleEvent::ExPointChanged(ExPointChangeEvent {
