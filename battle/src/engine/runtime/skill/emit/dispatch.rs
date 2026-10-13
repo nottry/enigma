@@ -9,7 +9,8 @@ use crate::engine::{
         behavior::{self, BehaviorOpContext, classify::BehaviorKind},
         condition::{
             ParsedConditionKind, conditions_fire_count, conditions_match,
-            registry::ConsequencePolicy, resource::ResourceConditionContext,
+            registry::{BehaviorTargetOrder, ConsequencePolicy},
+            resource::ResourceConditionContext,
             satisfied_card_enchants, satisfied_conditions,
         },
         effect::{SkillEffectCatalog, SkillEffectSlot},
@@ -555,10 +556,12 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.context,
             )
         };
-        let per_target_conditions = slot.target_from_condition
-            && crate::engine::skill::condition::registry::conditions_filter_behavior_targets(
-                &conditions,
-            );
+        let behavior_target_order = if slot.target_from_condition {
+            crate::engine::skill::condition::registry::behavior_target_order(&conditions)
+        } else {
+            None
+        };
+        let per_target_conditions = behavior_target_order.is_some();
         let fire_count = if per_target_conditions {
             1
         } else {
@@ -696,8 +699,13 @@ pub(in crate::engine::runtime) fn emit_ops(
         if targets_are_hits && invocation.phase == Some(SkillPhase::AfterDamage) {
             targets.retain(|target_uid| managers.hp.current(*target_uid) > 0);
         }
-        if per_target_conditions {
-            targets = managers.entity.in_identity_map_order(&targets);
+        if let Some(target_order) = behavior_target_order {
+            match target_order {
+                BehaviorTargetOrder::Resolved => {}
+                BehaviorTargetOrder::EntityIdentityMap => {
+                    targets = managers.entity.in_identity_map_order(&targets);
+                }
+            }
             targets.retain(|target_uid| {
                 conditions.iter().all(|condition| {
                     conditions_match(

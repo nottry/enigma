@@ -69,6 +69,13 @@ pub enum BehaviorTargetSource {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BehaviorTargetOrder {
+    #[default]
+    Resolved,
+    EntityIdentityMap,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ReactionFrameTarget {
     #[default]
     Counterparty,
@@ -154,6 +161,7 @@ pub struct ConditionDefinition {
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
+    pub behavior_target_order: BehaviorTargetOrder,
     pub behavior_target_source: BehaviorTargetSource,
     pub reaction_observer_scope: ReactionObserverScope,
     pub reaction_frame_source: ReactionFrameSource,
@@ -178,6 +186,7 @@ pub struct ConditionMetadata {
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
     pub filters_behavior_targets: bool,
+    pub behavior_target_order: BehaviorTargetOrder,
     pub behavior_target_source: BehaviorTargetSource,
     pub reaction_observer_scope: ReactionObserverScope,
     pub reaction_frame_source: ReactionFrameSource,
@@ -209,6 +218,7 @@ pub const fn definition(
         consequence: metadata.consequence,
         behavior_ownership: metadata.behavior_ownership,
         filters_behavior_targets: metadata.filters_behavior_targets,
+        behavior_target_order: metadata.behavior_target_order,
         behavior_target_source: metadata.behavior_target_source,
         reaction_observer_scope: metadata.reaction_observer_scope,
         reaction_frame_source: metadata.reaction_frame_source,
@@ -234,6 +244,7 @@ pub const fn predicate(dependencies: &'static [EventKind]) -> ConditionMetadata 
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
+        behavior_target_order: BehaviorTargetOrder::Resolved,
         behavior_target_source: BehaviorTargetSource::Resolved,
         reaction_observer_scope: ReactionObserverScope::AnySubscriber,
         reaction_frame_source: ReactionFrameSource::Subscriber,
@@ -259,6 +270,7 @@ pub const fn event_trigger(event: EventKind, phase: Option<SkillPhase>) -> Condi
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
+        behavior_target_order: BehaviorTargetOrder::Resolved,
         behavior_target_source: BehaviorTargetSource::Resolved,
         reaction_observer_scope: ReactionObserverScope::AnySubscriber,
         reaction_frame_source: ReactionFrameSource::Subscriber,
@@ -288,6 +300,7 @@ pub const fn setup_route(
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
         filters_behavior_targets: false,
+        behavior_target_order: BehaviorTargetOrder::Resolved,
         behavior_target_source: BehaviorTargetSource::Resolved,
         reaction_observer_scope: ReactionObserverScope::AnySubscriber,
         reaction_frame_source: ReactionFrameSource::Subscriber,
@@ -355,6 +368,7 @@ pub const fn matching_buff_act_owns_behavior(mut metadata: ConditionMetadata) ->
 
 pub const fn filters_behavior_targets(mut metadata: ConditionMetadata) -> ConditionMetadata {
     metadata.filters_behavior_targets = true;
+    metadata.behavior_target_order = BehaviorTargetOrder::EntityIdentityMap;
     metadata
 }
 
@@ -886,12 +900,13 @@ pub fn definitions() -> impl Iterator<Item = &'static ConditionDefinition> {
     DEFINITIONS.iter()
 }
 
-pub fn conditions_filter_behavior_targets(conditions: &[ParsedCondition]) -> bool {
+pub fn behavior_target_order(conditions: &[ParsedCondition]) -> Option<BehaviorTargetOrder> {
     super::query::find(conditions, &|condition| {
         find_key(condition.opcode, &condition.type_name)
             .is_some_and(|definition| definition.filters_behavior_targets)
     })
-    .is_some()
+    .and_then(|condition| find_key(condition.opcode, &condition.type_name))
+    .map(|definition| definition.behavior_target_order)
 }
 
 pub fn conditions_use_active_skill_targets(conditions: &[ParsedCondition]) -> bool {

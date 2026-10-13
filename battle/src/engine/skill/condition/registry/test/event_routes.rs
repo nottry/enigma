@@ -350,6 +350,10 @@ fn riposte_buff_gate_is_an_exact_predicate() {
     assert_eq!(definition.role, ConditionRole::Predicate);
     assert!(definition.dependencies.is_empty());
     assert_eq!(
+        definition.behavior_target_order,
+        BehaviorTargetOrder::EntityIdentityMap
+    );
+    assert_eq!(
         parse(19205, "HasBuffId", &["5022".into()]),
         Some(ParsedConditionKind::BuffId {
             mode: BuffConditionMode::ExactPresent,
@@ -717,6 +721,10 @@ fn buff_presence_action_opcodes_keep_their_exact_phases() {
             }
         );
         assert!(definition.dependencies.is_empty());
+        assert_eq!(
+            definition.behavior_target_order,
+            BehaviorTargetOrder::EntityIdentityMap
+        );
     }
 }
 

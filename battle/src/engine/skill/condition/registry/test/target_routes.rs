@@ -249,23 +249,25 @@ fn target_career_selects_matching_behavior_targets() {
         raw_args: vec!["3".into()],
     };
 
-    assert!(conditions_filter_behavior_targets(&[condition]));
+    assert_eq!(
+        behavior_target_order(&[condition]),
+        Some(BehaviorTargetOrder::EntityIdentityMap)
+    );
     assert_eq!(
         find_key(16210, "TargetCareer").map(|definition| definition.role),
         Some(ConditionRole::Predicate)
     );
-    assert!(conditions_filter_behavior_targets(&[ParsedCondition {
-        opcode: 16002,
-        type_name: "TargetCareer".into(),
-        kind: ParsedConditionKind::TargetCareer(vec![3]),
-        raw_args: vec!["3".into()],
-    }]));
-    assert!(conditions_filter_behavior_targets(&[ParsedCondition {
-        opcode: 16210,
-        type_name: "TargetCareer".into(),
-        kind: ParsedConditionKind::TargetCareer(vec![3]),
-        raw_args: vec!["3".into()],
-    }]));
+    for opcode in [16002, 16210] {
+        assert_eq!(
+            behavior_target_order(&[ParsedCondition {
+                opcode,
+                type_name: "TargetCareer".into(),
+                kind: ParsedConditionKind::TargetCareer(vec![3]),
+                raw_args: vec!["3".into()],
+            }]),
+            Some(BehaviorTargetOrder::EntityIdentityMap)
+        );
+    }
     assert!(
         !find_key(16203, "TargetCareer")
             .is_some_and(|definition| definition.filters_behavior_targets)
