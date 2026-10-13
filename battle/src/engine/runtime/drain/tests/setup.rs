@@ -315,8 +315,7 @@ fn transform_commit_publishes_the_exact_enter_fight_route() {
     assert!(transform_index < reactivated_index);
 }
 
-#[test]
-fn combatant_entry_runs_its_enter_fight_passives() {
+fn entry_halo_summon_fixture() -> (TargetPool, BattleManagers, SkillEffectCatalog) {
     crate::test_support::init_config();
     let fight = Fight {
         defender: Some(FightTeam {
@@ -344,36 +343,50 @@ fn combatant_entry_runs_its_enter_fight_passives() {
         ..Default::default()
     };
     let pool = TargetPool::from_fight(&fight);
-    let mut managers = BattleManagers::seeded(&fight);
+    let managers = BattleManagers::seeded(&fight);
     let summoned =
         crate::engine::fight::defender::Defender::build_monster_with_uid(116330100, -2, 3, 2)
             .unwrap();
-    let catalog = SkillEffectCatalog::from_roots(
+    let mut catalog = SkillEffectCatalog::from_roots(
         config::configs::get(),
         summoned.passive_skill,
         std::iter::empty(),
     );
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(60008, "Summon"),
+                vec![116330100],
+                vec!["116330100".to_owned()],
+            ),
+            TargetRequest::self_only(),
+        )],
+    });
 
-    let result = run(
+    (pool, managers, catalog)
+}
+
+fn entry_halo_summon() -> SkillInvocation {
+    SkillRequest {
+        source_uid: -1,
+        skill_id: 100,
+    }
+    .into()
+}
+
+#[test]
+fn combatant_entry_runs_its_enter_fight_passives() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+
+    let result = run_skill(
         &mut managers,
         &pool,
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [RuleOp::Command(BattleCommand::Entity(
-            crate::engine::manager::entity::EntityCommand {
-                origin: CommandOrigin {
-                    domain: RuleDomain::Behavior,
-                    key: DefinitionKey::new(60008, "Summon"),
-                },
-                source_uid: -1,
-                target_uid: -1,
-                operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
-                    model_id: 116330100,
-                    position: 3,
-                },
-            },
-        ))],
+        entry_halo_summon(),
+        Default::default(),
     )
     .unwrap();
 
@@ -387,6 +400,117 @@ fn combatant_entry_runs_its_enter_fight_passives() {
         .expect("combatant entry event");
     assert!(managers.buff.has_buff_id(entered_uid, 109330114));
     assert_eq!(managers.buff.buff_id_amount(entered_uid, 109320111), 2);
+    let skill = result
+        .frames
+        .iter()
+        .find(|frame| matches!(frame.owner, FrameOwner::Skill { skill_id: 100, .. }))
+        .expect("the active summon has a skill frame");
+    assert_eq!(
+        skill
+            .items
+            .iter()
+            .filter(|item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. })))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn entry_halos_share_the_event_rule_that_cast_the_summon() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::RoundEndEntitySettlement,
+    ));
+    let mut frames = Vec::new();
+    let event_rule = push_root(&mut frames, FrameOwner::EventRule, frame_trigger(&trigger));
+    let mut queue = VecDeque::from([QueuedOp {
+        op: RuleOp::Skill(entry_halo_summon()),
+        trigger,
+        skill_execution: None,
+        frame_path: None,
+        parent_path: Some(event_rule),
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    assert!(result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::Skill { skill_id: 100, .. }))
+    ));
+    assert!(result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
+}
+
+#[test]
+fn entry_halos_stay_in_a_nested_active_skill() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+    let mut frames = Vec::new();
+    let setup = push_root(
+        &mut frames,
+        FrameOwner::SetupEntity { owner_uid: -1 },
+        FrameTrigger::Setup {
+            stage: SetupStage::EnterFight,
+            priority: 0,
+        },
+    );
+    let skill = push_child(
+        &mut frames,
+        &setup,
+        FrameOwner::Skill {
+            source_uid: -1,
+            skill_id: 100,
+            card_index: -1,
+            target_uid: None,
+        },
+        FrameTrigger::Active,
+    );
+    let mut queue = VecDeque::from([QueuedOp {
+        op: RuleOp::Skill(entry_halo_summon()),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: Some(skill),
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    let crate::engine::runtime::record::FrameItem::Child(skill) = &result.frames[0].items[0] else {
+        panic!("setup keeps the active summon skill");
+    };
+    assert!(skill.items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
+    assert!(!result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
 }
 
 #[test]

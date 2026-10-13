@@ -14,10 +14,15 @@ const ULTIMATE_AVAILABILITY_ORIGIN: CommandOrigin = CommandOrigin {
 
 fn queued_entity_entry_halo_fanout(
     event: &BattleEvent,
+    entry_scope: Option<&[usize]>,
     parent_path: Option<&[usize]>,
 ) -> Option<QueuedOp> {
     let BattleEvent::EntityEntered { target_uid } = event else {
         return None;
+    };
+    let (frame_path, parent_path) = match entry_scope {
+        Some(entry_scope) => (Some(entry_scope.to_vec()), None),
+        None => (None, parent_path.map(<[usize]>::to_vec)),
     };
     Some(QueuedOp {
         op: RuleOp::Command(BattleCommand::Buff(BuffCommand::FanoutEntryHalos(
@@ -25,8 +30,8 @@ fn queued_entity_entry_halo_fanout(
         ))),
         trigger: SkillOpTrigger::Event(event.clone()),
         skill_execution: None,
-        frame_path: None,
-        parent_path: parent_path.map(|path| path.to_vec()),
+        frame_path,
+        parent_path,
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::EventRule),
@@ -121,6 +126,7 @@ pub(super) fn dispatch_event_groups(
     parent_path: &[usize],
     reuse_path: &[usize],
     action_path: Option<&[usize]>,
+    entry_halo_scope: &[usize],
     current_skill: Option<(i64, i32, Option<i64>)>,
     include_attack_consumption: bool,
     execute_unscoped_after_action: bool,
@@ -149,6 +155,7 @@ pub(super) fn dispatch_event_groups(
             parent_path,
             reuse_path,
             action_path,
+            Some(entry_halo_scope),
             current_skill,
             include_attack_consumption,
             execute_unscoped_after_action,
@@ -191,6 +198,7 @@ pub(super) fn dispatch_event_batch(
         parent_path,
         reuse_path,
         action_path,
+        None,
         current_skill,
         include_attack_consumption,
         execute_unscoped_after_action,
@@ -225,6 +233,7 @@ fn dispatch_event_batch_inner(
     parent_path: &[usize],
     reuse_path: &[usize],
     action_path: Option<&[usize]>,
+    entry_halo_scope: Option<&[usize]>,
     current_skill: Option<(i64, i32, Option<i64>)>,
     include_attack_consumption: bool,
     execute_unscoped_after_action: bool,
@@ -337,6 +346,7 @@ fn dispatch_event_batch_inner(
             Some(parent_path),
             Some(reuse_path),
             action_path,
+            entry_halo_scope,
             reentry_skill,
             current_skill_target,
             lane,
@@ -377,6 +387,7 @@ pub(super) fn dispatch_reactions(
     parent_path: Option<&[usize]>,
     reuse_path: Option<&[usize]>,
     action_path: Option<&[usize]>,
+    entry_halo_scope: Option<&[usize]>,
     reentry_skill: Option<(i64, i32, Option<i64>)>,
     current_skill_target: Option<i64>,
     lane: Option<ReactionLane>,
@@ -709,7 +720,8 @@ pub(super) fn dispatch_reactions(
             }));
         if publication_phase.is_none_or(|phase| {
             phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
-        }) && let Some(fanout) = queued_entity_entry_halo_fanout(event, parent_path)
+        }) && let Some(fanout) =
+            queued_entity_entry_halo_fanout(event, entry_halo_scope, parent_path)
         {
             reactions.after_publish.push(fanout);
         }
@@ -832,7 +844,7 @@ pub(super) fn dispatch_owner_reactions(
     )?;
     let mut reactions =
         queued_reactions(pool, dispatched, event, None, None, None, None, None, None)?;
-    if let Some(fanout) = queued_entity_entry_halo_fanout(event, None) {
+    if let Some(fanout) = queued_entity_entry_halo_fanout(event, None, None) {
         reactions.push(fanout);
     }
     assign_subscriber_death_groups(&mut [&mut reactions]);

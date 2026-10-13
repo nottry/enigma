@@ -226,6 +226,21 @@ pub(crate) fn event_scope_path(frames: &[SemanticFrame], path: &[usize]) -> Fram
     }
 }
 
+pub(crate) fn entity_entry_halo_scope_path(frames: &[SemanticFrame], path: &[usize]) -> FramePath {
+    let mut parent = path.to_vec();
+    parent.pop();
+    if matches!(
+        frame_at(frames, path).owner,
+        FrameOwner::Skill { .. } | FrameOwner::ConduitSkill { .. }
+    ) && !parent.is_empty()
+        && matches!(frame_at(frames, &parent).owner, FrameOwner::EventRule)
+    {
+        parent
+    } else {
+        event_scope_path(frames, path)
+    }
+}
+
 fn setup_entity_scope_path(frames: &[SemanticFrame], path: &[usize]) -> Option<FramePath> {
     let (&root, children) = path.split_first()?;
     let mut frame = frames.get(root)?;

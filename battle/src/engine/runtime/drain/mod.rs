@@ -12,8 +12,8 @@ use crate::engine::{
         executor::{RuleExecutionError, RuleOutcome, execute_rule_op_with},
         record::{
             FrameOwner, FramePath, FrameTrigger, RoundCue, RoundPhase, SemanticFrame, SetupSide,
-            active_skill_scope_path, event_scope_path, owner_at_path, push_change, push_child,
-            push_cue, push_root, set_skill_target,
+            active_skill_scope_path, entity_entry_halo_scope_path, event_scope_path, owner_at_path,
+            push_change, push_child, push_cue, push_root, set_skill_target,
         },
         skill::{self, SkillExecution, SkillOpError, SkillOpTrigger},
     },
@@ -1227,6 +1227,13 @@ fn drain_queue_with_deferred(
                         ));
                 }
 
+                let entry_halo_fanout = matches!(
+                    &command,
+                    RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Buff(
+                        crate::engine::manager::buff::BuffCommand::FanoutEntryHalos(_)
+                    ))
+                );
+
                 // This is the single durable commit point for non-skill RuleOps.
                 // The returned outcome describes committed changes and follow-ups.
                 let mut outcome = execute_rule_op_with(managers, &mut bus, determinism, command)?;
@@ -1272,6 +1279,7 @@ fn drain_queue_with_deferred(
                     }
                 }
                 let event_scope = event_scope_path(&result.frames, &frame_path);
+                let entry_halo_scope = entity_entry_halo_scope_path(&result.frames, &frame_path);
                 let fanout = match &outcome {
                     RuleOutcome::Buff(changes) => changes.fanout.clone(),
                     _ => Vec::new(),
@@ -1290,6 +1298,12 @@ fn drain_queue_with_deferred(
                         ..
                     } => Some((*source_uid, *skill_id, *target_uid)),
                     _ => None,
+                };
+                let fanout_output_owner = if entry_halo_fanout || current_skill.is_none() {
+                    crate::engine::skill::behavior::registry::OutputOwner::Skill
+                } else {
+                    crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
+                        .resolve(matches!(trigger, SkillOpTrigger::Event(_)), false)
                 };
 
                 // Managers publish semantic events through the bus. Reactions are
@@ -1373,6 +1387,7 @@ fn drain_queue_with_deferred(
                     &event_scope,
                     &frame_path,
                     action_scope.as_deref(),
+                    &entry_halo_scope,
                     current_skill,
                     matches!(&outcome, RuleOutcome::HpBatch(_)),
                     context.current_round > 0,
@@ -1392,6 +1407,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         matches!(&outcome, RuleOutcome::HpBatch(_)),
                         context.current_round > 0,
@@ -1444,6 +1460,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         true,
                         context.current_round > 0,
@@ -1461,6 +1478,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         true,
                         context.current_round > 0,
@@ -1531,17 +1549,10 @@ fn drain_queue_with_deferred(
                     );
                 }
                 for fanout in fanout {
-                    let fanout_parent = if matches!(trigger, SkillOpTrigger::Event(_))
-                        && current_skill.is_some()
-                        && event_scope.len() > 1
-                    {
-                        &event_scope[..event_scope.len() - 1]
-                    } else {
-                        &event_scope
-                    };
+                    let fanout_parent = output_frame_path(fanout_output_owner, &event_scope);
                     let fanout_path = push_child(
                         &mut result.frames,
-                        fanout_parent,
+                        &fanout_parent,
                         FrameOwner::BuffRule {
                             emitter_uid: fanout.emitter_uid,
                             carrier_buff_uid: fanout.carrier_buff_uid,
@@ -1581,6 +1592,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         was_hp_batch,
                         context.current_round > 0,
@@ -1618,6 +1630,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         true,
                         context.current_round > 0,
@@ -1635,6 +1648,7 @@ fn drain_queue_with_deferred(
                         &event_scope,
                         &frame_path,
                         action_scope.as_deref(),
+                        &entry_halo_scope,
                         current_skill,
                         true,
                         context.current_round > 0,
