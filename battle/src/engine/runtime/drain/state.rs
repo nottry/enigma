@@ -47,6 +47,7 @@ pub(super) struct DrainState {
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
     action_reactions: HashMap<FramePath, HashSet<ActionReactionKey>>,
+    action_skill_reaction_frames: HashMap<(FramePath, i64, i32), FramePath>,
     event_batch_reactions: HashMap<u64, HashSet<ActionReactionKey>>,
     next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
@@ -216,6 +217,19 @@ impl DrainState {
         self.after_action_casts
             .remove(action_path)
             .unwrap_or_default()
+    }
+
+    pub(super) fn action_skill_reaction_frame(
+        &mut self,
+        action_path: &[usize],
+        source_uid: i64,
+        skill_id: i32,
+        current: &[usize],
+    ) -> FramePath {
+        self.action_skill_reaction_frames
+            .entry((action_path.to_vec(), source_uid, skill_id))
+            .or_insert_with(|| current.to_vec())
+            .clone()
     }
 
     pub(super) fn retire_replaced_subscriber_casts(

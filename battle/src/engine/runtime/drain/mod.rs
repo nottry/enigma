@@ -13,8 +13,7 @@ use crate::engine::{
         record::{
             FrameOwner, FramePath, FrameTrigger, RoundCue, RoundPhase, SemanticFrame, SetupSide,
             active_skill_scope_path, entity_entry_halo_scope_path, event_scope_path, owner_at_path,
-            prior_conduit_activation_reaction_path, push_change, push_child, push_cue, push_root,
-            set_skill_target,
+            push_change, push_child, push_cue, push_root, set_skill_target,
         },
         skill::{self, SkillExecution, SkillOpError, SkillOpTrigger},
     },
@@ -53,7 +52,6 @@ pub enum DrainError {
     RecursionLimitExceeded,
     MissingActiveSkillContext,
     MissingReactionSide(i64),
-    MissingConduitActivationReaction,
 }
 
 fn required_buff_act_definition(
@@ -869,6 +867,21 @@ fn drain_queue_with_deferred(
                     }),
                     &trigger,
                 );
+                if matches!(trigger, SkillOpTrigger::Event(_))
+                    && let Some(action_path) = active_skill_scope_path(&result.frames, &frame_path)
+                    && let FrameOwner::Skill {
+                        source_uid,
+                        skill_id,
+                        ..
+                    } = owner_at_path(&result.frames, &frame_path)
+                {
+                    state.action_skill_reaction_frame(
+                        &action_path,
+                        *source_uid,
+                        *skill_id,
+                        &frame_path,
+                    );
+                }
                 if !skill_from_buff_act && let Some(group) = &frame_group {
                     *group.borrow_mut() = Some(frame_path.clone());
                 }
@@ -1075,13 +1088,27 @@ fn drain_queue_with_deferred(
                                 trigger: trigger.clone(),
                                 skill_execution: None,
                                 frame_path: Some(if owner
-                                    == crate::engine::skill::behavior::registry::OutputOwner::ConduitActivationReaction
+                                    == crate::engine::skill::behavior::registry::OutputOwner::ActionSkillReaction
                                 {
-                                    prior_conduit_activation_reaction_path(
+                                    let action_path = active_skill_scope_path(
                                         &result.frames,
                                         &frame_path,
                                     )
-                                    .ok_or(DrainError::MissingConduitActivationReaction)?
+                                    .ok_or(DrainError::MissingActiveSkillContext)?;
+                                    let FrameOwner::Skill {
+                                        source_uid,
+                                        skill_id,
+                                        ..
+                                    } = owner_at_path(&result.frames, &frame_path)
+                                    else {
+                                        return Err(DrainError::MissingActiveSkillContext);
+                                    };
+                                    state.action_skill_reaction_frame(
+                                        &action_path,
+                                        *source_uid,
+                                        *skill_id,
+                                        &frame_path,
+                                    )
                                 } else {
                                     output_frame_path(owner, &frame_path)
                                 }),
@@ -1993,7 +2020,7 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        | crate::engine::skill::behavior::registry::OutputOwner::ConduitActivationReaction
+                        | crate::engine::skill::behavior::registry::OutputOwner::ActionSkillReaction
                         | crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
@@ -2208,7 +2235,7 @@ fn output_frame_path(
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
         OutputOwner::CausingEvent
-        | OutputOwner::ConduitActivationReaction
+        | OutputOwner::ActionSkillReaction
         | OutputOwner::NestedLifecycleMechanic
         | OutputOwner::SetupParent
         | OutputOwner::SetupOrFinalSettlementParent => {

@@ -255,7 +255,7 @@ impl BehaviorHandler for Handler {
             (
                 BehaviorKind::ConsumeBuffResetDevice,
                 RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice { .. })),
-            ) => Some(OutputOwner::ConduitActivationReaction),
+            ) => Some(OutputOwner::ActionSkillReaction),
             _ => None,
         }
     }
