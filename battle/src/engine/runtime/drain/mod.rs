@@ -778,6 +778,7 @@ fn drain_queue_with_deferred(
                 if matches!(trigger, SkillOpTrigger::Active)
                     && frame_path.is_none()
                     && managers.terminal_outcome().is_some()
+                    && !invocation.mode.finishes_selected_conduit_phase()
                 {
                     cancel_invocation_progress(managers, state, None, &invocation);
                     continue;

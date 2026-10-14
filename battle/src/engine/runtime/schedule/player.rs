@@ -71,6 +71,9 @@ pub fn run_conduit_phase(
     operations: &[sonettobuf::FightDeviceOper],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
+    if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+        return Ok(result);
+    }
     let devices = operations
         .iter()
         .filter_map(|operation| Some((operation.uid?, operation.index?)))
@@ -81,9 +84,6 @@ pub fn run_conduit_phase(
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
-            if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-                break;
-            }
             let skills = managers
                 .conduit
                 .selected_skills(source_uid)
@@ -184,28 +184,12 @@ pub fn run_conduit_phase(
                 if skill.cost_value <= 0 && !restarted_devices.contains(&source_uid) {
                     used_free_skills.insert((source_uid, skill.skill_id));
                 }
-                if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-                    append(
-                        &mut result,
-                        drain::run_conduit_stop(
-                            managers,
-                            pool,
-                            catalog,
-                            determinism,
-                            context,
-                            source_uid,
-                            device_index,
-                            position as i32 + 1,
-                        )?,
-                    );
-                    break;
-                }
             }
             if ran {
                 pass_ran = true;
             }
         }
-        if !pass_ran || crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+        if !pass_ran {
             break;
         }
     }

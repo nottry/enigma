@@ -554,6 +554,47 @@ fn terminal_skips_unstarted_losing_subscribers_by_presentation_frame_owner() {
 }
 
 #[test]
+fn terminal_allows_a_selected_conduit_device_skill_to_finish() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 100, Vec::new())],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    assert!(managers.commit_terminal(crate::engine::round::outcome::BattleOutcome::Victory));
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+            TargetRequest::self_only(),
+        )],
+    });
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Device;
+
+    run_skill(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        invocation,
+        Default::default(),
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(10), 1);
+}
+
+#[test]
 fn lethal_damage_is_settled_after_a_configured_survival_reaction() {
     crate::test_support::init_config();
     let entity = |uid, model_id, hp| FightEntityInfo {

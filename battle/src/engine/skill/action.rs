@@ -38,6 +38,10 @@ impl SkillExecutionMode {
             Self::Active | Self::DirectBig | Self::Device | Self::DeviceCard
         )
     }
+
+    pub(crate) fn finishes_selected_conduit_phase(self) -> bool {
+        self == Self::Device
+    }
 }
 
 pub(crate) fn performs_extra_action(

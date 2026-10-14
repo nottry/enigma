@@ -968,7 +968,7 @@ fn everecho_interval_consumes_mend_and_restarts_only_its_device() {
 }
 
 #[test]
-fn conduit_does_not_start_another_device_after_battle_ends() {
+fn conduit_finishes_non_attack_devices_after_battle_ends() {
     init_config();
     let entity = |uid, model_id, hp| FightEntityInfo {
         uid: Some(uid),
@@ -983,7 +983,11 @@ fn conduit_does_not_start_another_device_after_battle_ends() {
     };
     let fight = Fight {
         attacker: Some(FightTeam {
-            entitys: vec![entity(10, 3149, 100_000), entity(11, 3149, 100_000)],
+            entitys: vec![
+                entity(10, 3149, 100_000),
+                entity(11, 3145, 100_000),
+                entity(12, 3149, 100_000),
+            ],
             ..Default::default()
         }),
         defender: Some(FightTeam {
@@ -994,6 +998,15 @@ fn conduit_does_not_start_another_device_after_battle_ends() {
     };
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::SelectGroup {
+                source_uid: 11,
+                group: 2,
+            },
+        )
+        .unwrap();
     let origin = crate::engine::skill::rule::CommandOrigin {
         domain: crate::engine::skill::rule::RuleDomain::Behavior,
         key: crate::engine::skill::rule::DefinitionKey::new(60291, "AddDevicePower"),
@@ -1007,7 +1020,7 @@ fn conduit_does_not_start_another_device_after_battle_ends() {
                     source_uid: 10,
                     team: 1,
                     power_id: 1,
-                    delta: 2,
+                    delta: 6,
                     kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
                 },
             ),
@@ -1015,7 +1028,7 @@ fn conduit_does_not_start_another_device_after_battle_ends() {
         .unwrap();
     let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
 
-    run_conduit_phase(
+    let result = run_conduit_phase(
         managers.catalog(),
         &fight,
         &mut managers,
@@ -1032,10 +1045,26 @@ fn conduit_does_not_start_another_device_after_battle_ends() {
                 uid: Some(11),
                 index: Some(1),
             },
+            sonettobuf::FightDeviceOper {
+                uid: Some(12),
+                index: Some(1),
+            },
         ],
     )
     .unwrap();
 
     assert_eq!(managers.hp.current(-1), 0);
-    assert_eq!(managers.conduit.uses(11), 0);
+    assert_eq!(managers.conduit.uses(11), 1);
+    assert_eq!(managers.ex_point.get(11), 10);
+    assert_eq!(managers.conduit.uses(12), 1);
+    assert!(!result.outcomes.iter().any(|outcome| matches!(
+        outcome,
+        RuleOutcome::Conduit(
+            crate::engine::manager::conduit::ConduitChange::SkillFinished {
+                source_uid: 12,
+                skill_id: 31490121,
+                ..
+            }
+        )
+    )));
 }
