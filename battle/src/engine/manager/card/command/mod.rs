@@ -409,7 +409,7 @@ pub enum CardCommand {
     CommitActionQueue {
         team: i32,
         emitter_uid: i64,
-        device_actions: usize,
+        include_device_action: bool,
     },
     ResolvePlayedRanks {
         origin: CommandOrigin,
@@ -1286,7 +1286,7 @@ pub(super) fn execute(
         CardCommand::CommitActionQueue {
             team,
             emitter_uid,
-            device_actions,
+            include_device_action,
         } => {
             let mut cards = manager
                 .played()
@@ -1297,19 +1297,21 @@ pub(super) fn execute(
                     card
                 })
                 .collect::<Vec<_>>();
-            cards.extend((0..device_actions).map(|_| CardInfo {
-                uid: Some(0),
-                skill_id: Some(0),
-                temp_card: Some(false),
-                card_type: Some(sonettobuf::card_info::CardType::Device as i32),
-                hero_id: Some(0),
-                status: Some(0),
-                target_uid: Some(0),
-                energy: Some(0),
-                area_red_or_blue: Some(0),
-                heat_id: Some(0),
-                ..Default::default()
-            }));
+            if include_device_action {
+                cards.push(CardInfo {
+                    uid: Some(0),
+                    skill_id: Some(0),
+                    temp_card: Some(false),
+                    card_type: Some(sonettobuf::card_info::CardType::Device as i32),
+                    hero_id: Some(0),
+                    status: Some(0),
+                    target_uid: Some(0),
+                    energy: Some(0),
+                    area_red_or_blue: Some(0),
+                    heat_id: Some(0),
+                    ..Default::default()
+                });
+            }
             if team == 0 || cards.is_empty() {
                 return Err(CardCommandError::InvalidCommand);
             }

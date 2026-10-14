@@ -297,7 +297,7 @@ fn client_conduit_selection_projects_two_top_level_confirmations_before_actions(
     assert_eq!(selection_effects[1].target_id, Some(12));
     assert_eq!(selection_effects[1].effect_num, Some(2));
     let use_cards = &round.fight_step[0].act_effect[0].card_info_list;
-    assert_eq!(use_cards.len(), 3);
+    assert_eq!(use_cards.len(), 2);
     assert_eq!(use_cards[0].uid, Some(10));
     assert_eq!(use_cards[0].skill_id, Some(31446011));
     for card in &use_cards[1..] {

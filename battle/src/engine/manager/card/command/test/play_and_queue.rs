@@ -346,7 +346,7 @@ fn action_queue_snapshot_keeps_unplayed_team_cards() {
         .execute_command(CardCommand::CommitActionQueue {
             team: 1,
             emitter_uid: 0,
-            device_actions: 0,
+            include_device_action: false,
         })
         .unwrap();
 
@@ -375,7 +375,7 @@ fn action_queue_snapshot_uses_the_selected_skill() {
         .execute_command(CardCommand::CommitActionQueue {
             team: 1,
             emitter_uid: 0,
-            device_actions: 0,
+            include_device_action: false,
         })
         .unwrap();
 
@@ -383,7 +383,7 @@ fn action_queue_snapshot_uses_the_selected_skill() {
 }
 
 #[test]
-fn action_queue_snapshot_appends_neutral_device_actions() {
+fn action_queue_snapshot_appends_neutral_device_action() {
     let played = CardInfo {
         uid: Some(10),
         skill_id: Some(100),
@@ -405,7 +405,7 @@ fn action_queue_snapshot_appends_neutral_device_actions() {
         .execute_command(CardCommand::CommitActionQueue {
             team: 1,
             emitter_uid: 0,
-            device_actions: 1,
+            include_device_action: true,
         })
         .unwrap();
     let cards = committed.action_queue.unwrap().cards;

@@ -25,7 +25,7 @@ pub fn run_action_queue_committed(
     context: TargetContext,
     team: i32,
     emitter_uid: i64,
-    device_actions: usize,
+    include_device_action: bool,
 ) -> Result<DrainResult, DrainError> {
     drain::run(
         managers,
@@ -37,7 +37,7 @@ pub fn run_action_queue_committed(
             CardCommand::CommitActionQueue {
                 team,
                 emitter_uid,
-                device_actions,
+                include_device_action,
             },
         ))],
     )
@@ -514,7 +514,7 @@ fn run_player_card_ops(
     fight: Option<&sonettobuf::Fight>,
     before_actions: Vec<SemanticFrame>,
 ) -> Result<DrainResult, DrainError> {
-    let device_actions = committed_client_conduit_selections(&before_actions);
+    let include_device_action = has_committed_client_conduit_selection(&before_actions);
     let mut result = DrainResult::default();
     let mut skills = Vec::new();
     let mut pending_rewards = Vec::new();
@@ -778,7 +778,7 @@ fn run_player_card_ops(
         context,
         team,
         emitter_uid,
-        device_actions,
+        include_device_action,
     )?;
     skills.extend(committed.outcomes.iter().filter_map(|outcome| {
         let RuleOutcome::Card(changes) = outcome else {
@@ -993,29 +993,25 @@ fn run_player_card_ops(
     Ok(result)
 }
 
-fn committed_client_conduit_selections(frames: &[SemanticFrame]) -> usize {
-    fn count(frame: &SemanticFrame) -> usize {
-        frame
-            .items
-            .iter()
-            .map(|item| match item {
-                FrameItem::Change(change)
-                    if matches!(
-                        change.as_ref(),
-                        BattleChange::Conduit(
-                            crate::engine::manager::conduit::ConduitChange::GroupSelected { .. }
-                        )
-                    ) =>
-                {
-                    1
-                }
-                FrameItem::Child(child) => count(child),
-                FrameItem::Change(_) | FrameItem::Cue(_) => 0,
-            })
-            .sum()
+fn has_committed_client_conduit_selection(frames: &[SemanticFrame]) -> bool {
+    fn contains(frame: &SemanticFrame) -> bool {
+        frame.items.iter().any(|item| match item {
+            FrameItem::Change(change)
+                if matches!(
+                    change.as_ref(),
+                    BattleChange::Conduit(
+                        crate::engine::manager::conduit::ConduitChange::GroupSelected { .. }
+                    )
+                ) =>
+            {
+                true
+            }
+            FrameItem::Child(child) => contains(child),
+            FrameItem::Change(_) | FrameItem::Cue(_) => false,
+        })
     }
 
-    frames.iter().map(count).sum()
+    frames.iter().any(contains)
 }
 
 fn queue_preparation_ops(
