@@ -405,6 +405,30 @@ mod tests {
     }
 
     #[test]
+    fn source_relative_attribute_buff_marks_each_feature_on_add() {
+        crate::test_support::init_config();
+
+        assert_eq!(
+            add_markers(31440116),
+            vec![
+                BuffMarker {
+                    effect_type: EffectType::Attr as i32,
+                },
+                BuffMarker {
+                    effect_type: EffectType::None as i32,
+                },
+            ]
+        );
+        assert!(static_markers(31440116).is_empty());
+        assert_eq!(
+            refresh_markers(31440116),
+            vec![BuffMarker {
+                effect_type: EffectType::Attr as i32,
+            }]
+        );
+    }
+
+    #[test]
     fn joe_shield_counter_marks_only_its_initial_add() {
         crate::test_support::init_config();
 
