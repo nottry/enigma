@@ -418,6 +418,7 @@ impl HpChanges {
                     .filter(|change| change.delta < 0)
                     .map(|change| change.delta.saturating_abs())
                     .unwrap_or_default(),
+                resolved_damage: damage.amount,
                 shield_absorbed: self
                     .shield_absorbed
                     .map(|change| change.absorbed)

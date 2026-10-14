@@ -1357,6 +1357,7 @@ fn drain_queue_with_deferred(
                     }));
                 }
 
+                let action_scope = active_skill_scope_path(&result.frames, &frame_path);
                 let has_active_continuation = queue.iter().any(|queued| {
                     matches!(&queued.trigger, SkillOpTrigger::Active)
                         && queued.frame_path.as_ref() == Some(&frame_path)
@@ -1368,9 +1369,36 @@ fn drain_queue_with_deferred(
                     && has_active_continuation;
                 if defer_hits {
                     // Multi-part active hits share one HitPassives boundary. Hold
-                    // primary hits and their own HP loss; unrelated events remain
-                    // immediately visible.
+                    // primary hits and their own HP loss. Their BeforePublish
+                    // buff acts still belong before this HP outcome.
                     let (immediate, deferred) = split_active_hit_event_groups(event_groups);
+                    let hit_buff_acts = dispatch_event_groups(
+                        pool,
+                        managers,
+                        catalog,
+                        determinism,
+                        state,
+                        &deferred,
+                        &event_scope,
+                        &frame_path,
+                        action_scope.as_deref(),
+                        &entry_halo_scope,
+                        current_skill,
+                        true,
+                        context.current_round > 0,
+                        crate::engine::event::subscription::PublicationPhase::BeforePublish,
+                        None,
+                        Some(ReactionLane::BuffActs),
+                    )?;
+                    drain_nested_queue(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        hit_buff_acts.into_ordered().into(),
+                        &mut result,
+                        state,
+                    )?;
                     pending_hits
                         .entry(frame_path.clone())
                         .or_default()
@@ -1381,7 +1409,6 @@ fn drain_queue_with_deferred(
 
                 // BeforePublish reactions run before this outcome is recorded in
                 // its semantic frame. Their own manager commits use nested drains.
-                let action_scope = active_skill_scope_path(&result.frames, &frame_path);
                 let mut before_reactions = dispatch_event_groups(
                     pool,
                     managers,
@@ -1455,24 +1482,6 @@ fn drain_queue_with_deferred(
                     .flatten();
                 if let Some(hit_event_groups) = released_hit_events.as_ref() {
                     let hit_events = flatten_event_groups(hit_event_groups);
-                    let hit_buff_acts = dispatch_event_groups(
-                        pool,
-                        managers,
-                        catalog,
-                        determinism,
-                        state,
-                        hit_event_groups,
-                        &event_scope,
-                        &frame_path,
-                        action_scope.as_deref(),
-                        &entry_halo_scope,
-                        current_skill,
-                        true,
-                        context.current_round > 0,
-                        crate::engine::event::subscription::PublicationPhase::BeforePublish,
-                        None,
-                        Some(ReactionLane::BuffActs),
-                    )?;
                     let hit_skills = dispatch_event_groups(
                         pool,
                         managers,
@@ -1493,15 +1502,6 @@ fn drain_queue_with_deferred(
                     )?;
                     result.events.extend(hit_events.iter().cloned());
                     pending_hit_skills = hit_skills;
-                    drain_nested_queue(
-                        managers,
-                        pool,
-                        catalog,
-                        determinism,
-                        hit_buff_acts.into_ordered().into(),
-                        &mut result,
-                        state,
-                    )?;
                 }
                 if !before_reactions.before_publish.is_empty() {
                     drain_nested_queue(

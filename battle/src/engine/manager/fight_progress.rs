@@ -61,7 +61,6 @@ pub enum FightProgressError {
     MissingProgress(i32),
     AmbiguousProgress(i32),
     InvalidStoredProgress(i32),
-    ValueOverflow(i32),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -161,17 +160,22 @@ impl FightProgressManager {
                     command.progress_id,
                 ))?,
         };
+        if before.max <= 0 || !(0..=before.max).contains(&before.value) {
+            return Err(FightProgressError::InvalidStoredProgress(
+                command.progress_id,
+            ));
+        }
         let value = before
             .value
-            .checked_add(command.delta)
-            .ok_or(FightProgressError::ValueOverflow(command.progress_id))?;
+            .saturating_add(command.delta)
+            .clamp(0, before.max);
         let after = FightProgressState { value, ..before };
         record.value = Some(after.value);
         Ok(FightProgressValueChange {
             origin: command.origin,
             before,
             after,
-            delta: command.delta,
+            delta: after.value - before.value,
         })
     }
 
@@ -316,5 +320,73 @@ mod tests {
             }),
             Err(FightProgressError::AmbiguousProgress(8))
         ));
+    }
+
+    #[test]
+    fn value_change_rejects_invalid_stored_range() {
+        let origin = CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(100016, "ProgressChangeNew"),
+        };
+        let mut manager = FightProgressManager::default();
+        manager.seed(&Fight {
+            progress_list: vec![
+                FightProgressState {
+                    id: 8,
+                    max: -1,
+                    value: 0,
+                    show_id: 10,
+                    skill_id: 119381117,
+                }
+                .into(),
+            ],
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            manager.change_value(FightProgressValueCommand {
+                origin,
+                progress_id: 8,
+                delta: i32::MAX,
+            }),
+            Err(FightProgressError::InvalidStoredProgress(8))
+        ));
+    }
+
+    #[test]
+    fn value_change_clamps_to_the_configured_range() {
+        let origin = CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(100016, "ProgressChangeNew"),
+        };
+        let mut manager = FightProgressManager::default();
+        manager
+            .initialize(FightProgressCommand {
+                origin,
+                initial: 34,
+                max: 100,
+                show_id: 10,
+                progress_id: 8,
+                skill_id: 119381117,
+            })
+            .unwrap();
+
+        let capped = manager
+            .change_value(FightProgressValueCommand {
+                origin,
+                progress_id: 8,
+                delta: i32::MAX,
+            })
+            .unwrap();
+        assert_eq!((capped.after.value, capped.delta), (100, 66));
+
+        let floored = manager
+            .change_value(FightProgressValueCommand {
+                origin,
+                progress_id: 8,
+                delta: i32::MIN,
+            })
+            .unwrap();
+        assert_eq!((floored.after.value, floored.delta), (0, -100));
     }
 }

@@ -709,6 +709,126 @@ fn lethal_damage_is_settled_after_a_configured_survival_reaction() {
 }
 
 #[test]
+fn lethal_deferred_hit_applies_progress_before_damage_and_terminal_commit() {
+    crate::test_support::init_config();
+    let entity = |uid, model_id, hp, attack| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        current_hp: Some(hp),
+        ex_point: Some(0),
+        attr: Some(HeroAttribute {
+            hp: Some(hp),
+            attack: Some(attack),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut target = entity(-1, 30111005, 1_000, 1);
+    target.current_hp = Some(112);
+    target.buffs = vec![BuffInfo {
+        uid: Some(3),
+        buff_id: Some(119381118),
+        from_uid: Some(-1),
+        count: Some(1),
+        ..Default::default()
+    }];
+    let fight = Fight {
+        battle_id: Some(301110),
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 1_000, 1_000)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![target],
+            ..Default::default()
+        }),
+        progress_list: vec![sonettobuf::FightProgressInfo {
+            id: Some(8),
+            max: Some(100),
+            value: Some(0),
+            show_id: Some(10),
+            skill_id: Some(119381117),
+        }],
+        ..Default::default()
+    };
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 200,
+        slots: Vec::new(),
+    });
+    catalog.insert_damage_rate(200, 1_000);
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut attack: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 200,
+    }
+    .into();
+    attack.mode = SkillExecutionMode::Active;
+    attack.target = SkillTarget::Explicit(-1);
+
+    let result = run(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext {
+            battle_id: 301110,
+            ..Default::default()
+        },
+        [RuleOp::Skill(attack)],
+    )
+    .unwrap();
+
+    fn collect_changes<'a>(frame: &'a SemanticFrame, changes: &mut Vec<&'a BattleChange>) {
+        for item in &frame.items {
+            match item {
+                crate::engine::runtime::record::FrameItem::Change(change) => changes.push(change),
+                crate::engine::runtime::record::FrameItem::Child(child) => {
+                    collect_changes(child, changes)
+                }
+                crate::engine::runtime::record::FrameItem::Cue(_) => {}
+            }
+        }
+    }
+    let mut changes = Vec::new();
+    for frame in &result.frames {
+        collect_changes(frame, &mut changes);
+    }
+    let progress_index = changes
+        .iter()
+        .position(|change| matches!(change, BattleChange::FightProgressValue(change) if change.after.id == 8))
+        .unwrap();
+    let hp_index = changes
+        .iter()
+        .position(|change| matches!(change, BattleChange::Hp(change) if change.target_uid == -1 && change.damage.is_some()))
+        .unwrap();
+    let BattleChange::FightProgressValue(progress) = changes[progress_index] else {
+        unreachable!();
+    };
+    let BattleChange::Hp(hp) = changes[hp_index] else {
+        unreachable!();
+    };
+    let damage = hp.damage.unwrap().amount;
+    assert!(damage > hp.applied_damage());
+    assert_eq!(
+        progress.delta,
+        i32::try_from(i64::from(damage) * 9 / 1000).unwrap()
+    );
+    assert!(progress_index < hp_index);
+    assert_eq!(
+        managers.fight_progress.get(8).unwrap().value,
+        progress.delta
+    );
+    assert!(
+        result
+            .events
+            .iter()
+            .any(|event| matches!(event, BattleEvent::BattleTerminalCommitted { .. }))
+    );
+}
+
+#[test]
 fn terminal_commit_keeps_winner_reactions_and_completes_the_current_action() {
     crate::test_support::init_config();
     let entity = |uid, model_id, hp, passive_skill| FightEntityInfo {

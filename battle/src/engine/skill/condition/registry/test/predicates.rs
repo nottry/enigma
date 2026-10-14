@@ -385,6 +385,13 @@ fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
     );
     assert!(find_key(1010101, "ProgressValue").is_none());
     assert_eq!(
+        find_key(1010012, "ProgressValue").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::EntityDied,
+            phase: None,
+        })
+    );
+    assert_eq!(
         parse(
             1010301,
             "ProgressValue",

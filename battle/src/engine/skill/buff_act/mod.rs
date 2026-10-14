@@ -88,6 +88,7 @@ pub mod forbid;
 pub mod frozen;
 pub mod heat_scale_tag;
 pub mod heat_scale_use_skill;
+pub mod hurt_to_progress;
 pub mod injury_bank;
 pub mod life_attack_fix_rate;
 pub mod lost_hp_add_extra_blood_pool_value;

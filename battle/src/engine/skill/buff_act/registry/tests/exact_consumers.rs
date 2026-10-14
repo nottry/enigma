@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn hurt_to_progress_owns_the_pre_damage_hit_route() {
+    let definition = find(1148, "HurtToProgress").unwrap();
+
+    assert_eq!(definition.kind, BuffActKind::HurtToProgress);
+    assert_eq!(
+        runtime_event(1148, "HurtToProgress", 0),
+        Some(EventKind::BeAttacked)
+    );
+    assert_eq!(
+        definition.runtime.publication,
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        definition.runtime.frame_scope,
+        RuntimeFrameScope::CausingFrame
+    );
+}
+
+#[test]
 fn registry_requires_exact_id_and_type() {
     assert_eq!(
         find(1075, "CardLimitAdd").unwrap().kind,

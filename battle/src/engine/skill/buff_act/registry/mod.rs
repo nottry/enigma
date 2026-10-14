@@ -236,6 +236,7 @@ pub enum BuffActKind {
     HaloBase,
     HeatScaleUseSkill,
     HealCritFix,
+    HurtToProgress,
     Injury,
     InjuryBank,
     InjuryLogback,
@@ -1318,6 +1319,11 @@ buff_act_definitions! {
         runtime: |context| super::real_damage_kill::rule_ops(context.managers, context.pool, context.subscriber),
         supports: super::real_damage_kill::supports, initial_state: SourceAttackThreshold,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1028, "RealDamageKill"), &[]));
+    (1148, "HurtToProgress") => HurtToProgress,
+        event: EventKind::BeAttacked, publication: BeforePublish, frame: CausingFrame,
+        runtime: |context| super::hurt_to_progress::rule_ops(context.subscriber, context.event?),
+        supports: super::hurt_to_progress::supports,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1148, "HurtToProgress"), &[EffectType::Progresschange as i32]));
     (1029, "AddAttrByOtherBuffLayer") => AddAttrByOtherBuffLayer,
         effect_time_subscription: false,
         supports: super::add_attr_by_other_buff_layer::supports, state_consumer: true,
