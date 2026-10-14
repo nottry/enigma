@@ -667,6 +667,10 @@ fn hp_loss_life_less_gate_keeps_its_exact_identity() {
         Some([EventKind::HpLost].as_slice())
     );
     assert_eq!(
+        find_key(1, "LifeLess").map(|definition| definition.reaction_frame_target),
+        Some(ReactionFrameTarget::Owner)
+    );
+    assert_eq!(
         parse(1, "LifeLess", &["11".into()]),
         Some(ParsedConditionKind::HpPermille {
             compare: super::super::super::parse::ConditionCompare::LessThan,
