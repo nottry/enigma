@@ -169,11 +169,15 @@ fn damage_rule_ops(
             assassinate: true,
             main_target: true,
             extra_skill_kind: context.target.extra_skill_kind,
-            performs_extra_action:
-                crate::engine::skill::condition::extra::skill_kind_from_is_extra(
-                    context.target.extra_skill_kind,
-                )
-                .is_some_and(|kind| kind.is_extra_action()),
+            performs_extra_action: crate::engine::skill::action::performs_extra_action(
+                context.target.active_card_index,
+                context.target.active_skill_mode,
+                context.target.extra_skill_kind,
+            ),
+            unpaid_extra_action_cost_fields: context
+                .modifiers
+                .unpaid_extra_action_cost_fields
+                .clone(),
             additional_enabled: false,
             additional_is_crit: None,
         },

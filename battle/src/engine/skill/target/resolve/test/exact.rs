@@ -32,6 +32,44 @@ fn selected_attack_without_client_input_uses_the_first_enemy() {
 }
 
 #[test]
+fn selected_attack_rejects_an_ally_without_changing_non_attack_selection() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity_at(10, 1), entity_at(11, 2)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity_at(-1, 1), entity_at(-2, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let selected = TargetContext {
+        runtime_target_uid: 11,
+        ..Default::default()
+    };
+
+    assert_eq!(
+        resolve_code_with_context(
+            1,
+            10,
+            &pool,
+            &mut RoundDeterminism::default(),
+            TargetContext {
+                active_skill_is_attack: true,
+                ..selected
+            },
+        ),
+        vec![-1]
+    );
+    assert_eq!(
+        resolve_code_with_context(1, 10, &pool, &mut RoundDeterminism::default(), selected,),
+        vec![11]
+    );
+}
+
+#[test]
 fn ally_single_target_opcodes_keep_their_exact_selection_rules() {
     init_config();
     let mut first = entity_stats(10, 1, 40, 100, 0);

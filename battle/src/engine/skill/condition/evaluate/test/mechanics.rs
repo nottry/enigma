@@ -385,6 +385,43 @@ fn power_compare_codes_form_inclusive_config_ranges() {
 }
 
 #[test]
+fn fight_progress_value_reads_committed_progress_with_config_comparisons() {
+    init_config();
+    let fight = Fight {
+        progress_list: vec![sonettobuf::FightProgressInfo {
+            id: Some(8),
+            max: Some(100),
+            value: Some(59),
+            show_id: Some(10),
+            skill_id: Some(119381117),
+        }],
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let matches = |compare_code: i32, threshold: i32| {
+        let compare_code = compare_code.to_string();
+        let threshold = threshold.to_string();
+        conditions_match(
+            &[exact_condition(
+                1010301,
+                "ProgressValue",
+                &["8", &compare_code, &threshold],
+            )],
+            10,
+            &[10],
+            Some(&managers),
+            &TargetPool::default(),
+            TargetContext::default(),
+        )
+    };
+
+    assert!(matches(1, 30));
+    assert!(matches(2, 59));
+    assert!(matches(3, 59));
+    assert!(!matches(3, 100));
+}
+
+#[test]
 fn hurt_kind_reads_the_attacker_damage_type() {
     init_config();
     let reality = ParsedCondition {

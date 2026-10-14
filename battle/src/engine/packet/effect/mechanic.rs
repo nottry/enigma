@@ -90,7 +90,16 @@ impl EffectPacket {
         }
     }
 
-    pub fn conduit_skill_began(team: i32, power_id: i32, spent: i32) -> ActEffect {
+    pub fn conduit_skill_began(
+        team: i32,
+        power_id: i32,
+        specific_spent: i32,
+        generic_spent: i32,
+    ) -> ActEffect {
+        let mut reserve_str = format!("{power_id}#{}", -specific_spent);
+        if generic_spent > 0 {
+            reserve_str.push_str(&format!("|0#{}", -generic_spent));
+        }
         ActEffect {
             target_id: Some(0),
             effect_type: Some(EffectType::Devicepowerchange as i32),
@@ -98,7 +107,7 @@ impl EffectPacket {
             config_effect: Some(0),
             buff_act_id: Some(0),
             reserve_id: Some(0),
-            reserve_str: Some(format!("{power_id}#{}", -spent)),
+            reserve_str: Some(reserve_str),
             team_type: Some(team),
             effect_num1: Some(0),
             ..Default::default()

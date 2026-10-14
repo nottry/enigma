@@ -14,9 +14,18 @@ pub mod replay {
         manager::card::{CardOpType, CardSetup},
         runtime::{
             BattleRuntime as ReplayBattle,
-            determinism::{HandRankChoice, RoundDeterminism},
+            determinism::{
+                CrystalReuseChoice, HandRankChoice, RoundDeterminism, SkillTargetChoice,
+            },
         },
     };
+
+    pub fn seed_observed_redeal(
+        runtime: &mut ReplayBattle,
+        hand: &[sonettobuf::CardInfo],
+    ) -> Result<(), String> {
+        runtime.seed_observed_redeal(hand)
+    }
 }
 
 pub mod scan {
@@ -25,9 +34,9 @@ pub mod scan {
         manager::buff::BuffPolicy,
         skill::{
             condition::{ConditionTiming, ParsedCondition, ParsedConditionKind, parse_conditions},
-            effect::{ParsedBehavior, SkillEffectCatalog, SkillEffectSlot},
+            effect::{ParsedBehavior, ParsedSkillEffect, SkillEffectCatalog, SkillEffectSlot},
             rule::route::{ConditionDriver, ConditionRoute, RouteError},
-            target::is_mapped_target_code,
+            target::{TargetRequest, is_mapped_target_code},
         },
     };
 
@@ -40,7 +49,9 @@ pub mod scan {
     }
 
     pub mod behavior {
-        pub use crate::engine::skill::behavior::{has_destination, is_supported};
+        pub use crate::engine::skill::behavior::{
+            has_destination, is_slot_supported, is_supported,
+        };
 
         pub mod classify {
             pub use crate::engine::skill::behavior::classify::BehaviorSpec;

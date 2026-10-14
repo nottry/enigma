@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn attribute_delta_reads_the_grant_snapshot_as_a_flat_value() {
+    fn origin_attack_reads_the_grant_snapshot_as_a_flat_value() {
         crate::test_support::init_config();
         let fight = Fight {
             attacker: Some(FightTeam {
@@ -526,5 +526,6 @@ mod tests {
             snapshotted_attribute_delta(&feature, AttrId::Attack, &managers.buff),
             317
         );
+        assert_eq!(managers.origin_attribute(10, AttrId::Attack), 317);
     }
 }

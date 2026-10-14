@@ -9,7 +9,7 @@ pub fn run_event(
     event: BattleEvent,
 ) -> Result<DrainResult, DrainError> {
     let current_pool = subscriber_view(pool, managers, &event);
-    let initial = dispatch_reactions(
+    let mut initial = dispatch_reactions(
         &current_pool,
         managers,
         catalog,
@@ -22,10 +22,13 @@ pub fn run_event(
         None,
         None,
         None,
+        None,
         context.current_round > 0,
         None,
-    )?
-    .into_ordered();
+        None,
+    )?;
+    initial.assign_subscriber_death_groups(None);
+    let initial = initial.into_ordered();
     run_event_queue(
         managers,
         pool,
@@ -48,39 +51,81 @@ pub fn run_group_event(
     lane: ReactionLane,
     owner_uids: Option<&[i64]>,
 ) -> Result<DrainResult, DrainError> {
-    let mut frames = Vec::new();
-    let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
-    let scope = match lane {
-        ReactionLane::Skills => push_child(
-            &mut frames,
-            &root,
-            FrameOwner::EventRule,
-            FrameTrigger::Event(event.clone()),
-        ),
-        ReactionLane::BuffActs
-        | ReactionLane::BuffActsBeforeSettlement
-        | ReactionLane::BuffActsAfterSettlement => root,
-    };
-    let current_pool = subscriber_view(pool, managers, &event);
-    let mut queue = dispatch_reactions(
-        &current_pool,
+    run_group_event_lanes(
         managers,
+        pool,
         catalog,
         determinism,
-        &event,
-        Some(&scope),
-        None,
-        None,
-        None,
-        None,
-        Some(lane),
+        context,
+        event,
+        &[lane],
         owner_uids,
-        context.current_round > 0,
-        None,
-    )?
-    .into_ordered()
-    .into();
-    let mut result = drain_queue_with_frames(
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_start_card_event(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    let event = BattleEvent::Kind(crate::engine::event::kind::EventKind::RoundStartCard);
+    let advances = crate::engine::skill::buff_act::effect_time::ROUND_START_CARD_STAGES
+        .into_iter()
+        .filter_map(|take_stage| {
+            let buff_uids = managers.buff.duration_buff_uids(take_stage, owner_uids);
+            (!buff_uids.is_empty())
+                .then(|| {
+                    crate::engine::manager::buff::BuffDurationAdvance::new(
+                        take_stage,
+                        owner_uids.to_vec(),
+                        Some(buff_uids),
+                    )
+                })
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    let mut result = run_group_event_lanes(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        event.clone(),
+        &[ReactionLane::BuffActs, ReactionLane::Skills],
+        Some(owner_uids),
+    )?;
+    if advances.is_empty() {
+        return Ok(result);
+    }
+
+    let mut frames = Vec::new();
+    let scope = push_root(
+        &mut frames,
+        FrameOwner::EventRule,
+        FrameTrigger::Event(event.clone()),
+    );
+    let mut queue = advances
+        .into_iter()
+        .map(|advance| QueuedOp {
+            op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Buff(
+                crate::engine::manager::buff::BuffCommand::AdvanceDuration(advance),
+            )),
+            trigger: SkillOpTrigger::Event(event.clone()),
+            skill_execution: None,
+            frame_path: Some(scope.clone()),
+            parent_path: None,
+            frame_group: None,
+            independent_parent_group: None,
+            frame_owner: None,
+            subscriber: None,
+            caster_frame: None,
+        })
+        .collect::<VecDeque<_>>();
+    let duration = drain_queue_with_frames(
         managers,
         pool,
         catalog,
@@ -89,9 +134,133 @@ pub fn run_group_event(
         &mut queue,
         frames,
     )?;
+    result.outcomes.extend(duration.outcomes);
+    result.events.extend(duration.events);
+    result.frames.extend(duration.frames);
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_group_event_lanes(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    event: BattleEvent,
+    lanes: &[ReactionLane],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    let mut frames = Vec::new();
+    let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
+    let mut result = DrainResult {
+        frames,
+        ..Default::default()
+    };
+    for &lane in lanes {
+        if lane == ReactionLane::Skills
+            && let Some(owner_uids) = owner_uids
+        {
+            for owner_uid in owner_uids {
+                let scope = push_child(
+                    &mut result.frames,
+                    &root,
+                    FrameOwner::EventRule,
+                    FrameTrigger::Event(event.clone()),
+                );
+                let next = drain_group_event_lane(
+                    managers,
+                    pool,
+                    catalog,
+                    determinism,
+                    context,
+                    &event,
+                    lane,
+                    Some(std::slice::from_ref(owner_uid)),
+                    &scope,
+                    std::mem::take(&mut result.frames),
+                )?;
+                result.outcomes.extend(next.outcomes);
+                result.events.extend(next.events);
+                result.frames = next.frames;
+            }
+            continue;
+        }
+        let scope = match lane {
+            ReactionLane::Skills => push_child(
+                &mut result.frames,
+                &root,
+                FrameOwner::EventRule,
+                FrameTrigger::Event(event.clone()),
+            ),
+            ReactionLane::BuffActs
+            | ReactionLane::BuffActsBeforeSettlement
+            | ReactionLane::BuffActsAfterSettlement => root.clone(),
+        };
+        let next = drain_group_event_lane(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            &event,
+            lane,
+            owner_uids,
+            &scope,
+            std::mem::take(&mut result.frames),
+        )?;
+        result.outcomes.extend(next.outcomes);
+        result.events.extend(next.events);
+        result.frames = next.frames;
+    }
     result.events.insert(0, event);
 
     Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drain_group_event_lane(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    event: &BattleEvent,
+    lane: ReactionLane,
+    owner_uids: Option<&[i64]>,
+    scope: &FramePath,
+    frames: Vec<SemanticFrame>,
+) -> Result<DrainResult, DrainError> {
+    let current_pool = subscriber_view(pool, managers, event);
+    let mut reactions = dispatch_reactions(
+        &current_pool,
+        managers,
+        catalog,
+        determinism,
+        event,
+        Some(scope),
+        None,
+        None,
+        None,
+        None,
+        None,
+        Some(lane),
+        owner_uids,
+        context.current_round > 0,
+        None,
+        None,
+    )?;
+    reactions.assign_subscriber_death_groups(None);
+    let mut queue = reactions.into_ordered().into();
+    drain_queue_with_frames(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        &mut queue,
+        frames,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -124,7 +293,7 @@ pub fn run_grouped_owner_event(
                 _ => root.clone(),
             };
             let current_pool = subscriber_view(pool, managers, &event);
-            let mut queue = dispatch_reactions(
+            let mut reactions = dispatch_reactions(
                 &current_pool,
                 managers,
                 catalog,
@@ -135,13 +304,15 @@ pub fn run_grouped_owner_event(
                 None,
                 None,
                 None,
+                None,
                 Some(lane),
                 Some(std::slice::from_ref(owner_uid)),
                 context.current_round > 0,
                 None,
-            )?
-            .into_ordered()
-            .into();
+                None,
+            )?;
+            reactions.assign_subscriber_death_groups(None);
+            let mut queue = reactions.into_ordered().into();
             let next = drain_queue_with_frames(
                 managers,
                 pool,

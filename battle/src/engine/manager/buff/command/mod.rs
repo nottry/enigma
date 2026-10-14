@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sonettobuf::BuffActInfo;
 
 use crate::engine::{
@@ -11,7 +13,7 @@ use super::{
     BuffFanoutResult, BuffManager, BuffMarkerResult, BuffPolicy, BuffReplaceResult, BuffRoute,
     BuffShieldRemoveResult, BuffStatus, BuffStorage, GrantInputs, ResistRoll, count_or_layer_from,
     grant_plan::{
-        GrantAction, LayerRefreshPlan, PlannedFanout, PlannedFanoutRefresh, PlannedMasterHaloFanout,
+        GrantAction, LayerRefreshPlan, PlannedEntryHaloFanout, PlannedFanout, PlannedFanoutRefresh,
     },
     typed_count_repeat,
     uid_policy::{self, UidAllocationPlan},
@@ -99,6 +101,7 @@ pub enum BuffSelector {
 pub enum DepletedBuff {
     Keep,
     Remove,
+    RemoveWithZeroLayer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,20 +244,20 @@ pub struct BuffGrantUidReservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BuffMasterHaloFanout {
+pub struct BuffEntryHaloFanout {
     pub origin: CommandOrigin,
     pub target_uids: Vec<i64>,
 }
 
-const WAVE_ENTRY_MASTER_HALO_KEY: crate::engine::skill::rule::DefinitionKey =
-    crate::engine::skill::rule::DefinitionKey::new(0, "WaveEntryMasterHalo");
+const ENTITY_ENTRY_HALO_KEY: crate::engine::skill::rule::DefinitionKey =
+    crate::engine::skill::rule::DefinitionKey::new(0, "EntityEntryHalo");
 
-impl BuffMasterHaloFanout {
+impl BuffEntryHaloFanout {
     pub fn new(target_uids: Vec<i64>) -> Self {
         Self {
             origin: CommandOrigin {
                 domain: RuleDomain::Lifecycle,
-                key: WAVE_ENTRY_MASTER_HALO_KEY,
+                key: ENTITY_ENTRY_HALO_KEY,
             },
             target_uids,
         }
@@ -341,6 +344,7 @@ pub enum BuffCommand {
     GrantUsingNormalUid(BuffGrant),
     GrantChild(BuffGrantChild),
     GrantInternalChild(BuffGrantChild),
+    RenewTimedChild(BuffGrantChild),
     Consume(BuffConsume),
     ConsumeCount(BuffConsume),
     ConsumeEffectCount(BuffConsume),
@@ -365,7 +369,7 @@ pub enum BuffCommand {
     AddSpecialCount(BuffSpecialCount),
     ReserveChildUids(BuffChildUidReservation),
     ReserveGrantUid(BuffGrantUidReservation),
-    FanoutMasterHalo(BuffMasterHaloFanout),
+    FanoutEntryHalos(BuffEntryHaloFanout),
     AdvanceDuration(BuffDurationAdvance),
     SyncRoundStartDuration(BuffRoundStartDurationSync),
 }
@@ -379,6 +383,38 @@ pub(crate) struct BuffPlan {
 type SourceRelativeAttributeFeatures = (i64, Vec<(i32, i32, i32, i32)>);
 
 impl BuffPlan {
+    pub(crate) fn fanout_source_uids(&self) -> Vec<i64> {
+        match &self.action {
+            BuffPlanAction::Grant(plan) => plan
+                .fanout
+                .iter()
+                .map(|fanout| fanout.spec.route.source_uid)
+                .collect(),
+            BuffPlanAction::FanoutEntryHalos(plans) => plans
+                .iter()
+                .map(|plan| plan.fanout.spec.route.source_uid)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+
+    pub(crate) fn initialize_fanout_source_attacks(&mut self, attacks: &HashMap<i64, i32>) {
+        let fanouts: &mut [PlannedFanout] = match &mut self.action {
+            BuffPlanAction::Grant(plan) => &mut plan.fanout,
+            BuffPlanAction::FanoutEntryHalos(plans) => {
+                for plan in plans {
+                    plan.fanout.spec.source_attack =
+                        attacks.get(&plan.fanout.spec.route.source_uid).copied();
+                }
+                return;
+            }
+            _ => return,
+        };
+        for fanout in fanouts {
+            fanout.spec.source_attack = attacks.get(&fanout.spec.route.source_uid).copied();
+        }
+    }
+
     pub(crate) fn planned_reservation_uids(&self) -> Option<Vec<i64>> {
         let BuffPlanAction::ReserveChildUids(plan) = &self.action else {
             return None;
@@ -487,6 +523,34 @@ impl BuffPlan {
     }
 }
 
+impl GrantPlan {
+    fn refresh_initial_state_markers(&self) -> Vec<BuffActInfoMarkerResult> {
+        let Some(buff_uid) = self.layer_refresh_uid.map(|uid| uid.uid) else {
+            return Vec::new();
+        };
+        self.initial_act_info_markers
+            .as_ref()
+            .or(self.initial_act_info.as_ref())
+            .into_iter()
+            .flatten()
+            .filter_map(|info| {
+                let act_id = info.act_id?;
+                if !self.definition.projects_initial_state_on_refresh(act_id) {
+                    return None;
+                }
+                Some(BuffActInfoMarkerResult {
+                    target_uid: self.route.target_uid,
+                    buff_uid,
+                    act_id,
+                    params: info.param.clone(),
+                    str_param: info.str_param.clone(),
+                    team_type: 0,
+                })
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone)]
 enum BuffPlanAction {
     Grant(Box<GrantPlan>),
@@ -507,7 +571,7 @@ enum BuffPlanAction {
     AddSpecialCount(SpecialCountPlan),
     ReserveChildUids(UidReservationPlan),
     ReserveGrantUid(GrantUidReservationPlan),
-    FanoutMasterHalo(Vec<PlannedMasterHaloFanout>),
+    FanoutEntryHalos(Vec<PlannedEntryHaloFanout>),
     AdvanceDuration(Vec<super::lifecycle::BuffDurationPlan>),
     SyncRoundStartDuration(Vec<super::lifecycle::BuffLifecyclePlan>),
 }
@@ -535,6 +599,7 @@ struct ReplacePlan {
     target_uid: i64,
     removed_uids: Vec<i64>,
     grant: GrantPlan,
+    expire_removed: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -142,12 +142,29 @@ impl BattleRuntime {
         self.determinism.enqueue_card_draws(cards);
     }
 
+    pub(crate) fn seed_observed_redeal(&mut self, hand: &[CardInfo]) -> Result<(), String> {
+        let draws = self
+            .managers
+            .card
+            .observed_redeal_draws(hand)
+            .ok_or_else(|| "captured redeal is not reachable from the current hand".to_owned())?;
+        self.seed_card_draws(draws);
+        Ok(())
+    }
+
     pub fn seed_next_ai_cards(&mut self, cards: Vec<CardInfo>) {
         self.determinism.enqueue_next_ai_card_snapshot(cards);
     }
 
     pub fn seed_crystal_cards(&mut self, cards: impl IntoIterator<Item = CardInfo>) {
         self.determinism.enqueue_crystal_cards(cards);
+    }
+
+    pub fn seed_skill_targets(
+        &mut self,
+        choices: impl IntoIterator<Item = determinism::SkillTargetChoice>,
+    ) {
+        self.determinism.enqueue_skill_target_choices(choices);
     }
 
     pub fn seed_hidden_crits(
@@ -186,6 +203,13 @@ impl BattleRuntime {
 
     pub fn seed_shell_moxie_choices(&mut self, choices: impl IntoIterator<Item = bool>) {
         self.determinism.replace_shell_moxie_choices(choices);
+    }
+
+    pub fn seed_crystal_reuse_choices(
+        &mut self,
+        choices: impl IntoIterator<Item = determinism::CrystalReuseChoice>,
+    ) {
+        self.determinism.replace_crystal_reuse_choices(choices);
     }
 
     pub fn conduit_operations(&self) -> Vec<sonettobuf::FightDeviceOper> {
@@ -311,6 +335,9 @@ impl BattleRuntime {
         let determinism =
             RoundDeterminism::with_seed(fight.battle_id.unwrap_or_default().max(0) as u64);
         let skill_catalog = catalog.skill_effects_for_fight(&fight);
+        let absorb_hurt_map_layout = crate::engine::fight::versions::absorb_hurt_map_layout(
+            fight.version.unwrap_or_default(),
+        );
 
         Self {
             catalog_data: Some(catalog),
@@ -324,7 +351,7 @@ impl BattleRuntime {
             wave_entry_condition_uids: Vec::new(),
             cloth_skill_uses: HashMap::new(),
             objectives: Default::default(),
-            absorb_hurt_map_layout: AbsorbHurtMapLayout::default(),
+            absorb_hurt_map_layout,
         }
     }
 }

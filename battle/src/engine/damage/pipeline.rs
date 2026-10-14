@@ -5,6 +5,8 @@ pub enum DamageKind {
     Genesis,
 }
 
+const MIN_CRITICAL_DAMAGE_MULTIPLIER: i32 = 1_100;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DamageFormulaInput {
     pub kind: DamageKind,
@@ -178,18 +180,29 @@ pub(crate) fn calculate_with_trace_for_version_and_remainder(
     let critical_input = poison_multiplier.map_or(result, |trace| trace.output);
     let pre_critical_fraction =
         poison_multiplier.map_or(chained, |trace| (trace.output as i128, 1_i128));
+    let crit_multiplier = if input.is_crit {
+        input.crit_multiplier.max(MIN_CRITICAL_DAMAGE_MULTIPLIER)
+    } else {
+        input.crit_multiplier.max(0)
+    };
+    let critical_multiplier_remainder =
+        if input.is_crit && input.crit_multiplier >= MIN_CRITICAL_DAMAGE_MULTIPLIER {
+            critical_multiplier_remainder
+        } else {
+            0
+        };
     let critical_fraction = if input.is_crit && critical_multiplier_remainder != 0 {
         multiply_reduced_fraction(
             pre_critical_fraction,
             (
-                input.crit_multiplier.max(0) as i128 * 1000
+                crit_multiplier as i128 * 1000
                     + critical_multiplier_remainder.clamp(0, 999) as i128,
                 1_000_000,
             ),
         )
     } else if input.is_crit {
         (
-            pre_critical_fraction.0 * input.crit_multiplier.max(0) as i128,
+            pre_critical_fraction.0 * crit_multiplier as i128,
             pre_critical_fraction.1 * 1000,
         )
     } else {
@@ -221,7 +234,7 @@ pub(crate) fn calculate_with_trace_for_version_and_remainder(
         critical: CriticalTrace {
             input: critical_input,
             applied: input.is_crit,
-            multiplier: input.crit_multiplier,
+            multiplier: crit_multiplier,
             numerator: critical_fraction.0,
             denominator: critical_fraction.1,
             output: amount,

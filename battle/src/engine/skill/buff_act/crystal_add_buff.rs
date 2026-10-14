@@ -2,7 +2,7 @@ use crate::engine::{
     event::payload::BattleEvent,
     manager::{
         BattleManagers,
-        buff::{BuffChildUidReservation, BuffCommand, BuffGrant},
+        buff::{BuffCommand, BuffGrant},
         emanation::EmanationKind,
     },
     skill::{
@@ -80,23 +80,16 @@ pub fn rule_ops(
         .iter()
         .copied()
         .filter(|target_uid| *target_uid != 0)
-        .flat_map(|target_uid| {
-            [
-                BuffCommand::Grant(BuffGrant {
-                    origin,
-                    source_uid,
-                    target_uid,
-                    buff_id: *buff_id,
-                    amount: Some(layer),
-                    occurrences: 1,
-                    child_uid_reservations: 0,
-                }),
-                BuffCommand::ReserveChildUids(BuffChildUidReservation {
-                    origin,
-                    target_uid,
-                    count: 1,
-                }),
-            ]
+        .map(|target_uid| {
+            BuffCommand::Grant(BuffGrant {
+                origin,
+                source_uid,
+                target_uid,
+                buff_id: *buff_id,
+                amount: Some(layer),
+                occurrences: 1,
+                child_uid_reservations: 0,
+            })
         })
         .collect::<Vec<_>>();
     Some(
@@ -228,8 +221,8 @@ mod tests {
 
         assert!(matches!(
             rule_ops(&managers, &feature, &event).as_deref(),
-            Some([
-                RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+            Some([RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(
+                BuffGrant {
                     source_uid: 11,
                     target_uid: -1,
                     buff_id: 31340001,
@@ -237,15 +230,8 @@ mod tests {
                     occurrences: 1,
                     child_uid_reservations: 0,
                     ..
-                }))),
-                RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(
-                    BuffChildUidReservation {
-                        target_uid: -1,
-                        count: 1,
-                        ..
-                    }
-                )))
-            ])
+                }
+            )))])
         ));
     }
 
@@ -277,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn one_action_emits_grant_then_reservation_per_target() {
+    fn one_action_emits_one_grant_per_target() {
         let (mut managers, feature, mut event) = fixture();
         assert!(managers.emanation.select(10, 101));
         let BattleEvent::SkillAction(action) = &mut event else {
@@ -288,12 +274,9 @@ mod tests {
         let outputs = rule_ops(&managers, &feature, &event).unwrap();
         let origin = crate::engine::skill::buff_act::command_origin(&feature).unwrap();
         let targets = [-1, -2, -3];
-        assert_eq!(outputs.len(), targets.len() * 2);
-        for (target_uid, pair) in targets.into_iter().zip(outputs.chunks_exact(2)) {
-            let [grant, reservation] = pair else {
-                unreachable!()
-            };
-            let RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant))) = grant else {
+        assert_eq!(outputs.len(), targets.len());
+        for (target_uid, output) in targets.into_iter().zip(outputs) {
+            let RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant))) = output else {
                 panic!("expected crystal grant for target {target_uid}")
             };
             assert_eq!(grant.origin, origin);
@@ -303,15 +286,6 @@ mod tests {
             assert_eq!(grant.amount, Some(1));
             assert_eq!(grant.occurrences, 1);
             assert_eq!(grant.child_uid_reservations, 0);
-
-            let RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(reservation))) =
-                reservation
-            else {
-                panic!("expected crystal child reservation for target {target_uid}")
-            };
-            assert_eq!(reservation.origin, origin);
-            assert_eq!(reservation.target_uid, target_uid);
-            assert_eq!(reservation.count, 1);
         }
     }
 
@@ -341,19 +315,12 @@ mod tests {
 
         assert!(matches!(
             rule_ops(&managers, &feature, &event).as_deref(),
-            Some([
-                RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+            Some([RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(
+                BuffGrant {
                     amount: Some(1),
                     ..
-                }))),
-                RuleOp::Command(BattleCommand::Buff(BuffCommand::ReserveChildUids(
-                    BuffChildUidReservation {
-                        target_uid: -1,
-                        count: 1,
-                        ..
-                    }
-                )))
-            ])
+                }
+            )))])
         ));
     }
 
@@ -388,16 +355,10 @@ mod tests {
 
         assert!(matches!(
             scoped_rule_ops(&managers, &feature, &event).as_deref(),
-            Some([
-                BuffActRuleOp {
-                    source: BuffActFrameSource::Applier,
-                    ..
-                },
-                BuffActRuleOp {
-                    source: BuffActFrameSource::Applier,
-                    ..
-                }
-            ])
+            Some([BuffActRuleOp {
+                source: BuffActFrameSource::Applier,
+                ..
+            }])
         ));
     }
 }

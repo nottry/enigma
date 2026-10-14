@@ -56,7 +56,7 @@ fn configured_cloth_skills_drive_universal_and_redeal_card_rules() {
         .execute_card(crate::engine::manager::card::CardCommand::Setup(
             crate::engine::manager::card::CardSetup {
                 hand: vec![card(101)],
-                draw_pile: vec![card(201)],
+                draw_pile: vec![card(101), card(201)],
                 deck_num: 16,
             },
         ))
@@ -91,6 +91,7 @@ fn configured_cloth_skills_drive_universal_and_redeal_card_rules() {
         })
     }));
 
+    runtime.determinism.enqueue_card_draws(vec![card(201)]);
     let redeal = runtime
         .use_cloth_skill(UseClothSkillRequest {
             skill_id: Some(30010202),

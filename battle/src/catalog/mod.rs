@@ -161,6 +161,14 @@ impl BattleCatalog {
         self.impromptu_definition
     }
 
+    pub(crate) fn is_special_power_card(self, skill_id: i32) -> bool {
+        self.game_data.fight_device.iter().any(|device| {
+            device.special_power_skill.split('|').any(|entry| {
+                entry.split('#').next().and_then(|value| value.parse().ok()) == Some(skill_id)
+            })
+        })
+    }
+
     pub(crate) fn magic_circle(self, circle_id: i32) -> Option<MagicCircleDefinition> {
         magic_circle_definition(self.game_data, circle_id)
     }
@@ -1308,7 +1316,7 @@ pub(crate) fn configured_ex_point_max(
         .monster_skill_template
         .get(monster.skill_template)?
         .unique_skill_point;
-    (max > 0).then_some(max)
+    Some(max.max(0))
 }
 
 pub(crate) fn configured_monster_toughness(

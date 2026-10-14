@@ -92,9 +92,7 @@ fn modifier_rates(source_uid: i64, target_uid: i64, managers: &BattleManagers) -
     } else {
         0
     };
-    let injury = managers
-        .buff
-        .buff_act_scalar(target_uid, BuffActKind::Injury);
+    let injury = injury_rate(target_uid, managers);
     let healing_taken: i32 = managers
         .buff
         .active_features(&managers.hp)
@@ -127,6 +125,16 @@ fn modifier_rates(source_uid: i64, target_uid: i64, managers: &BattleManagers) -
         1000_i32.saturating_add(healing_done).max(0),
         1000_i32.saturating_add(healing_taken).max(0),
     )
+}
+
+fn injury_rate(target_uid: i64, managers: &BattleManagers) -> i32 {
+    managers
+        .buff
+        .active_features(&managers.hp)
+        .into_iter()
+        .filter(|feature| feature.owner_uid == target_uid && is_kind(feature, BuffActKind::Injury))
+        .filter_map(|feature| feature.values.get(1).copied())
+        .sum()
 }
 
 pub(super) fn amount(

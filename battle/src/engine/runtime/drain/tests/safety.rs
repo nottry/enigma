@@ -10,9 +10,31 @@ fn queued(op: RuleOp) -> QueuedOp {
         frame_group: None,
         independent_parent_group: None,
         frame_owner: None,
-        subscriber_owner_uid: None,
+        subscriber: None,
         caster_frame: None,
     }
+}
+
+#[test]
+fn failed_once_per_action_condition_remains_eligible_until_it_fires() {
+    let condition_key = DefinitionKey::new(1304, "LifeLess");
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 2340,
+    }
+    .into();
+    invocation.condition_key = Some(condition_key);
+    invocation.condition_slot = Some(1);
+    invocation.reaction_batch_id = Some(0);
+    invocation.reaction_action_path = Some(vec![0]);
+    let mut state = DrainState::new(TargetContext::default());
+
+    assert!(!reaction_already_fired(&mut state, &invocation));
+    assert!(!reaction_already_fired(&mut state, &invocation));
+
+    mark_reaction_fired(&mut state, &invocation, 1, condition_key);
+
+    assert!(reaction_already_fired(&mut state, &invocation));
 }
 
 #[test]
@@ -44,6 +66,39 @@ fn canceling_an_action_releases_its_held_after_action_casts() {
     assert!(managers.advance_configured_rule_progress_until_cast(10, rule, 1, 1));
     assert!(!state.action_in_progress(&action_path));
     assert!(state.take_after_action_casts(&action_path).is_empty());
+}
+
+#[test]
+fn canceled_reaction_action_restores_its_unclaimed_cast() {
+    let action_path = vec![0];
+    let cast = queued(RuleOp::FreezeActiveSkillRates);
+    let link = DrainState::reaction_cast_link(vec![(None, cast)]);
+    let mut state = DrainState::new(TargetContext::default());
+
+    state.open_action(action_path.clone());
+    state.claim_action_link(&action_path, &link);
+    assert!(state.cancel_action(&action_path).is_empty());
+
+    let restored = DrainState::take_unclaimed_reaction_casts(&link);
+    assert_eq!(restored.len(), 1);
+    assert!(restored[0].1.parent_path.is_none());
+}
+
+#[test]
+fn completed_reaction_action_owns_its_held_cast() {
+    let action_path = vec![0];
+    let cast = queued(RuleOp::FreezeActiveSkillRates);
+    let link = DrainState::reaction_cast_link(vec![(None, cast)]);
+    let mut state = DrainState::new(TargetContext::default());
+
+    state.open_action(action_path.clone());
+    state.claim_action_link(&action_path, &link);
+
+    assert!(state.take_after_action_casts(&action_path).is_empty());
+    let released = state.take_claimed_reaction_casts(&action_path);
+    assert_eq!(released.len(), 1);
+    assert_eq!(released[0].1.parent_path.as_ref(), Some(&action_path));
+    assert!(DrainState::take_unclaimed_reaction_casts(&link).is_empty());
 }
 
 #[test]
@@ -438,7 +493,7 @@ fn terminal_skips_unstarted_losing_subscribers_by_presentation_frame_owner() {
                 frame_group: Some(Rc::new(RefCell::new(Some(path.clone())))),
                 independent_parent_group: None,
                 frame_owner: Some(owner.clone()),
-                subscriber_owner_uid: Some(-1),
+                subscriber: Some(SubscriberContext::new(-1)),
                 caster_frame: None,
             },
             QueuedOp {
@@ -462,7 +517,7 @@ fn terminal_skips_unstarted_losing_subscribers_by_presentation_frame_owner() {
                 frame_group: Some(Rc::new(RefCell::new(None))),
                 independent_parent_group: None,
                 frame_owner: Some(losing_frame_owner),
-                subscriber_owner_uid: Some(-2),
+                subscriber: Some(SubscriberContext::new(-2)),
                 caster_frame: None,
             },
         ]);

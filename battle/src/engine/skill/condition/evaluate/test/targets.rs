@@ -711,6 +711,79 @@ fn team_model_presence_uses_the_casters_roster() {
 }
 
 #[test]
+fn alive_allied_model_count_uses_the_casters_live_team() {
+    init_config();
+    let pool = TargetPool::from_fight(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3123),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(-1),
+                    model_id: Some(103370111),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(-2),
+                    model_id: Some(103370112),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(-3),
+                    model_id: Some(103370112),
+                    current_hp: Some(0),
+                    ..Default::default()
+                },
+            ],
+            sub_entitys: vec![FightEntityInfo {
+                uid: Some(-4),
+                model_id: Some(103370112),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let condition = exact_condition(74210, "MonsterAliveNumMoreThan", &["1", "103370112", "1"]);
+
+    assert!(condition_matches(
+        &condition,
+        -1,
+        &[-1],
+        None,
+        &pool,
+        TargetContext::default(),
+    ));
+    let two_required = exact_condition(74210, "MonsterAliveNumMoreThan", &["1", "103370112", "2"]);
+    assert!(!condition_matches(
+        &two_required,
+        -1,
+        &[-1],
+        None,
+        &pool,
+        TargetContext::default(),
+    ));
+    assert!(!condition_matches(
+        &condition,
+        10,
+        &[10],
+        None,
+        &pool,
+        TargetContext::default(),
+    ));
+}
+
+#[test]
 fn added_magic_circle_matches_its_configured_id() {
     init_config();
     let pool = TargetPool::default();

@@ -1,6 +1,6 @@
 use sonettobuf::CardInfo;
 
-use super::{AiSkillChoice, ConditionRandomChoice, RoundDeterminism};
+use super::{AiSkillChoice, ConditionRandomChoice, CrystalReuseChoice, RoundDeterminism};
 
 #[test]
 fn crit_roll_respects_impossible_and_guaranteed_chances() {
@@ -52,6 +52,37 @@ fn captured_random_buff_only_consumes_a_matching_choice() {
 
     assert_eq!(determinism.take_random_buff(&[10]), None);
     assert_eq!(determinism.take_random_buff(&[10, 20]), Some(20));
+}
+
+#[test]
+fn crystal_reuse_choices_are_owned_by_source_and_skill() {
+    let mut determinism = RoundDeterminism::default();
+    determinism.replace_crystal_reuse_choices([
+        CrystalReuseChoice {
+            source_uid: 10,
+            skill_id: 100,
+            result_skill_id: 101,
+            success: false,
+        },
+        CrystalReuseChoice {
+            source_uid: 10,
+            skill_id: 100,
+            result_skill_id: 101,
+            success: true,
+        },
+        CrystalReuseChoice {
+            source_uid: 20,
+            skill_id: 100,
+            result_skill_id: 101,
+            success: true,
+        },
+    ]);
+
+    assert!(!determinism.roll_crystal_reuse(10, 999, 101, 0));
+    assert!(!determinism.roll_crystal_reuse(10, 100, 999, 0));
+    assert!(!determinism.roll_crystal_reuse(10, 100, 101, 1000));
+    assert!(determinism.roll_crystal_reuse(10, 100, 101, 0));
+    assert!(determinism.roll_crystal_reuse(20, 100, 101, 0));
 }
 
 #[test]

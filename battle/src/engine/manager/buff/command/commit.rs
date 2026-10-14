@@ -7,16 +7,20 @@ impl BuffManager {
         let catalog = self.catalog();
         let changes = match plan.action {
             BuffPlanAction::Grant(plan) => {
+                let markers = plan.refresh_initial_state_markers();
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::new(catalog, origin, change)
+                    .with_refresh_initial_state_markers(markers)
             }
             BuffPlanAction::GrantInternalChild(plan) => {
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::new(catalog, origin, change).internal()
             }
             BuffPlanAction::Accumulate(plan) => {
+                let markers = plan.refresh_initial_state_markers();
                 let change = self.commit_grant_plan(hp, *plan);
                 BuffChanges::without_refresh_echo(catalog, origin, change)
+                    .with_refresh_initial_state_markers(markers)
             }
             BuffPlanAction::Consume(plan) => BuffChanges::without_refresh_echo(
                 catalog,
@@ -270,7 +274,7 @@ impl BuffManager {
                 self.reserve_grant_uid(plan.target_uid, plan.buff_id, uid);
                 BuffChanges::new(catalog, origin, BuffReplaceResult::default())
             }
-            BuffPlanAction::FanoutMasterHalo(plans) => BuffChanges::new(
+            BuffPlanAction::FanoutEntryHalos(plans) => BuffChanges::new(
                 catalog,
                 origin,
                 BuffReplaceResult {
@@ -343,10 +347,19 @@ impl BuffManager {
         if let Some(transition) = plan.transition {
             return self.commit_replace_plan(hp, *transition);
         }
-        let initial_act_info_markers = plan
-            .initial_act_info_markers
-            .clone()
-            .or_else(|| plan.initial_act_info.clone());
+        let initial_act_info_markers = plan.initial_act_info_markers.clone().or_else(|| {
+            plan.initial_act_info.as_ref().map(|values| {
+                values
+                    .iter()
+                    .filter(|info| {
+                        info.act_id.is_some_and(|act_id| {
+                            plan.definition.projects_initial_wire_state(act_id)
+                        })
+                    })
+                    .cloned()
+                    .collect()
+            })
+        });
         let records_transaction_stack_progress = plan.definition.is_stackable_type()
             && (matches!(plan.layer_refresh, Some(LayerRefreshPlan::Update { .. }))
                 || matches!(plan.action, GrantAction::Reject(_)));
@@ -469,6 +482,13 @@ impl BuffManager {
     fn commit_replace_plan(&mut self, hp: &HpManager, plan: ReplacePlan) -> BuffReplaceResult {
         let mut removed = Vec::new();
         for buff_uid in plan.removed_uids {
+            if plan.expire_removed
+                && let Some(active) = self.buffs.iter_mut().find(|active| {
+                    active.owner_uid == plan.target_uid && active.buff.uid == Some(buff_uid)
+                })
+            {
+                active.buff.duration = Some(0);
+            }
             removed.extend(self.delete(plan.target_uid, buff_uid));
         }
         let mut change = self.commit_grant_plan(hp, plan.grant);

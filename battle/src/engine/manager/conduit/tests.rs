@@ -1,6 +1,6 @@
 use super::*;
 use crate::engine::skill::rule::{DefinitionKey, RuleDomain};
-use sonettobuf::{Fight, FightEntityInfo, FightTeam};
+use sonettobuf::{Fight, FightDeviceAreaInfo, FightEntityInfo, FightTeam};
 
 const ORIGIN: CommandOrigin = CommandOrigin {
     domain: RuleDomain::Behavior,
@@ -64,6 +64,29 @@ fn configured_seed_matches_the_borrowed_database_adapter() {
         configured.initialization_errors,
         legacy.initialization_errors
     );
+}
+
+#[test]
+fn configured_seed_preserves_an_empty_captured_area() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            device_area: Some(FightDeviceAreaInfo::default()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let manager = ConduitManager::configured(
+        crate::catalog::BattleCatalog::new(crate::test_support::game_data()),
+        &fight,
+    );
+
+    assert_eq!(
+        manager.action_phase_start_commands(1),
+        vec![ConduitCommand::ResetPowers { team: 1 }]
+    );
+    assert!(manager.initialization_commands().is_empty());
 }
 
 #[test]
@@ -214,6 +237,53 @@ fn device_skill_spends_its_configured_power_and_updates_round_counters() {
 }
 
 #[test]
+fn device_skill_uses_generic_power_for_the_typed_shortfall() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = ConduitManager::seed(&fight);
+    for (power_id, delta) in [(1, 2), (0, 1)] {
+        manager
+            .execute(ConduitCommand::ChangePower(ConduitPowerChange {
+                origin: ORIGIN,
+                source_uid: 10,
+                team: 1,
+                power_id,
+                delta,
+                kind: ConduitPowerChangeKind::Standard,
+            }))
+            .unwrap();
+    }
+
+    assert!(manager.can_begin_skill(10, 31490121, 0));
+    assert!(matches!(
+        manager
+            .execute(ConduitCommand::BeginSkill {
+                source_uid: 10,
+                skill_id: 31490121,
+                cost_reduction: 0,
+            })
+            .unwrap(),
+        ConduitChange::SkillBegan {
+            spent: 3,
+            generic_spent: 1,
+            ..
+        }
+    ));
+    assert_eq!(manager.power(1, 1), 0);
+    assert_eq!(manager.power(1, 0), 0);
+}
+
+#[test]
 fn finish_skill_uses_configured_ownership_after_group_switch() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -268,7 +338,7 @@ fn finish_skill_uses_configured_ownership_after_group_switch() {
 }
 
 #[test]
-fn explicit_and_normal_changes_share_team_round_counters_across_devices() {
+fn power_consumption_stays_separate_from_explicit_team_counters() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -380,8 +450,8 @@ fn explicit_and_normal_changes_share_team_round_counters_across_devices() {
             ..
         }
     ));
-    assert_eq!(manager.consumed_for_skill(10, 31440111), Some(7));
-    assert_eq!(manager.consumed_for_skill(11, 302524112), Some(7));
+    assert_eq!(manager.consumed_for_skill(10, 31440111), Some(2));
+    assert_eq!(manager.consumed_for_skill(11, 302524112), Some(1));
 
     manager.begin_round();
     assert_eq!(manager.uses(10), 0);
@@ -468,7 +538,7 @@ fn reduced_spend_keeps_the_configured_activation_cost() {
 }
 
 #[test]
-fn unique_skill_clears_both_energy_pools_as_one_activation() {
+fn unique_skill_clears_configured_energy_pools_as_one_activation() {
     config::init(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../data/excel2json")
@@ -488,7 +558,7 @@ fn unique_skill_clears_both_energy_pools_as_one_activation() {
         ..Default::default()
     };
     let mut manager = ConduitManager::seed(&fight);
-    for (power_id, delta) in [(1, 5), (2, 7)] {
+    for (power_id, delta) in [(0, 1), (1, 5), (2, 7)] {
         manager
             .execute(ConduitCommand::ChangePower(ConduitPowerChange {
                 origin: ORIGIN,
@@ -531,19 +601,20 @@ fn unique_skill_clears_both_energy_pools_as_one_activation() {
             source_uid: 10,
             team: 1,
             skill_id: 31490151,
-            power_ids: [1, 2],
+            power_ids: vec![0, 1, 2],
         })
         .unwrap();
+    assert_eq!(manager.power(1, 0), 0);
     assert_eq!(manager.power(1, 1), 0);
     assert_eq!(manager.power(1, 2), 0);
     assert!(matches!(
         cleared,
-        ConduitChange::PowersCleared { spent: 12, .. }
+        ConduitChange::PowersCleared { spent: 13, .. }
     ));
     assert!(matches!(
         cleared.events().as_slice(),
         [crate::engine::event::payload::BattleEvent::ConduitActivated(event)]
-            if event.spent == 12 && event.skill_id == 31490151
+            if event.spent == 13 && event.skill_id == 31490151
     ));
 }
 
@@ -619,12 +690,9 @@ fn opening_reset_clears_power_and_restarts_each_device() {
 }
 
 #[test]
-fn action_phase_start_always_resets_and_restarts_existing_devices() {
+fn action_phase_start_requires_an_existing_area() {
     let mut manager = ConduitManager::default();
-    assert_eq!(
-        manager.action_phase_start_commands(1),
-        vec![ConduitCommand::ResetPowers { team: 1 }]
-    );
+    assert!(manager.action_phase_start_commands(1).is_empty());
 
     manager.areas.insert(
         1,

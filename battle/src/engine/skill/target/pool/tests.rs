@@ -286,3 +286,139 @@ fn team_uids_follow_roster_order() {
     ]);
     assert_eq!(pool.team_uids(1), expected);
 }
+
+#[test]
+fn runtime_view_includes_a_committed_combatant_summon() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let base = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let summoned = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                key: crate::engine::skill::rule::DefinitionKey::new(60008, "Summon"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                model_id: 116330100,
+                position: 2,
+            },
+        })
+        .unwrap()
+        .entity
+        .uid
+        .unwrap();
+
+    let current = base.runtime_view(&managers);
+
+    assert_eq!(summoned, -2);
+    assert_eq!(
+        current
+            .enemies(10, false)
+            .iter()
+            .map(|entity| entity.uid)
+            .collect::<Vec<_>>(),
+        vec![-1, -2]
+    );
+    assert_eq!(current.entity(-2).unwrap().model_id, 116330100);
+}
+
+#[test]
+fn runtime_view_keeps_a_replacement_before_its_defeated_event_subject() {
+    crate::test_support::init_config();
+    let entity = |uid, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        position: Some(position),
+        current_hp: Some(100),
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1), entity(-4, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let base = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers.hp.lose(-4, 100, 0);
+    let replacement = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                key: crate::engine::skill::rule::DefinitionKey::new(60008, "Summon"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                model_id: 116330100,
+                position: 2,
+            },
+        })
+        .unwrap()
+        .entity
+        .uid
+        .unwrap();
+
+    let current = base.runtime_view_including(&managers, Some(-4));
+
+    assert_eq!(replacement, -5);
+    assert_eq!(
+        current
+            .enemies(10, false)
+            .iter()
+            .map(|entity| entity.uid)
+            .collect::<Vec<_>>(),
+        vec![-1, -5, -4]
+    );
+}

@@ -173,6 +173,12 @@ pub struct TeamSharedShieldAbsorption {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FakeHpConsumption {
+    pub buff_uid: i64,
+    pub consumed: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TeamSharedShieldPlan {
     pub buff_uid: i64,
     pub owner_uid: i64,
@@ -233,6 +239,18 @@ pub struct DeathTransition {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PendingDeath {
+    transition: DeathTransition,
+    revision: u64,
+}
+
+impl PendingDeath {
+    pub(crate) fn transition(self) -> DeathTransition {
+        self.transition
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MaxHpChange {
     pub target_uid: i64,
     pub before_current: i32,
@@ -255,6 +273,7 @@ pub struct HpChanges {
     pub source_uid: i64,
     pub target_uid: i64,
     pub damage: Option<DamageRecord>,
+    pub fake_hp_consumed: Option<FakeHpConsumption>,
     pub team_shared_shield_absorbed: Option<TeamSharedShieldAbsorption>,
     pub team_shared_shield_removed: Option<crate::engine::manager::buff::BuffChanges>,
     pub shared_hurt: Option<Box<SharedHurt>>,
@@ -264,7 +283,7 @@ pub struct HpChanges {
     pub hp: Option<HpChange>,
     pub toughness: Option<super::toughness::ToughnessChange>,
     pub kill: Option<i32>,
-    pub death: Option<DeathTransition>,
+    pub death: Option<PendingDeath>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -286,7 +305,7 @@ impl HpChanges {
             .chain(std::iter::once(self))
     }
 
-    pub fn take_deaths_with_shares(&mut self) -> Vec<DeathTransition> {
+    pub fn take_deaths_with_shares(&mut self) -> Vec<PendingDeath> {
         let mut deaths = self
             .shared_hurt
             .iter_mut()
@@ -347,6 +366,12 @@ impl HpChanges {
                         .map_or(self.origin, |share| share.origin),
                     source_uid: self.source_uid,
                     target_uid: self.target_uid,
+                    participant_uids: shared
+                        .shares
+                        .iter()
+                        .filter(|share| share.hp.is_some_and(|change| change.delta < 0))
+                        .map(|share| share.target_uid)
+                        .collect(),
                     amount,
                     share_count,
                     damage_from: self
@@ -423,6 +448,7 @@ impl HpChanges {
             events.extend(removed.events());
         }
         if let Some(death) = self.death {
+            let death = death.transition();
             events.push(BattleEvent::EntityDied(EntityDiedEvent {
                 source_uid: death.source_uid,
                 target_uid: death.target_uid,
@@ -438,11 +464,13 @@ pub enum HpCommandError {
     MissingTarget(i64),
     InvalidTeamSharedState,
     InvalidShareHurtState,
+    InvalidHpLossState,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct HpManager {
     states: HashMap<i64, HpState>,
+    revisions: HashMap<i64, u64>,
     action_start: HashMap<(i64, i32), HpState>,
     shields: HashMap<i64, i32>,
     damage_taken: HashMap<i64, i32>,
@@ -456,6 +484,7 @@ pub struct HpManager {
 impl HpManager {
     pub fn seed(&mut self, fight: &Fight) {
         self.states.clear();
+        self.revisions.clear();
         self.action_start.clear();
         self.shields.clear();
         self.damage_taken.clear();
@@ -483,14 +512,21 @@ impl HpManager {
             .as_ref()
             .and_then(|attr| attr.hp)
             .unwrap_or(current);
-        self.states.insert(
-            uid,
-            HpState {
-                current,
-                max,
-                base_max: max,
-            },
-        );
+        let replaced = self
+            .states
+            .insert(
+                uid,
+                HpState {
+                    current,
+                    max,
+                    base_max: max,
+                },
+            )
+            .is_some();
+        let revision = self.revisions.entry(uid).or_default();
+        if replaced {
+            *revision += 1;
+        }
         self.shields
             .insert(uid, entity.shield_value.unwrap_or_default().max(0));
         if !self.order.contains(&uid) {
@@ -514,6 +550,16 @@ impl HpManager {
         self.get(uid).current
     }
 
+    pub(crate) fn is_current_death(&self, death: PendingDeath) -> bool {
+        self.current(death.transition.target_uid) == 0
+            && self
+                .revisions
+                .get(&death.transition.target_uid)
+                .copied()
+                .unwrap_or_default()
+                == death.revision
+    }
+
     pub fn max(&self, uid: i64) -> i32 {
         self.get(uid).max
     }
@@ -529,7 +575,11 @@ impl HpManager {
 
     pub(crate) fn resync_current(&mut self, uid: i64, current: i32) {
         if let Some(state) = self.states.get_mut(&uid) {
+            let before = state.current;
             state.current = current.clamp(0, state.max);
+            if before != state.current {
+                *self.revisions.entry(uid).or_default() += 1;
+            }
         }
     }
 
@@ -655,20 +705,28 @@ impl HpManager {
 
     pub fn set_max(&mut self, uid: i64, max: i32) {
         let state = self.states.entry(uid).or_default();
+        let before = state.current;
         if state.base_max == 0 {
             state.base_max = max.max(0);
         }
         state.max = max.max(0);
         state.current = state.current.min(state.max);
+        if before != state.current {
+            *self.revisions.entry(uid).or_default() += 1;
+        }
     }
 
     pub fn add_max_snapshot(&mut self, uid: i64, delta: i32) -> HpState {
         let state = self.states.entry(uid).or_default();
+        let before = state.current;
         if state.base_max == 0 {
             state.base_max = state.max;
         }
         state.max = (state.max + delta).max(0);
         state.current = (state.current + delta).clamp(0, state.max);
+        if before != state.current {
+            *self.revisions.entry(uid).or_default() += 1;
+        }
         *state
     }
 
@@ -704,6 +762,7 @@ impl HpManager {
             source_uid,
             target_uid,
             damage: None,
+            fake_hp_consumed: None,
             team_shared_shield_absorbed: None,
             team_shared_shield_removed: None,
             shared_hurt: None,
@@ -761,8 +820,14 @@ impl HpManager {
                 }
             }
             HpCommand::Lose(value) => {
-                changes.hp =
-                    self.lose_with_hurt(target_uid, value.amount, value.config_effect, value.hurt);
+                if before > 0 {
+                    changes.hp = self.lose_with_hurt(
+                        target_uid,
+                        value.amount,
+                        value.config_effect,
+                        value.hurt,
+                    );
+                }
             }
             HpCommand::Kill(value) => {
                 changes.hp = self.lose(target_uid, before, value.config_effect);
@@ -792,7 +857,8 @@ impl HpManager {
                 }
             }
             HpCommand::GrantShield(value) => {
-                changes.shield_granted = Some(self.add_shield(target_uid, value.amount, value.max));
+                let gain = self.add_shield(target_uid, value.amount, value.max);
+                changes.shield_granted = (gain.added != 0).then_some(gain);
             }
             HpCommand::AdjustMax(value) => {
                 let before = self.get(target_uid);
@@ -820,10 +886,15 @@ impl HpManager {
                 });
             }
         }
-        if before > 0 && self.current(target_uid) == 0 {
-            changes.death = Some(DeathTransition {
-                source_uid,
-                target_uid,
+        let after = self.current(target_uid);
+        let revision = self.revisions.get(&target_uid).copied().unwrap_or_default();
+        if before > 0 && after == 0 {
+            changes.death = Some(PendingDeath {
+                transition: DeathTransition {
+                    source_uid,
+                    target_uid,
+                },
+                revision,
             });
         }
 
@@ -920,6 +991,9 @@ impl HpManager {
         let after = (before + delta).clamp(0, state.max.max(0));
         let applied = after - before;
         state.current = after;
+        if before != after {
+            *self.revisions.entry(uid).or_default() += 1;
+        }
         if applied < 0 {
             *self.damage_taken.entry(uid).or_default() += -applied;
             if let Some(hurt) = &mut hurt {

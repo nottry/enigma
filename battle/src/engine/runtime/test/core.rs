@@ -52,6 +52,35 @@ fn entity_info_projects_manager_owned_state() {
 }
 
 #[test]
+fn hero_special_attributes_do_not_depend_on_record_mode() {
+    crate::test_support::init_config();
+    let mut runtime = runtime(Fight {
+        version: Some(7),
+        is_record: Some(true),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    runtime.fight.is_record = Some(false);
+
+    assert_eq!(
+        runtime.managers.hero_sp_attributes(&runtime.fight)[0]
+            .attribute
+            .as_ref()
+            .and_then(|attribute| attribute.device_skill_rate),
+        Some(0)
+    );
+}
+
+#[test]
 fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
     crate::test_support::init_config();
     let (entitys, sub_entitys) =
@@ -61,6 +90,7 @@ fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
         episode_id: Some(10624),
         version: Some(7),
         cur_wave: Some(1),
+        is_record: Some(true),
         defender: Some(FightTeam {
             entitys,
             sub_entitys,
@@ -91,6 +121,7 @@ fn third_wave_entity_info_uses_the_latest_authoritative_roster() {
         .unwrap();
 
     assert_eq!(third.wave, 3);
+    assert_eq!(third.fight.is_record, Some(false));
     assert!(expected.current_hp.unwrap_or_default() > 0);
     assert_eq!(runtime.entity_info(uid).as_ref(), Some(expected));
     assert_eq!(runtime.reconnect_state().0.cur_wave, Some(3));
@@ -123,7 +154,6 @@ fn refill_and_all_compositions_grant_cloth_power() {
             &power,
             15,
             crate::engine::manager::card::CardChangeKind::Refilled,
-            false,
             1,
         ),
         17
@@ -133,11 +163,122 @@ fn refill_and_all_compositions_grant_cloth_power() {
             &power,
             15,
             crate::engine::manager::card::CardChangeKind::Composed,
-            false,
             1,
         ),
         17
     );
+    assert_eq!(
+        round::cloth_power_after_card_change(
+            &power,
+            15,
+            crate::engine::manager::card::CardChangeKind::Played,
+            0,
+        ),
+        15
+    );
+}
+
+#[test]
+fn played_cards_grant_cloth_power_only_after_action_completion() {
+    use crate::engine::{
+        manager::card::{CardChangeKind, CardChanges, PlayedCard},
+        round::state::RoundState,
+        runtime::{drain::DrainResult, executor::RuleOutcome},
+        skill::action::{ActionEvent, SkillLifecycle},
+    };
+
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            cloth_id: Some(1),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = crate::engine::manager::BattleManagers::seeded(&fight);
+    let played = |card_index| {
+        RuleOutcome::Card(Box::new(CardChanges {
+            origin: None,
+            kind: CardChangeKind::Played,
+            before: Vec::new(),
+            after: Vec::new(),
+            added: None,
+            played: Some(PlayedCard {
+                card: Default::default(),
+                caster_uid: 10,
+                card_index,
+                skill_id: 100,
+                rank_change_pending: false,
+                rewritten: false,
+                target_uid: Some(-1),
+                recorded_skill: None,
+            }),
+            drawn: Vec::new(),
+            composed_owners: Vec::new(),
+            operation: None,
+            action_queue: None,
+            queued_use_card: None,
+            rank_results: Vec::new(),
+            consumed_indices: Vec::new(),
+            consumed_owner_uid: None,
+            consumption_kind: None,
+            entity: None,
+            hand_limit: None,
+            owner_removal: None,
+            ai_queue: None,
+            team_cards: None,
+        }))
+    };
+
+    let mut state = RoundState {
+        power: 15,
+        ..Default::default()
+    };
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![played(1)],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 15);
+
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![
+                played(1),
+                RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(ActionEvent {
+                    card_index: 1,
+                    ..Default::default()
+                })),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 19);
+
+    state.power = 15;
+    round::apply_cloth_power(
+        &fight,
+        &managers,
+        &mut state,
+        &DrainResult {
+            outcomes: vec![
+                RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(ActionEvent {
+                    card_index: 1,
+                    ..Default::default()
+                })),
+                played(1),
+            ],
+            ..Default::default()
+        },
+    );
+    assert_eq!(state.power, 15);
 }
 
 #[test]

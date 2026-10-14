@@ -250,6 +250,9 @@ pub(crate) fn configured_start_decks(
     seed_value: i32,
     captured: Option<CapturedDeckSeed>,
 ) -> Result<ConfiguredStartDecks, String> {
+    let mut current_fight = fight.clone();
+    managers.sync_entities(&mut current_fight);
+    let fight = &current_fight;
     let mut decks = start_decks_from(
         fight,
         &managers.ex_point,
@@ -287,7 +290,6 @@ fn start_decks_from(
         .iter()
         .chain(&fight.defender)
         .flat_map(|team| team.entitys.iter().chain(&team.sp_entitys))
-        .filter(|entity| entity.current_hp.unwrap_or(1) > 0)
         .filter_map(|entity| entity.uid)
         .collect::<std::collections::HashSet<_>>();
     let hand_size = hand_size(fight);
@@ -331,6 +333,7 @@ fn start_decks_from(
                             captured.uid == candidate.uid && captured.skill_id == candidate.skill_id
                         })?
                         .clone();
+                    // V7 snapshots may retain a defeated roster UID even when skill targeting is source-owned.
                     candidate.target_uid = captured
                         .target_uid
                         .filter(|uid| valid_target_uids.contains(uid))
@@ -652,6 +655,77 @@ mod tests {
         );
         assert!(configured.player.is_empty());
         assert!(configured.used_capture);
+    }
+
+    #[test]
+    fn captured_next_ai_snapshot_rejects_a_replaced_target() {
+        crate::test_support::init_config();
+        let fight = Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![entity(10, 1002, 1, &[202], &[203])],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![
+                    entity(-1, 116330001, 1, &[116330021], &[]),
+                    FightEntityInfo {
+                        current_hp: Some(0),
+                        ..entity(-2, 116330100, 2, &[116330112], &[])
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut managers = crate::engine::manager::BattleManagers::seeded(&fight);
+        managers
+            .execute_entity(crate::engine::manager::entity::EntityCommand {
+                origin: crate::engine::skill::rule::CommandOrigin {
+                    domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                    key: crate::engine::skill::rule::DefinitionKey::new(60008, "Summon"),
+                },
+                source_uid: -1,
+                target_uid: -1,
+                operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                    model_id: 116330100,
+                    position: 2,
+                },
+            })
+            .unwrap();
+
+        let configured = configured_start_decks(
+            &fight,
+            &managers,
+            &crate::engine::skill::effect::SkillEffectCatalog::default(),
+            &crate::engine::runtime::determinism::RoundDeterminism::default(),
+            0,
+            0,
+            Some(CapturedDeckSeed::NextAi(vec![
+                CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(116330021),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(-3),
+                    skill_id: Some(116330112),
+                    target_uid: Some(-2),
+                    ..Default::default()
+                },
+            ])),
+        )
+        .unwrap();
+
+        assert!(configured.used_capture);
+        assert_eq!(
+            configured
+                .ai
+                .iter()
+                .filter_map(|card| card.uid)
+                .collect::<Vec<_>>(),
+            vec![-1, -3]
+        );
+        assert_eq!(configured.ai[1].target_uid, Some(0));
     }
 
     #[test]

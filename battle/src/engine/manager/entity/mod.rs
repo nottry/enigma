@@ -10,12 +10,14 @@ use crate::engine::{
 };
 
 const SPECIAL_POSITION: i32 = 5;
+pub(crate) const MAX_COMBAT_POSITION: i32 = SPECIAL_POSITION - 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RosterLane {
     Main,
     Reserve,
     Special,
+    Replaced,
     Inactive,
 }
 
@@ -24,6 +26,7 @@ pub enum EntityOperation {
     SummonCombatant { model_id: i32, position: i32 },
     SummonSpecial { model_id: i32 },
     Transform { model_id: i32, parameters: [i32; 2] },
+    ChangeCareer { career: i32 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,6 +67,7 @@ impl EntityChanges {
                     target_uid: self.target_uid,
                 }]
             }
+            EntityOperation::ChangeCareer { .. } => Vec::new(),
         }
     }
 }
@@ -81,6 +85,7 @@ pub struct EntityManager {
     identities: HashMap<i64, FightEntityInfo>,
     roster_lanes: HashMap<i64, RosterLane>,
     order: Vec<i64>,
+    identity_order: Vec<i64>,
     replacements: HashMap<i64, FightEntityInfo>,
     ultimate_kinds: HashMap<i64, ExtraSkillKind>,
     next_special_uid: i64,
@@ -148,7 +153,7 @@ impl EntityManager {
         let order = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
-            .collect();
+            .collect::<Vec<_>>();
         let largest_existing_index = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
@@ -160,6 +165,7 @@ impl EntityManager {
             teams,
             identities,
             roster_lanes,
+            identity_order: order.clone(),
             order,
             replacements: HashMap::new(),
             ultimate_kinds: HashMap::new(),
@@ -172,18 +178,36 @@ impl EntityManager {
         Self::seed_with_game_data(crate::test_support::game_data(), fight)
     }
 
+    #[cfg(test)]
     pub(crate) fn execute_command(
         &mut self,
         catalog: crate::catalog::BattleCatalog,
         command: EntityCommand,
         hp: &HpManager,
     ) -> Result<EntityChanges, EntityCommandError> {
+        self.execute_command_with_capacity(catalog, command, hp, MAX_COMBAT_POSITION)
+    }
+
+    pub(crate) fn execute_command_with_capacity(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        command: EntityCommand,
+        hp: &HpManager,
+        combat_capacity: i32,
+    ) -> Result<EntityChanges, EntityCommandError> {
         if command.source_uid == 0 || command.target_uid == 0 {
             return Err(EntityCommandError::InvalidCommand);
         }
         let entity = match command.operation {
             EntityOperation::SummonCombatant { model_id, position } => {
-                if model_id <= 0 || !(1..SPECIAL_POSITION).contains(&position) {
+                if model_id <= 0
+                    || !self.combat_position_available(
+                        command.source_uid,
+                        position,
+                        hp,
+                        combat_capacity,
+                    )
+                {
                     return Err(EntityCommandError::InvalidCommand);
                 }
                 let team_type = self
@@ -191,6 +215,15 @@ impl EntityManager {
                     .get(&command.source_uid)
                     .copied()
                     .ok_or(EntityCommandError::MissingSource)?;
+                let defeated_index = self.order.iter().position(|uid| {
+                    self.teams.get(uid) == Some(&team_type)
+                        && self.roster_lanes.get(uid) == Some(&RosterLane::Main)
+                        && self
+                            .identities
+                            .get(uid)
+                            .is_some_and(|entity| entity.position == Some(position))
+                        && hp.current(*uid) <= 0
+                });
                 let uid = self.next_special_uid;
                 let entity = Defender::build_monster(catalog, model_id, uid, position, team_type)
                     .map_err(|_| EntityCommandError::MissingModel)?;
@@ -199,6 +232,13 @@ impl EntityManager {
                 self.identities.insert(uid, entity.clone());
                 self.roster_lanes.insert(uid, RosterLane::Main);
                 self.order.push(uid);
+                self.identity_order.push(uid);
+                if let Some(defeated_index) = defeated_index {
+                    let defeated_uid = self.order[defeated_index];
+                    self.roster_lanes.insert(defeated_uid, RosterLane::Replaced);
+                    let summoned_index = self.order.len() - 1;
+                    self.order.swap(defeated_index, summoned_index);
+                }
                 entity
             }
             EntityOperation::SummonSpecial { model_id } => {
@@ -219,6 +259,7 @@ impl EntityManager {
                 self.identities.insert(uid, entity.clone());
                 self.roster_lanes.insert(uid, RosterLane::Special);
                 self.order.push(uid);
+                self.identity_order.push(uid);
                 entity
             }
             EntityOperation::Transform {
@@ -273,6 +314,20 @@ impl EntityManager {
                 self.replacements.insert(command.target_uid, entity.clone());
                 entity
             }
+            EntityOperation::ChangeCareer { career } => {
+                if !(1..=6).contains(&career) {
+                    return Err(EntityCommandError::InvalidCommand);
+                }
+                let mut entity = self
+                    .identities
+                    .get(&command.target_uid)
+                    .ok_or(EntityCommandError::MissingSource)?
+                    .clone();
+                entity.career = Some(career);
+                self.identities.insert(command.target_uid, entity.clone());
+                self.replacements.insert(command.target_uid, entity.clone());
+                entity
+            }
         };
 
         Ok(EntityChanges {
@@ -310,6 +365,7 @@ impl EntityManager {
         self.roster_lanes.insert(uid, lane);
         if !self.identities.contains_key(&uid) {
             self.order.push(uid);
+            self.identity_order.push(uid);
         }
         self.identities.insert(uid, entity.clone());
     }
@@ -403,6 +459,14 @@ impl EntityManager {
         self.order.iter().copied()
     }
 
+    pub(crate) fn roster_lane(&self, uid: i64) -> Option<RosterLane> {
+        self.roster_lanes.get(&uid).copied()
+    }
+
+    pub(crate) fn registration_ordered_uids(&self) -> impl Iterator<Item = i64> + '_ {
+        self.identity_order.iter().copied()
+    }
+
     pub(crate) fn passive_override(&self, uid: i64) -> Option<&[i32]> {
         self.replacements
             .get(&uid)
@@ -478,7 +542,12 @@ impl EntityManager {
             .filter(|uid| {
                 matches!(
                     self.roster_lanes.get(uid),
-                    Some(RosterLane::Main | RosterLane::Reserve | RosterLane::Inactive)
+                    Some(
+                        RosterLane::Main
+                            | RosterLane::Reserve
+                            | RosterLane::Replaced
+                            | RosterLane::Inactive
+                    )
                 )
             })
             .filter(|uid| hp.current(*uid) <= 0)
@@ -489,18 +558,34 @@ impl EntityManager {
         &self,
         source_uid: i64,
         hp: &crate::engine::manager::hp::HpManager,
+        combat_capacity: i32,
     ) -> Option<i32> {
-        let team_type = self.teams.get(&source_uid)?;
-        (1..SPECIAL_POSITION).find(|position| {
-            !self
-                .roster_uids(*team_type, RosterLane::Main)
-                .into_iter()
-                .filter_map(|uid| self.identities.get(&uid))
-                .any(|entity| {
-                    entity.position == Some(*position)
-                        && entity.uid.is_some_and(|uid| hp.current(uid) > 0)
-                })
+        (1..=combat_capacity).find(|position| {
+            self.combat_position_available(source_uid, *position, hp, combat_capacity)
         })
+    }
+
+    pub(crate) fn combat_position_available(
+        &self,
+        source_uid: i64,
+        position: i32,
+        hp: &crate::engine::manager::hp::HpManager,
+        combat_capacity: i32,
+    ) -> bool {
+        let Some(team_type) = self.teams.get(&source_uid).copied() else {
+            return false;
+        };
+        if !(1..=combat_capacity).contains(&position) {
+            return false;
+        }
+        !self
+            .roster_uids(team_type, RosterLane::Main)
+            .into_iter()
+            .filter_map(|uid| self.identities.get(&uid))
+            .any(|entity| {
+                entity.position == Some(position)
+                    && entity.uid.is_some_and(|uid| hp.current(uid) > 0)
+            })
     }
 
     pub(crate) fn alive_combatants(
@@ -513,15 +598,19 @@ impl EntityManager {
             .copied()
             .filter(|uid| {
                 self.teams.get(uid) == Some(&team_type)
-                    && self.roster_lanes.get(uid) == Some(&RosterLane::Main)
-                    && self.identities.get(uid).is_some_and(|entity| {
-                        entity
-                            .position
-                            .is_some_and(|position| (1..SPECIAL_POSITION).contains(&position))
-                    })
+                    && self.is_main_combatant(*uid)
                     && hp.current(*uid) > 0
             })
             .collect()
+    }
+
+    pub(crate) fn is_main_combatant(&self, uid: i64) -> bool {
+        self.roster_lanes.get(&uid) == Some(&RosterLane::Main)
+            && self.identities.get(&uid).is_some_and(|entity| {
+                entity
+                    .position
+                    .is_some_and(|position| (1..SPECIAL_POSITION).contains(&position))
+            })
     }
 
     pub fn sync_to_fight(&self, fight: &mut Fight) {

@@ -102,8 +102,9 @@ impl BuffManager {
                 if grant.params.is_some() {
                     plan.initial_params = grant.params;
                 }
-                if grant.act_info.is_some() {
-                    plan.initial_act_info = grant.act_info;
+                if let Some(act_info) = grant.act_info {
+                    plan.initial_act_info_markers = Some(act_info.clone());
+                    plan.initial_act_info = Some(act_info);
                 }
                 (grant.origin, BuffPlanAction::Grant(Box::new(plan)))
             }
@@ -142,12 +143,15 @@ impl BuffManager {
                     inputs,
                 )?)),
             ),
-            command @ (BuffCommand::GrantChild(_) | BuffCommand::GrantInternalChild(_)) => {
+            command @ (BuffCommand::GrantChild(_)
+            | BuffCommand::GrantInternalChild(_)
+            | BuffCommand::RenewTimedChild(_)) => {
                 let internal = matches!(&command, BuffCommand::GrantInternalChild(_));
+                let renew = matches!(&command, BuffCommand::RenewTimedChild(_));
                 let grant = match command {
-                    BuffCommand::GrantChild(grant) | BuffCommand::GrantInternalChild(grant) => {
-                        grant
-                    }
+                    BuffCommand::GrantChild(grant)
+                    | BuffCommand::GrantInternalChild(grant)
+                    | BuffCommand::RenewTimedChild(grant) => grant,
                     _ => unreachable!(),
                 };
                 let triggered = grant.origin.domain == RuleDomain::BuffAct
@@ -180,17 +184,32 @@ impl BuffManager {
                 if grant.params.is_some() {
                     plan.initial_params = grant.params;
                 }
-                if grant.act_info.is_some() {
-                    plan.initial_act_info = grant.act_info;
+                if let Some(act_info) = grant.act_info {
+                    plan.initial_act_info_markers = Some(act_info.clone());
+                    plan.initial_act_info = Some(act_info);
                 }
-                (
-                    grant.origin,
-                    if internal {
-                        BuffPlanAction::GrantInternalChild(Box::new(plan))
-                    } else {
-                        BuffPlanAction::Grant(Box::new(plan))
-                    },
-                )
+                let action = if renew {
+                    let removed_uids = self
+                        .buffs
+                        .iter()
+                        .filter(|active| {
+                            active.owner_uid == grant.target_uid
+                                && active.buff.buff_id == Some(grant.buff_id)
+                        })
+                        .filter_map(|active| active.buff.uid)
+                        .collect();
+                    BuffPlanAction::Replace(Box::new(ReplacePlan {
+                        target_uid: grant.target_uid,
+                        removed_uids,
+                        grant: plan,
+                        expire_removed: true,
+                    }))
+                } else if internal {
+                    BuffPlanAction::GrantInternalChild(Box::new(plan))
+                } else {
+                    BuffPlanAction::Grant(Box::new(plan))
+                };
+                (grant.origin, action)
             }
             BuffCommand::Consume(consume) => (
                 consume.origin,
@@ -288,7 +307,7 @@ impl BuffManager {
             ),
             BuffCommand::ExpireAction(remove) => (
                 remove.origin,
-                BuffPlanAction::Remove(self.plan_remove(remove, 0, true, true)?),
+                BuffPlanAction::Remove(self.plan_remove(remove, 0, false, true)?),
             ),
             BuffCommand::Dispel(dispel) => (
                 dispel.origin,
@@ -464,9 +483,9 @@ impl BuffManager {
                     }),
                 )
             }
-            BuffCommand::FanoutMasterHalo(fanout) => {
+            BuffCommand::FanoutEntryHalos(fanout) => {
                 if fanout.origin.domain != RuleDomain::Lifecycle
-                    || fanout.origin.key != WAVE_ENTRY_MASTER_HALO_KEY
+                    || fanout.origin.key != ENTITY_ENTRY_HALO_KEY
                     || fanout.target_uids.is_empty()
                     || fanout.target_uids.contains(&0)
                 {
@@ -474,8 +493,8 @@ impl BuffManager {
                 }
                 (
                     fanout.origin,
-                    BuffPlanAction::FanoutMasterHalo(
-                        self.master_halo_fanout_plans(hp, &fanout.target_uids),
+                    BuffPlanAction::FanoutEntryHalos(
+                        self.entry_halo_fanout_plans(hp, &fanout.target_uids),
                     ),
                 )
             }
@@ -656,33 +675,11 @@ impl BuffManager {
                 _ => false,
             };
         let blocked = blocker.is_some() || resisted || !semantic_grant_allowed;
-        let mut excluded_uids = if blocked || unconditional {
+        let excluded_uids = if blocked || unconditional {
             Vec::new()
         } else {
-            policy
-                .exclusions
-                .remove_on_grant
-                .iter()
-                .flat_map(|excluded_id| {
-                    self.buffs.iter().filter_map(|active| {
-                        (active.owner_uid == request.target_uid && active.type_id == *excluded_id)
-                            .then_some(active.buff.uid.unwrap_or_default())
-                    })
-                })
-                .chain(self.buffs.iter().filter_map(|active| {
-                    (active.owner_uid == request.target_uid
-                        && active.definition.as_ref().is_some_and(|resident| {
-                            policy
-                                .exclusions
-                                .remove_statuses_on_grant
-                                .contains(&resident.status_id)
-                        }))
-                    .then_some(active.buff.uid.unwrap_or_default())
-                }))
-                .collect()
+            self.exclusion_uids(request.target_uid, &policy)
         };
-        excluded_uids.sort_unstable();
-        excluded_uids.dedup();
         let stack_layer = self.grant_layer(route, &definition, args);
         let repeated_stack = !self.shared_uid_lane
             && request.occurrences > 1
@@ -828,6 +825,8 @@ impl BuffManager {
             || (readds_prior_instance && !unconditional)
         {
             policy.uid.normal_reservations_before_reapply
+        } else if action == GrantAction::KeepExisting && policy.uid.reserve_normal_on_kept_reapply {
+            1
         } else {
             0
         };
@@ -873,10 +872,12 @@ impl BuffManager {
         let fanout_specs = if matches!(action, GrantAction::Add | GrantAction::ReplaceExisting) {
             self.fanout_specs(
                 hp,
-                route.target_uid,
-                route.buff_id,
-                stack_layer,
-                definition.count(args.count),
+                route,
+                BuffAddArgs {
+                    layer: stack_layer,
+                    count: definition.count(args.count),
+                    layer_specified: true,
+                },
                 policy.lifetime.duration,
             )
         } else {
@@ -963,29 +964,13 @@ impl BuffManager {
                 buff_uid,
                 next_layer,
                 next_duration,
-            }) => self.fanout_refresh_specs(
-                hp,
-                route.target_uid,
-                route.buff_id,
-                buff_uid,
-                next_layer,
-                next_duration,
-            ),
+            }) => self.fanout_refresh_specs(hp, route, buff_uid, next_layer, next_duration),
             Some(LayerRefreshPlan::PromoteRestored {
                 next_layer,
                 next_duration,
                 ..
             }) => layer_refresh_uid
-                .map(|uid| {
-                    self.fanout_refresh_specs(
-                        hp,
-                        route.target_uid,
-                        route.buff_id,
-                        uid.uid,
-                        next_layer,
-                        next_duration,
-                    )
-                })
+                .map(|uid| self.fanout_refresh_specs(hp, route, uid.uid, next_layer, next_duration))
                 .unwrap_or_default(),
             _ if action == GrantAction::RefreshExisting => self
                 .buffs
@@ -997,8 +982,7 @@ impl BuffManager {
                 .and_then(|active| {
                     Some(self.fanout_refresh_specs(
                         hp,
-                        route.target_uid,
-                        route.buff_id,
+                        route,
                         active.buff.uid?,
                         active.buff.layer.unwrap_or(stack_layer),
                         active.buff.duration.unwrap_or(policy.lifetime.duration),
@@ -1007,9 +991,7 @@ impl BuffManager {
                 .unwrap_or_default(),
             _ => Vec::new(),
         };
-        if self.shared_uid_lane
-            && crate::engine::buff::halo::has_layer_master(self.catalog(), route.buff_id)
-        {
+        if self.shared_uid_lane && !fanout_refreshes.is_empty() {
             let reservations = super::uid_policy::children_after_sequence(
                 self,
                 route.target_uid,
@@ -1032,8 +1014,7 @@ impl BuffManager {
                 .and_then(|active| {
                     Some(self.fanout_refresh_specs(
                         hp,
-                        route.target_uid,
-                        route.buff_id,
+                        route,
                         active.buff.uid?,
                         active.buff.layer.unwrap_or(stack_layer),
                         active.buff.duration.unwrap_or(policy.lifetime.duration),
@@ -1256,6 +1237,7 @@ impl BuffManager {
             target_uid,
             removed_uids,
             grant,
+            expire_removed: false,
         })
     }
 
@@ -1358,19 +1340,30 @@ impl BuffManager {
             })
             .and_then(|active| active.buff.buff_id)
             .ok_or(BuffCommandError::InvalidReplace)?;
-        let grant = self.plan_grant_with_source_attack(
+        let policy = BuffPolicy::configured(self.catalog().game_data(), replacement_id_or_type)
+            .map_err(BuffCommandError::InvalidPolicy)?;
+        let excluded_uids = self.exclusion_uids(target_uid, &policy);
+        let child_uid_reservations = excluded_uids
+            .len()
+            .try_into()
+            .map_err(|_| BuffCommandError::InvalidReplace)?;
+        let mut grant = self.plan_grant_with_source_attack(
             hp,
             GrantRequest {
                 source_uid,
                 target_uid,
                 buff_id: replacement_id_or_type,
-                input: GrantInput::UnconditionalLayer(1),
+                input: GrantInput::ChildInstance {
+                    layer: 0,
+                    layer_specified: true,
+                },
                 occurrences: 1,
-                child_uid_reservations: 0,
+                child_uid_reservations,
                 force_normal_uid: false,
             },
             inputs,
         )?;
+        grant.excluded_uids = excluded_uids;
         let removed_uids = self
             .buffs
             .iter()
@@ -1383,7 +1376,35 @@ impl BuffManager {
             target_uid,
             removed_uids,
             grant,
+            expire_removed: false,
         })
+    }
+
+    fn exclusion_uids(&self, target_uid: i64, policy: &BuffPolicy) -> Vec<i64> {
+        let mut uids = policy
+            .exclusions
+            .remove_on_grant
+            .iter()
+            .flat_map(|excluded_id| {
+                self.buffs.iter().filter_map(|active| {
+                    (active.owner_uid == target_uid && active.type_id == *excluded_id)
+                        .then_some(active.buff.uid.unwrap_or_default())
+                })
+            })
+            .chain(self.buffs.iter().filter_map(|active| {
+                (active.owner_uid == target_uid
+                    && active.definition.as_ref().is_some_and(|resident| {
+                        policy
+                            .exclusions
+                            .remove_statuses_on_grant
+                            .contains(&resident.status_id)
+                    }))
+                .then_some(active.buff.uid.unwrap_or_default())
+            }))
+            .collect::<Vec<_>>();
+        uids.sort_unstable();
+        uids.dedup();
+        uids
     }
 
     fn plan_remove(
@@ -1609,7 +1630,8 @@ impl BuffManager {
                 .buff
                 .layer
                 .unwrap_or_default()
-                .saturating_sub(amount.max(0));
+                .saturating_sub(amount.max(0))
+                .max(0);
             layer = Some(next);
             next
         } else {
@@ -1623,12 +1645,24 @@ impl BuffManager {
         };
         let buff_uid = active.buff.uid.unwrap_or_default();
         if next_amount <= 0
-            && matches!(depleted, DepletedBuff::Remove)
-            && (field == ConsumeField::Count || uses_stack_layer || uses_typed_count)
+            && matches!(
+                depleted,
+                DepletedBuff::Remove | DepletedBuff::RemoveWithZeroLayer
+            )
+            && (consume_count || uses_stack_layer || uses_typed_count)
         {
             ConsumeAction::Remove {
                 buff_uid,
-                layer,
+                layer: if matches!(depleted, DepletedBuff::RemoveWithZeroLayer) {
+                    layer
+                } else {
+                    layer.filter(|_| {
+                        active
+                            .definition
+                            .as_ref()
+                            .is_some_and(BuffDefinition::clears_layer_on_depletion)
+                    })
+                },
                 count,
             }
         } else {

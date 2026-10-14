@@ -4,12 +4,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use battle::tooling::{damage_tracing_enabled, replay::ReplayBattle, scan::effect_catalog};
+use battle::tooling::{
+    damage_tracing_enabled,
+    replay::{ReplayBattle, seed_observed_redeal},
+    scan::effect_catalog,
+};
 use battle_preview::{
     array_len_diff_lines, begin_round_inputs, build_metadata_source, canonical_comparison,
     expand_compressed_fight_steps, first_diff_path, normalize_live_json, opening_determinism,
     preview_attributes_with_request, preview_output_text, render_json_with_capture_conventions,
-    seed_round_determinism, tower_plan_id_from_request,
+    seed_round_determinism, tower_plan_id_from_request, value_at_diff_path,
 };
 use sonettobuf::{BeginRoundReply, BeginRoundRequest, Fight, FightRound, FightStep};
 
@@ -167,6 +171,12 @@ fn report_input(
         && let Some(path) = first_diff_path(generated_round, original_round, "/round")
     {
         eprintln!("  first round diff: {path}");
+        if let (Some(generated), Some(captured)) = (
+            value_at_diff_path(generated_round, &path, "/round"),
+            value_at_diff_path(original_round, &path, "/round"),
+        ) {
+            eprintln!("    generated={generated} captured={captured}");
+        }
         for line in array_len_diff_lines(generated_round, original_round, &path, "/round") {
             eprintln!("    {line}");
         }
@@ -376,16 +386,43 @@ fn resync_round(
     Ok(!changes.is_empty())
 }
 
-fn replay_cloth_input(inputs: &[PathBuf], runtime: &mut ReplayBattle) -> anyhow::Result<()> {
+fn replay_cloth_input(
+    inputs: &[capture::CapturedCloth],
+    runtime: &mut ReplayBattle,
+) -> anyhow::Result<()> {
     for input in inputs {
-        let mut request: serde_json::Value = serde_json::from_str(&fs::read_to_string(input)?)?;
+        let mut request: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&input.request)?)?;
         normalize_live_json(&mut request);
         let request = serde_json::from_value(request)?;
-        runtime
-            .use_cloth_skill(request)
-            .ok_or_else(|| io::Error::other(format!("invalid cloth input: {}", input.display())))?;
+        if let Some(reply) = input.reply.as_deref()
+            && let Some(cards) = captured_cloth_redeal(reply)?
+        {
+            seed_observed_redeal(runtime, &cards).map_err(io::Error::other)?;
+        }
+        runtime.use_cloth_skill(request).ok_or_else(|| {
+            io::Error::other(format!("invalid cloth input: {}", input.request.display()))
+        })?;
     }
     Ok(())
+}
+
+fn captured_cloth_redeal(path: &Path) -> anyhow::Result<Option<Vec<sonettobuf::CardInfo>>> {
+    let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(path)?)?;
+    normalize_live_json(&mut value);
+    let reply: sonettobuf::UseClothSkillReply = serde_json::from_value(value)?;
+    Ok(reply.round.and_then(|round| {
+        nested_steps(&round).find_map(|step| {
+            step.act_effect
+                .iter()
+                .find(|effect| {
+                    effect.effect_type
+                        == Some(sonettobuf::effect_type_enum::EffectType::Afterredealcard as i32)
+                        && !effect.card_info_list.is_empty()
+                })
+                .map(|effect| effect.card_info_list.clone())
+        })
+    }))
 }
 
 fn cloth_input_paths(parent: &Path, round_index: i32) -> io::Result<Vec<PathBuf>> {

@@ -11,6 +11,7 @@ use crate::engine::{
         eureka::{EurekaChanges, EurekaCommandError},
         ex_point::{ExPointChanges, ExPointCommandError},
         field::{FieldChange, FieldCommandError},
+        fight_progress::{FightProgressChange, FightProgressError, FightProgressValueChange},
         gauge::{GaugeChange, GaugeCommandError},
         hp::HpChanges,
         shield::{ShieldChanges, ShieldCommandError},
@@ -34,6 +35,7 @@ use crate::engine::{
 pub(crate) enum RuleOutcome {
     PublishedEvent,
     SkillLifecycle(crate::engine::skill::action::SkillLifecycle),
+    DeathSettlement(crate::engine::manager::hp::DeathTransition),
     SkillActionStarted {
         lifecycle: crate::engine::skill::action::SkillLifecycle,
         cost: ExPointChanges,
@@ -57,6 +59,7 @@ pub(crate) enum RuleOutcome {
     ExPoint(ExPointChanges),
     Eureka(EurekaChanges),
     Gauge(GaugeChange),
+    RawGaugeBatch(Vec<GaugeChange>),
     BloodtitheSpend(Box<crate::engine::mechanic::bloodtithe::spend::SpendChanges>),
     NuoDiKa(crate::engine::mechanic::nuo_di_ka::NuoDiKaChange),
     Emitter(EmitterChange),
@@ -66,6 +69,8 @@ pub(crate) enum RuleOutcome {
     Conduit(ConduitChange),
     Contract(ContractChange),
     Field(FieldChange),
+    FightProgress(FightProgressChange),
+    FightProgressValue(FightProgressValueChange),
     FieldTransfer(Box<FieldTransferChanges>),
     FocusAllEntityBuff(Box<FocusAllEntityBuffChanges>),
     Shell(Box<ShellChanges>),
@@ -78,10 +83,19 @@ pub(crate) enum RuleOutcome {
 }
 
 impl RuleOutcome {
-    pub(crate) fn followups(&self) -> Vec<RuleOp> {
+    pub(crate) fn followups(&self) -> Vec<(RuleOp, OutputOwner)> {
         match self {
-            Self::Shell(changes) => changes.skills.iter().cloned().map(RuleOp::Skill).collect(),
-            Self::ThresholdSkills(skills) => skills.iter().cloned().map(RuleOp::Skill).collect(),
+            Self::Shell(changes) => changes
+                .skills
+                .iter()
+                .cloned()
+                .map(|skill| (RuleOp::Skill(skill), OutputOwner::Skill))
+                .collect(),
+            Self::ThresholdSkills(skills) => skills
+                .iter()
+                .cloned()
+                .map(|skill| (RuleOp::Skill(skill), OutputOwner::Skill))
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -140,7 +154,7 @@ impl RuleOutcome {
         }
     }
 
-    pub(crate) fn take_deaths(&mut self) -> Vec<crate::engine::manager::hp::DeathTransition> {
+    pub(crate) fn take_deaths(&mut self) -> Vec<crate::engine::manager::hp::PendingDeath> {
         match self {
             Self::Hp(execution) => execution.changes.take_deaths_with_shares(),
             Self::HpBatch(changes) => changes
@@ -172,6 +186,7 @@ impl RuleOutcome {
         match self {
             Self::PublishedEvent => Vec::new(),
             Self::SkillLifecycle(change) => vec![BattleChange::SkillLifecycle(change.clone())],
+            Self::DeathSettlement(death) => vec![BattleChange::Death(*death)],
             Self::SkillActionStarted { lifecycle, cost } => vec![
                 BattleChange::SkillLifecycle(lifecycle.clone()),
                 BattleChange::ExPoint(*cost),
@@ -208,15 +223,27 @@ impl RuleOutcome {
             }
             Self::StateChanged => Vec::new(),
             Self::NuoDiKaHit(hit) => vec![BattleChange::NuoDiKaHit(*hit)],
-            Self::Hp(execution) => {
-                std::iter::once(BattleChange::Hp(Box::new(execution.changes.clone())))
-                    .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
-                    .collect()
-            }
+            Self::Hp(execution) => execution
+                .before_hp_markers
+                .iter()
+                .cloned()
+                .map(BattleChange::BuffActInfoMarker)
+                .chain(std::iter::once(BattleChange::Hp(Box::new(
+                    execution.changes.clone(),
+                ))))
+                .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
+                .collect(),
             Self::HpBatch(changes) => changes
                 .iter()
                 .flat_map(|execution| {
-                    std::iter::once(BattleChange::Hp(Box::new(execution.changes.clone())))
+                    execution
+                        .before_hp_markers
+                        .iter()
+                        .cloned()
+                        .map(BattleChange::BuffActInfoMarker)
+                        .chain(std::iter::once(BattleChange::Hp(Box::new(
+                            execution.changes.clone(),
+                        ))))
                         .chain(execution.indicator.clone().map(BattleChange::EffectMarker))
                 })
                 .collect(),
@@ -237,6 +264,9 @@ impl RuleOutcome {
             Self::ExPoint(change) => vec![BattleChange::ExPoint(*change)],
             Self::Eureka(change) => vec![BattleChange::Eureka(change.clone())],
             Self::Gauge(change) => vec![BattleChange::Gauge(*change)],
+            Self::RawGaugeBatch(changes) => {
+                changes.iter().copied().map(BattleChange::Gauge).collect()
+            }
             Self::BloodtitheSpend(_) => Vec::new(),
             Self::NuoDiKa(change) => vec![BattleChange::NuoDiKa(*change)],
             Self::Emitter(change) => vec![BattleChange::Emitter(*change)],
@@ -249,6 +279,8 @@ impl RuleOutcome {
             Self::Conduit(change) => vec![BattleChange::Conduit(change.clone())],
             Self::Contract(change) => vec![BattleChange::Contract(change.clone())],
             Self::Field(change) => vec![BattleChange::Field(*change)],
+            Self::FightProgress(change) => vec![BattleChange::FightProgress(*change)],
+            Self::FightProgressValue(change) => vec![BattleChange::FightProgressValue(*change)],
             Self::FieldTransfer(changes) => changes
                 .buffs
                 .iter()
@@ -309,6 +341,7 @@ pub(crate) enum RuleExecutionError {
     Conduit(ConduitError),
     Contract(ContractError),
     Field(FieldCommandError),
+    FightProgress(FightProgressError),
     FieldTransfer(FieldTransferError),
     FocusAllEntityBuff(FocusAllEntityBuffError),
     Shell(ShellError),
@@ -397,6 +430,12 @@ impl From<FieldCommandError> for RuleExecutionError {
     }
 }
 
+impl From<FightProgressError> for RuleExecutionError {
+    fn from(value: FightProgressError) -> Self {
+        Self::FightProgress(value)
+    }
+}
+
 impl From<FieldTransferError> for RuleExecutionError {
     fn from(value: FieldTransferError) -> Self {
         Self::FieldTransfer(value)
@@ -463,6 +502,13 @@ pub(crate) fn execute_rule_op_with(
         RuleOp::Publish(event) => {
             events.push(event);
             Ok(RuleOutcome::PublishedEvent)
+        }
+        RuleOp::DeathSettlement(death) => Ok(RuleOutcome::DeathSettlement(death)),
+        RuleOp::SubscriberGroupComplete => {
+            unreachable!("subscriber group completion is owned by the runtime drain")
+        }
+        RuleOp::TerminalSettlement => {
+            unreachable!("terminal settlement is owned by the runtime drain")
         }
         RuleOp::Command(BattleCommand::Buff(command)) => {
             let changes = managers.execute_buff_rolled(command, determinism)?;
@@ -596,6 +642,13 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::Gauge(change))
         }
+        RuleOp::Command(BattleCommand::RawGaugeBatch(commands)) => {
+            let changes = managers.execute_raw_gauge_batch(commands)?;
+            for event in changes.iter().flat_map(|change| change.events()) {
+                events.push(event);
+            }
+            Ok(RuleOutcome::RawGaugeBatch(changes))
+        }
         RuleOp::Command(BattleCommand::BloodtitheSpend(command)) => {
             let Some(changes) =
                 crate::engine::mechanic::bloodtithe::spend::execute(managers, command)?
@@ -683,6 +736,12 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::Field(change))
         }
+        RuleOp::Command(BattleCommand::FightProgress(command)) => Ok(RuleOutcome::FightProgress(
+            managers.fight_progress.initialize(command)?,
+        )),
+        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(
+            RuleOutcome::FightProgressValue(managers.fight_progress.change_value(command)?),
+        ),
         RuleOp::Command(BattleCommand::FieldTransfer(command)) => {
             let changes = crate::engine::mechanic::field_transfer::execute(managers, command)?;
             for buff in &changes.buffs {

@@ -290,7 +290,7 @@ mod tests {
             vec![SubscriptionKey::at_phase(
                 EventKind::SkillAction,
                 crate::engine::skill::rule::DefinitionKey::new(201, "None"),
-                Some(SkillPhase::Immediate),
+                Some(SkillPhase::SourceOpening),
             )]
         );
     }

@@ -89,19 +89,20 @@ impl BehaviorHandler for Handler {
         let origin = crate::engine::skill::behavior::command_origin(behavior)?;
         let source_uid = context.source_uid;
         let target_uid = context.target_uid;
-        let extra_action = crate::engine::skill::condition::extra::skill_kind_from_is_extra(
+        let performs_extra_action = crate::engine::skill::action::performs_extra_action(
+            context.target.active_card_index,
+            context.target.active_skill_mode,
             context.target.extra_skill_kind,
-        )
-        .is_some_and(|kind| kind.is_extra_action());
+        );
         let force_critical = || {
-            if !extra_action {
+            if !performs_extra_action {
                 return false;
             }
             let features = context.managers.buff.active_features(&context.managers.hp);
             crate::engine::skill::buff_act::must_crit_and_fix_temp_attr::forces_critical(
                 &features,
                 source_uid,
-                extra_action,
+                performs_extra_action,
             )
         };
         let heal = |amount, kind| {
@@ -217,7 +218,11 @@ impl BehaviorHandler for Handler {
                     origin::OriginRuntime {
                         managers: context.managers,
                         pool: context.pool,
-                        extra_action,
+                        skill_id: context.active_skill_id,
+                        performs_extra_action,
+                        unpaid_extra_action_cost_fields: &context
+                            .modifiers
+                            .unpaid_extra_action_cost_fields,
                     },
                     &context.modifiers.attack_attributes,
                     is_crit,
@@ -281,7 +286,11 @@ impl BehaviorHandler for Handler {
                     origin::OriginRuntime {
                         managers: context.managers,
                         pool: context.pool,
-                        extra_action,
+                        skill_id: context.active_skill_id,
+                        performs_extra_action,
+                        unpaid_extra_action_cost_fields: &context
+                            .modifiers
+                            .unpaid_extra_action_cost_fields,
                     },
                     &context.modifiers.attack_attributes,
                     is_crit,
@@ -324,7 +333,11 @@ impl BehaviorHandler for Handler {
                     origin::OriginRuntime {
                         managers: context.managers,
                         pool: context.pool,
-                        extra_action,
+                        skill_id: context.active_skill_id,
+                        performs_extra_action,
+                        unpaid_extra_action_cost_fields: &context
+                            .modifiers
+                            .unpaid_extra_action_cost_fields,
                     },
                     behavior,
                 )?;
@@ -554,11 +567,10 @@ impl BehaviorHandler for Handler {
                             .owns_skill(source_uid, context.active_skill_id),
                         is_crit,
                         extra_skill_kind: context.target.extra_skill_kind,
-                        performs_extra_action:
-                            crate::engine::skill::condition::extra::skill_kind_from_is_extra(
-                                context.target.extra_skill_kind,
-                            )
-                            .is_some_and(|kind| kind.is_extra_action()),
+                        performs_extra_action,
+                        unpaid_extra_action_cost_fields: &context
+                            .modifiers
+                            .unpaid_extra_action_cost_fields,
                     },
                     DamageRuntime {
                         fight_version: context.managers.fight_version(),
@@ -636,7 +648,11 @@ impl BehaviorHandler for Handler {
                 origin::OriginRuntime {
                     managers: context.managers,
                     pool: context.pool,
-                    extra_action,
+                    skill_id: context.active_skill_id,
+                    performs_extra_action,
+                    unpaid_extra_action_cost_fields: &context
+                        .modifiers
+                        .unpaid_extra_action_cost_fields,
                 },
                 &context.modifiers.attack_attributes,
                 false,

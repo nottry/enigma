@@ -41,7 +41,7 @@ pub struct ConduitArea {
     pub powers: Vec<ConduitPower>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitCommand {
     Initialize {
         team: i32,
@@ -83,7 +83,7 @@ pub enum ConduitCommand {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: [i32; 2],
+        power_ids: Vec<i32>,
     },
     ResetPowers {
         team: i32,
@@ -168,6 +168,7 @@ pub enum ConduitChange {
         power_id: i32,
         activation_cost: i32,
         spent: i32,
+        generic_spent: i32,
     },
     SkillCostCommitted {
         source_uid: i64,
@@ -212,7 +213,7 @@ pub enum ConduitChange {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: [i32; 2],
+        power_ids: Vec<i32>,
         spent: i32,
     },
     PowersReset {
@@ -286,10 +287,10 @@ pub struct ConduitManager {
 impl ConduitManager {
     pub fn initialization_commands(&self) -> Vec<ConduitCommand> {
         self.areas
-            .keys()
-            .filter(|team| !self.initialized.contains(team))
-            .copied()
-            .map(|team| ConduitCommand::Initialize { team })
+            .iter()
+            .filter(|(_, area)| !area.devices.is_empty() || !area.powers.is_empty())
+            .filter(|(team, _)| !self.initialized.contains(team))
+            .map(|(team, _)| ConduitCommand::Initialize { team: *team })
             .collect()
     }
 
@@ -309,16 +310,18 @@ impl ConduitManager {
     }
 
     pub fn action_phase_start_commands(&self, team: i32) -> Vec<ConduitCommand> {
-        std::iter::once(ConduitCommand::ResetPowers { team })
-            .chain(
-                self.areas
-                    .get(&team)
-                    .into_iter()
-                    .flat_map(|area| area.devices.iter())
-                    .map(|device| ConduitCommand::RestartDevice {
-                        source_uid: device.uid,
-                    }),
-            )
+        self.areas
+            .get(&team)
+            .into_iter()
+            .flat_map(|area| {
+                std::iter::once(ConduitCommand::ResetPowers { team }).chain(
+                    area.devices
+                        .iter()
+                        .map(|device| ConduitCommand::RestartDevice {
+                            source_uid: device.uid,
+                        }),
+                )
+            })
             .collect()
     }
 
@@ -392,8 +395,15 @@ impl ConduitManager {
         self.skill(source_uid, skill_id)
             .is_some_and(|(team, skill)| {
                 let cost = skill.cost_after_reduction(cost_reduction);
-                !skill.is_stopped
-                    && (skill.cost_type == 999 || self.power(team, skill.cost_type) >= cost)
+                let generic_available = if skill.cost_type > 0 && skill.cost_type != 999 {
+                    self.power(team, 0)
+                } else {
+                    0
+                };
+                let available = self
+                    .power(team, skill.cost_type)
+                    .saturating_add(generic_available);
+                !skill.is_stopped && (skill.cost_type == 999 || available >= cost)
             })
     }
 
@@ -425,8 +435,8 @@ impl ConduitManager {
     }
 
     pub fn consumed_for_skill(&self, source_uid: i64, skill_id: i32) -> Option<i32> {
-        let (team, _) = self.configured_skill(source_uid, skill_id)?;
-        Some(self.counter(team, ConduitCounterKind::EnergyAccumulation))
+        let (team, skill) = self.configured_skill(source_uid, skill_id)?;
+        Some(self.consumed(team, skill.cost_type))
     }
 
     pub fn uses(&self, source_uid: i64) -> i32 {

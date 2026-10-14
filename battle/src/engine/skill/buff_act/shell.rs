@@ -440,6 +440,7 @@ mod tests {
             },
             source_uid: -1,
             target_uid: 10,
+            participant_uids: vec![10, 11, 12],
             amount: 20,
             share_count: 3,
             damage_from: HurtDamageFromType::Skill,

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 
 // TODO: replace all code: .. msg: .. with
 // this struct, using serde(flatten)
@@ -10,12 +10,18 @@ use serde::Serialize;
 
 #[allow(dead_code)]
 #[repr(u8)]
-#[derive(Serialize, Default)]
+#[derive(Copy, Clone, Default)]
 pub enum AccountType {
     #[default]
     Email = 10,
     Bluepoch = 13, // not sure
     Steam = 14,    // Steam = 15,
+}
+
+impl Serialize for AccountType {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u8(*self as u8)
+    }
 }
 
 #[derive(Serialize, Default)]

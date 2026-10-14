@@ -202,13 +202,11 @@ pub struct CardSetAiQueue {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CardRemoveAiOwner {
+pub struct CardRemoveOwner {
     pub origin: CommandOrigin,
     pub owner_uid: i64,
     pub team_type: i32,
 }
-
-pub type CardRemoveOwner = CardRemoveAiOwner;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardReplaceOwnerSkills {
@@ -376,7 +374,7 @@ pub enum CardCommand {
     RefreshAiQueue(CardRefreshAiQueue),
     SetAiQueue(CardSetAiQueue),
     SetTeamCards(CardSetTeamCards),
-    RemoveAiOwner(CardRemoveAiOwner),
+    RemoveOwner(CardRemoveOwner),
     ReplaceOwnerSkills(CardReplaceOwnerSkills),
     InvalidatePlayed(CardInvalidatePlayed),
     ComposeAdjacent {
@@ -430,7 +428,7 @@ pub enum CardCommand {
 
 impl CardCommand {
     pub const fn remove_owner(command: CardRemoveOwner) -> Self {
-        Self::RemoveAiOwner(command)
+        Self::RemoveOwner(command)
     }
 }
 
@@ -1048,7 +1046,7 @@ pub(super) fn execute(
                 Vec::new(),
             )
         }
-        CardCommand::RemoveAiOwner(remove) => {
+        CardCommand::RemoveOwner(remove) => {
             if remove.owner_uid == 0 || remove.team_type == 0 {
                 return Err(CardCommandError::InvalidCommand);
             }

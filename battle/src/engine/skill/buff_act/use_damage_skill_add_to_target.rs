@@ -25,7 +25,7 @@ pub fn rule_ops(
         return None;
     }
     let (source_uid, target_uids) = match event {
-        BattleEvent::SkillAction(action)
+        BattleEvent::SkillEffectStarted(action)
             if action.source_uid == subscriber.owner_uid
                 && action.phase == SkillPhase::Immediate
                 && catalog.damage_rate(action.skill_id) > 0 =>

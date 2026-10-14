@@ -247,7 +247,6 @@ fn activation_counter_floors_raw_progress_and_crystals_keep_separate_owners() {
             target_uid: -1,
             buff_uid: 30,
             added_layers: 1,
-            alive_enemy_index: 2,
             alive_enemy_count: 3,
         },
     )

@@ -297,6 +297,20 @@ fn status_targets_partition_allies_from_configured_buff_status() {
                 },
                 entity_at(12, 3),
             ],
+            sub_entitys: vec![
+                FightEntityInfo {
+                    buffs: vec![buff(4010, 0)],
+                    ..entity_at(13, -1)
+                },
+                entity_at(14, -1),
+            ],
+            sp_entitys: vec![
+                FightEntityInfo {
+                    buffs: vec![buff(4010, 0)],
+                    ..entity_at(15, 5)
+                },
+                entity_at(16, 6),
+            ],
             ..Default::default()
         }),
         ..Default::default()
@@ -316,8 +330,8 @@ fn status_targets_partition_allies_from_configured_buff_status() {
         )
     };
 
-    assert_eq!(resolve(249, &mut determinism), vec![11]);
-    assert_eq!(resolve(250, &mut determinism), vec![10, 12]);
+    assert_eq!(resolve(249, &mut determinism), vec![11, 15]);
+    assert_eq!(resolve(250, &mut determinism), vec![10, 12, 16]);
 }
 
 #[test]

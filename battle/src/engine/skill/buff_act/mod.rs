@@ -26,6 +26,7 @@ pub mod attr_by_lost_hp;
 pub mod attr_by_shield;
 pub mod attr_by_skill_target_count;
 pub mod attr_from_entity;
+pub mod attr_from_entity_no_layer;
 pub mod attr_only_cal_damage_attack;
 pub mod attr_only_cal_damage_hp_replace_attack;
 pub mod attr_only_cal_damage_replace_attr_ad_creator;
@@ -58,6 +59,7 @@ pub mod damage_not_more_than;
 pub mod damage_over_time;
 pub mod deadly_poison;
 pub mod device_cost_reduce;
+pub mod device_ex_point_overflow_bank;
 pub mod disarm;
 pub mod disperse_by_tag;
 pub mod dodge_spec_skill;
@@ -90,6 +92,7 @@ pub mod injury_bank;
 pub mod life_attack_fix_rate;
 pub mod lost_hp_add_extra_blood_pool_value;
 pub mod lost_hp_count_add_buff;
+pub mod lost_hp_to_fake_hp;
 pub mod modify_attr_by_buff_layer;
 pub mod monitor_continue_channel;
 pub mod must_crit_and_fix_temp_attr;
@@ -210,7 +213,8 @@ pub fn subscriber_from_feature(
         team_type: feature.team_type,
         owner_alive: feature.owner_alive,
         amount: feature.amount,
-        key: SubscriptionKey::new(event, definition.key),
+        key: SubscriptionKey::new(event, definition.key)
+            .with_timing(definition.runtime.reaction_timing),
         act_type: feature.act_type,
         effect_time: feature.effect_time,
         effect_condition: feature.effect_condition,
@@ -229,13 +233,13 @@ pub fn feature_runtime_frame_scope(
     )
 }
 
-pub fn feature_runtime_execution_timing(
+pub fn feature_reaction_timing(
     feature: &ActiveBuffFeature,
-) -> Option<registry::RuntimeExecutionTiming> {
+) -> Option<crate::engine::event::subscription::ReactionTiming> {
     Some(
         registry::find(feature.act_id()?, &feature.act_type)?
             .runtime
-            .execution_timing,
+            .reaction_timing,
     )
 }
 
@@ -260,8 +264,18 @@ pub fn transaction_rule_ops(
     managers: &BattleManagers,
     event: &BattleEvent,
 ) -> Vec<(ActiveBuffFeature, RuleOp)> {
+    transaction_rule_ops_for(managers, event, |_| true)
+}
+
+pub fn transaction_rule_ops_for(
+    managers: &BattleManagers,
+    event: &BattleEvent,
+    accepts: impl Fn(&registry::BuffActDefinition) -> bool,
+) -> Vec<(ActiveBuffFeature, RuleOp)> {
     let mut ops = Vec::new();
-    for definition in registry::transaction_definitions(event.kind()) {
+    for definition in
+        registry::transaction_definitions(event.kind()).filter(|definition| accepts(definition))
+    {
         ops.extend(definition
             .transaction
             .handler
@@ -914,18 +928,29 @@ pub fn calculated_attack_attribute_delta_for_skill(
     is_big_skill: bool,
     extra_action: bool,
     performs_extra_action: bool,
+    unpaid_extra_action_cost_fields: &[(i32, i64)],
 ) -> i32 {
     // Gust Force Field bonuses share the field's own "performs an extra action" clause.
     match feature_kind(feature) {
         Some(registry::BuffActKind::MustCritAndFixTempAttr) if performs_extra_action => {
+            if unpaid_extra_action_cost_fields.contains(&(feature.buff_id, feature.source_uid)) {
+                return 0;
+            }
             return must_crit_and_fix_temp_attr::attribute_delta(
                 feature, attr_id, attributes, buffs, hp,
             );
         }
-        Some(
-            registry::BuffActKind::FixTempAttrByBuffLayer
-            | registry::BuffActKind::AttrOnlyCalDamageInExtra,
-        ) if performs_extra_action => {
+        Some(registry::BuffActKind::FixTempAttrByBuffLayer) if performs_extra_action => {
+            return attack_attribute_delta_for_skill(
+                feature,
+                attr_id,
+                buffs,
+                hp,
+                is_big_skill,
+                true,
+            );
+        }
+        Some(registry::BuffActKind::AttrOnlyCalDamageInExtra) if performs_extra_action => {
             return attack_attribute_delta_for_skill(
                 feature,
                 attr_id,
@@ -956,6 +981,9 @@ pub fn dynamic_attribute_delta(
         }
         Some(registry::BuffActKind::AttrByLostHp) => {
             attr_by_lost_hp::attribute_delta(feature, attr_id, hp)
+        }
+        Some(registry::BuffActKind::AttrFromEntityNoLayer) => {
+            attr_from_entity_no_layer::attribute_delta(feature, attr_id, buffs)
         }
         Some(registry::BuffActKind::FixAttrByTeammateInjuryCountNotReset) => {
             fix_attr_by_teammate_injury_count::attribute_delta(
@@ -988,6 +1016,40 @@ pub fn target_attack_attribute_delta(
         .filter(|feature| feature.owner_uid == target_uid)
         .map(|feature| shell::extra_action_attribute_delta(&feature, attr_id))
         .sum()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HpLossStateUpdate {
+    pub command: crate::engine::manager::buff::BuffCommand,
+    pub marker: crate::engine::manager::buff::BuffActInfoMarkerResult,
+}
+
+pub fn hp_loss_state_updates(
+    managers: &BattleManagers,
+    target_uid: i64,
+    amount: i32,
+) -> Option<Vec<HpLossStateUpdate>> {
+    if amount <= 0 {
+        return Some(Vec::new());
+    }
+    let mut features = managers
+        .buff
+        .active_features(&managers.hp)
+        .into_iter()
+        .filter(|feature| feature.owner_uid == target_uid)
+        .filter_map(|feature| {
+            let handler = registry::find(feature.act_id()?, &feature.act_type)?
+                .state
+                .hp_loss?;
+            Some((feature, handler))
+        })
+        .collect::<Vec<_>>();
+    features.sort_by_key(|(feature, _)| feature.buff_uid);
+    let mut updates = Vec::new();
+    for (feature, handler) in features {
+        updates.extend(handler(managers, &feature, amount)?);
+    }
+    Some(updates)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

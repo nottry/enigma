@@ -325,6 +325,67 @@ impl TargetPool {
                 .map(|buff| TargetBuff::from_buff_info(catalog, buff))
                 .collect();
         }
+        let added = managers
+            .entity
+            .ordered_uids()
+            .filter(|uid| pool.entity(*uid).is_none())
+            .filter_map(|uid| {
+                let lane = managers.entity.roster_lane(uid)?;
+                let team = managers.entity.team_type(uid)?;
+                let mut entity = managers.entity.snapshot(uid).as_ref().and_then(|entity| {
+                    TargetEntity::from_fight_entity_with_catalog(catalog, entity)
+                })?;
+                entity.current_hp = managers.hp.current(uid);
+                if entity.current_hp <= 0 && included_uid != Some(uid) {
+                    return None;
+                }
+                entity.max_hp = managers.hp.max(uid);
+                entity.ex_point = managers.ex_point.get(uid);
+                entity.buffs = managers
+                    .buff
+                    .active_for(uid)
+                    .map(|buff| TargetBuff::from_buff_info(catalog, buff))
+                    .collect();
+                Some((team, lane, entity))
+            })
+            .collect::<Vec<_>>();
+        for (team, lane, entity) in added {
+            pool.set_team(entity.uid, team);
+            match (team, lane) {
+                (1, crate::engine::manager::entity::RosterLane::Main) => {
+                    pool.attacker_main.push(entity.clone());
+                    pool.attacker_all.push(entity);
+                }
+                (2, crate::engine::manager::entity::RosterLane::Main) => {
+                    pool.defender_main.push(entity.clone());
+                    pool.defender_all.push(entity);
+                }
+                (1, crate::engine::manager::entity::RosterLane::Reserve)
+                | (1, crate::engine::manager::entity::RosterLane::Special) => {
+                    pool.attacker_all.push(entity);
+                }
+                (2, crate::engine::manager::entity::RosterLane::Reserve)
+                | (2, crate::engine::manager::entity::RosterLane::Special) => {
+                    pool.defender_all.push(entity);
+                }
+                _ => {}
+            }
+        }
+        let roster_order = managers
+            .entity
+            .ordered_uids()
+            .enumerate()
+            .map(|(index, uid)| (uid, index))
+            .collect::<HashMap<_, _>>();
+        for entities in [
+            &mut pool.attacker_main,
+            &mut pool.attacker_all,
+            &mut pool.defender_main,
+            &mut pool.defender_all,
+        ] {
+            entities
+                .sort_by_key(|entity| roster_order.get(&entity.uid).copied().unwrap_or(usize::MAX));
+        }
         pool
     }
 

@@ -1,7 +1,9 @@
 use crate::engine::{
     manager::{BattleManagers, buff::BuffStatus, emitter},
     runtime::determinism::RoundDeterminism,
-    skill::target::{TargetContext, TargetEntity, TargetPool, request::TargetRequest},
+    skill::target::{
+        BehaviorTargetOrder, TargetContext, TargetEntity, TargetPool, request::TargetRequest,
+    },
 };
 
 pub struct TargetResolver;
@@ -14,6 +16,7 @@ enum TargetRule {
     EventSource,
     Source,
     Allies,
+    AlliesPreservingSelection,
     AssistBoss,
     BossAllies,
     MainAllies,
@@ -57,6 +60,10 @@ enum TargetRule {
     PriorityEnemyWithMonsterLabel(i32),
 }
 
+fn captured_targets_match(resolved: &[i64], captured: &[i64]) -> bool {
+    resolved == captured
+}
+
 pub fn is_random_other_ally(target_code: i32) -> bool {
     matches!(
         target_rule(target_code),
@@ -64,7 +71,48 @@ pub fn is_random_other_ally(target_code: i32) -> bool {
     )
 }
 
+pub(crate) fn uses_rng(target_code: i32) -> bool {
+    matches!(
+        target_rule(target_code),
+        Some(
+            TargetRule::SingleOrRandomEnemy
+                | TargetRule::RandomEnemyByRng
+                | TargetRule::RandomAllyByRng
+                | TargetRule::RandomOtherAllyByRng
+                | TargetRule::RandomEnemy
+        )
+    )
+}
+
 impl TargetResolver {
+    pub fn order_behavior_candidates(
+        targets: &mut [i64],
+        order: BehaviorTargetOrder,
+        managers: &BattleManagers,
+    ) {
+        if order == BehaviorTargetOrder::Resolved {
+            return;
+        }
+        let identity_order = managers
+            .entity
+            .registration_ordered_uids()
+            .collect::<Vec<_>>();
+        let mut bucket_count = 16;
+        while identity_order.len() > bucket_count * 3 / 4 {
+            bucket_count *= 2;
+        }
+        targets.sort_by_key(|uid| {
+            let bits = *uid as u64;
+            let hash = (bits ^ (bits >> 32)) as u32;
+            let bucket = (hash ^ (hash >> 16)) as usize & (bucket_count - 1);
+            let inserted = identity_order
+                .iter()
+                .position(|known_uid| known_uid == uid)
+                .unwrap_or(usize::MAX);
+            (bucket, inserted)
+        });
+    }
+
     pub fn retarget_stale_explicit(
         source_uid: i64,
         target_uid: i64,
@@ -174,7 +222,7 @@ impl TargetResolver {
             );
         }
 
-        let targets = match rule {
+        let mut targets = match rule {
             TargetRule::Logic => {
                 logic_target(source_uid, skill_id, pool, determinism, managers, context)
             }
@@ -182,7 +230,7 @@ impl TargetResolver {
             TargetRule::EventSubject => runtime_target(context),
             TargetRule::EventSource => event_source(context),
             TargetRule::Source => vec![source_uid],
-            TargetRule::Allies => {
+            TargetRule::Allies | TargetRule::AlliesPreservingSelection => {
                 if crate::engine::fight::rules::is_side_uid(source_uid) {
                     vec![source_uid]
                 } else {
@@ -299,8 +347,18 @@ impl TargetResolver {
             TargetRule::AlliesWithStatus => allies_by_status(pool, source_uid, request, true),
             TargetRule::AlliesWithoutStatus => allies_by_status(pool, source_uid, request, false),
         };
+        if rule == TargetRule::EnemiesIncludingSpecial
+            && context.active_skill_is_attack
+            && managers.is_none_or(|managers| managers.catalog().skill_is_attack(skill_id))
+            && let Some(index) = targets
+                .iter()
+                .position(|uid| *uid == context.runtime_target_uid)
+        {
+            let primary = targets.remove(index);
+            targets.insert(0, primary);
+        }
         if let Some(captured) = determinism.take_skill_targets(skill_id, source_uid, request.code)
-            && captured != targets
+            && !captured_targets_match(&targets, &captured)
         {
             let available = pool
                 .enemies(source_uid, true)
@@ -483,10 +541,32 @@ pub fn is_mapped_target_code(code: i32) -> bool {
     target_rule(code).is_some()
 }
 
+pub(crate) fn preserves_selected_frame_target(
+    code: i32,
+    source_uid: i64,
+    selected_uid: i64,
+    pool: &TargetPool,
+    context: TargetContext,
+) -> bool {
+    matches!(
+        target_rule(code),
+        Some(
+            TargetRule::AlliesPreservingSelection
+                | TargetRule::MainAllies
+                | TargetRule::EnemiesIncludingSpecial
+        )
+    ) || target_rule(code) == Some(TargetRule::SelectedTarget)
+        && context.active_skill_is_attack
+        && pool
+            .team_type(source_uid)
+            .is_some_and(|source_team| pool.team_type(selected_uid) == Some(source_team))
+}
+
 pub fn targets_enemy(code: i32) -> Option<bool> {
     match target_rule(code)? {
         TargetRule::Source
         | TargetRule::Allies
+        | TargetRule::AlliesPreservingSelection
         | TargetRule::AssistBoss
         | TargetRule::BossAllies
         | TargetRule::MainAllies
@@ -541,7 +621,8 @@ fn target_rule(code: i32) -> Option<TargetRule> {
         6 => TargetRule::Fixed(emitter::UID),
         8 => TargetRule::EventSubject,
         super::request::SOURCE_TARGET_CODE => TargetRule::Source,
-        4 | 5 | 104 | 105 | 130 => TargetRule::Allies,
+        4 | 5 | 104 | 105 => TargetRule::Allies,
+        130 => TargetRule::AlliesPreservingSelection,
         1005 => TargetRule::BossAllies,
         101 => TargetRule::MainAllies,
         102 => TargetRule::OtherAllies,
@@ -631,6 +712,7 @@ fn allies_by_status(
         .unwrap_or(BuffStatus::Unknown);
     pool.allies(source_uid)
         .iter()
+        .filter(|entity| !pool.is_reserve(entity.uid))
         .filter(|entity| entity.has_buff_status(status) == present)
         .map(|entity| entity.uid)
         .collect()
@@ -685,7 +767,13 @@ fn event_source(context: TargetContext) -> Vec<i64> {
 
 fn selected_target(pool: &TargetPool, source_uid: i64, context: TargetContext) -> Vec<i64> {
     let selected = runtime_target(context);
-    if !selected.is_empty() || !context.active_skill_is_attack {
+    if !context.active_skill_is_attack
+        || selected.first().is_some_and(|selected_uid| {
+            pool.enemies(source_uid, false)
+                .iter()
+                .any(|enemy| enemy.uid == *selected_uid)
+        })
+    {
         return selected;
     }
     pool.enemies(source_uid, false)

@@ -129,6 +129,9 @@ fn run_owned_buff_act_groups(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::DeathSettlement(_)
+                | RuleOp::SubscriberGroupComplete
+                | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }
                 | RuleOp::BuffFeatureMarker { .. }
                 | RuleOp::EffectMarker { .. }
@@ -151,7 +154,7 @@ fn run_owned_buff_act_groups(
                 frame_group: None,
                 independent_parent_group: None,
                 frame_owner: None,
-                subscriber_owner_uid: None,
+                subscriber: None,
                 caster_frame: None,
             });
         }

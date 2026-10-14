@@ -114,6 +114,31 @@ fn active_skill_events_keep_the_nested_skill_scope_during_setup() {
     );
 
     assert_eq!(event_scope_path(&frames, &skill), skill);
+    assert_eq!(entity_entry_halo_scope_path(&frames, &skill), skill);
+}
+
+#[test]
+fn entity_entry_halos_share_the_containing_event_rule() {
+    let event = BattleEvent::EntityEntered { target_uid: -4 };
+    let mut frames = Vec::new();
+    let event_rule = push_root(
+        &mut frames,
+        FrameOwner::EventRule,
+        FrameTrigger::Event(event),
+    );
+    let summon = push_child(
+        &mut frames,
+        &event_rule,
+        FrameOwner::Skill {
+            source_uid: -1,
+            skill_id: 116330031,
+            card_index: -1,
+            target_uid: Some(-1),
+        },
+        FrameTrigger::Active,
+    );
+
+    assert_eq!(entity_entry_halo_scope_path(&frames, &summon), event_rule);
 }
 
 #[test]
@@ -216,7 +241,8 @@ fn conduit_child_is_the_active_skill_scope_but_the_wrapper_is_not() {
         &mut frames,
         FrameOwner::ConduitAction {
             source_uid: 10,
-            group: 1,
+            selected_group: 1,
+            device_index: 1,
             skill_position: 1,
             target_uid: None,
         },
@@ -228,7 +254,7 @@ fn conduit_child_is_the_active_skill_scope_but_the_wrapper_is_not() {
         FrameOwner::ConduitSkill {
             source_uid: 10,
             skill_id: 31490111,
-            card_index: 1,
+            device_index: 1,
             target_uid: None,
         },
         FrameTrigger::Active,
@@ -245,7 +271,8 @@ fn conduit_child_target_updates_both_anchors_without_replacing_them() {
         &mut frames,
         FrameOwner::ConduitAction {
             source_uid: 10,
-            group: 1,
+            selected_group: 1,
+            device_index: 1,
             skill_position: 1,
             target_uid: None,
         },
@@ -257,7 +284,7 @@ fn conduit_child_target_updates_both_anchors_without_replacing_them() {
         FrameOwner::ConduitSkill {
             source_uid: 10,
             skill_id: 31490111,
-            card_index: 1,
+            device_index: 1,
             target_uid: None,
         },
         FrameTrigger::Active,

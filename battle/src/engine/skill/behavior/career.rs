@@ -1,9 +1,10 @@
+use crate::engine::manager::entity::{EntityCommand, EntityOperation};
 use crate::engine::skill::{
     behavior::{
         AttackModifierContext, BehaviorOpContext, classify::BehaviorKind, registry::BehaviorHandler,
     },
     effect::ParsedBehavior,
-    rule::output::RuleOp,
+    rule::output::{BattleCommand, RuleOp},
 };
 
 pub struct Handler;
@@ -17,12 +18,27 @@ impl BehaviorHandler for Handler {
             (BehaviorKind::CareerRatioFix, [bonus]) if *bonus != 0
         ) || matches!(
             (behavior.spec.kind, behavior.args.as_slice()),
+            (BehaviorKind::ChangeCareer, [career]) if (1..=6).contains(career)
+        ) || matches!(
+            (behavior.spec.kind, behavior.args.as_slice()),
             (BehaviorKind::ChangeAttackCareer, [career]) if (1..=8).contains(career)
         ) || matches!(behavior.spec.kind, BehaviorKind::SetCareerRestraint)
             && behavior.args.is_empty()
     }
 
     fn emit_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Option<Vec<RuleOp>> {
+        if let (BehaviorKind::ChangeCareer, [career]) =
+            (behavior.spec.kind, behavior.args.as_slice())
+        {
+            return (1..=6).contains(career).then(|| {
+                vec![RuleOp::Command(BattleCommand::Entity(EntityCommand {
+                    origin: super::command_origin(behavior).expect("registered behavior"),
+                    source_uid: context.source_uid,
+                    target_uid: context.target_uid,
+                    operation: EntityOperation::ChangeCareer { career: *career },
+                }))]
+            });
+        }
         apply(context.modifiers, behavior).then(Vec::new)
     }
 
@@ -84,6 +100,42 @@ mod tests {
             "SkillChangeAttackCareer",
             vec![101],
         )));
+    }
+
+    #[test]
+    fn career_change_emits_entity_owned_state() {
+        let managers = crate::engine::manager::BattleManagers::default();
+        let pool = crate::engine::skill::target::TargetPool::default();
+        let mut determinism = crate::engine::runtime::determinism::RoundDeterminism::default();
+        let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+        let mut target = crate::engine::skill::target::TargetContext::default();
+
+        let ops = Handler::emit_ops(
+            BehaviorOpContext {
+                source_uid: -1,
+                source_team: 2,
+                target_uid: -1,
+                active_skill_id: 20,
+                transfer_count: 1,
+                event: None,
+                managers: &managers,
+                pool: &pool,
+                determinism: &mut determinism,
+                modifiers: &mut modifiers,
+                target: &mut target,
+            },
+            &ParsedBehavior::new(50013, "ChangeCareer", vec![3]),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            ops.as_slice(),
+            [RuleOp::Command(BattleCommand::Entity(EntityCommand {
+                target_uid: -1,
+                operation: EntityOperation::ChangeCareer { career: 3 },
+                ..
+            }))]
+        ));
     }
 
     #[test]

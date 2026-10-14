@@ -94,6 +94,105 @@ fn compiled_setup_schedule_owns_stage_order() {
 }
 
 #[test]
+fn progress_init_new_commits_during_enter_fight() {
+    crate::test_support::init_config();
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-99999),
+                team_type: Some(2),
+                current_hp: Some(1),
+                passive_skill: vec![119381117],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(
+            BehaviorSpec::new(100015, "ProgressInitNew"),
+            vec![0, 100, 10, 8],
+            vec!["0".into(), "100".into(), "10".into(), "8".into()],
+        ),
+        TargetRequest::self_only(),
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 5,
+        type_name: "EnterFight".to_owned(),
+        kind: ParsedConditionKind::Lifecycle(LifecycleMode::EnterFight),
+        raw_args: Vec::new(),
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 119381117,
+        slots: vec![slot],
+    });
+
+    let result = run_setup_stage(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        SetupStage::EnterFight,
+        0,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        result.outcomes.as_slice(),
+        [RuleOutcome::FightProgress(change)]
+            if change.state.id == 8
+                && change.state.max == 100
+                && change.state.value == 0
+                && change.state.show_id == 10
+                && change.state.skill_id == 119381117
+    ));
+    assert_eq!(managers.fight_progress.get(8).unwrap().skill_id, 119381117);
+    managers.sync_entities(&mut fight);
+    assert_eq!(
+        fight.progress_list,
+        vec![managers.fight_progress.get(8).unwrap().into()]
+    );
+}
+
+#[test]
+fn event_required_behavior_does_not_run_from_its_configured_setup_route() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                passive_skill: vec![115380001],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_skill_setup_schedule(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[(SetupStage::RoundStart, 1)],
+    )
+    .unwrap();
+
+    assert!(result.outcomes.is_empty());
+}
+
+#[test]
 fn exact_setup_routes_share_their_skill_activation_frame() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -281,6 +380,204 @@ fn transform_commit_publishes_the_exact_enter_fight_route() {
         .position(|change| matches!(change, BattleChange::ExPoint(_)))
         .unwrap();
     assert!(transform_index < reactivated_index);
+}
+
+fn entry_halo_summon_fixture() -> (TargetPool, BattleManagers, SkillEffectCatalog) {
+    crate::test_support::init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(116330001),
+                team_type: Some(2),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(109320111),
+                    uid: Some(1101),
+                    from_uid: Some(-1),
+                    layer: Some(2),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let summoned =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(116330100, -2, 3, 2)
+            .unwrap();
+    let mut catalog = SkillEffectCatalog::from_roots(
+        config::configs::get(),
+        summoned.passive_skill,
+        std::iter::empty(),
+    );
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(60008, "Summon"),
+                vec![116330100],
+                vec!["116330100".to_owned()],
+            ),
+            TargetRequest::self_only(),
+        )],
+    });
+
+    (pool, managers, catalog)
+}
+
+fn entry_halo_summon() -> SkillInvocation {
+    SkillRequest {
+        source_uid: -1,
+        skill_id: 100,
+    }
+    .into()
+}
+
+#[test]
+fn combatant_entry_runs_its_enter_fight_passives() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+
+    let result = run_skill(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        entry_halo_summon(),
+        Default::default(),
+    )
+    .unwrap();
+
+    let entered_uid = result
+        .events
+        .iter()
+        .find_map(|event| match event {
+            BattleEvent::EntityEntered { target_uid } => Some(*target_uid),
+            _ => None,
+        })
+        .expect("combatant entry event");
+    assert!(managers.buff.has_buff_id(entered_uid, 109330114));
+    assert_eq!(managers.buff.buff_id_amount(entered_uid, 109320111), 2);
+    let skill = result
+        .frames
+        .iter()
+        .find(|frame| matches!(frame.owner, FrameOwner::Skill { skill_id: 100, .. }))
+        .expect("the active summon has a skill frame");
+    assert_eq!(
+        skill
+            .items
+            .iter()
+            .filter(|item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. })))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn entry_halos_share_the_event_rule_that_cast_the_summon() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::RoundEndEntitySettlement,
+    ));
+    let mut frames = Vec::new();
+    let event_rule = push_root(&mut frames, FrameOwner::EventRule, frame_trigger(&trigger));
+    let mut queue = VecDeque::from([QueuedOp {
+        op: RuleOp::Skill(entry_halo_summon()),
+        trigger,
+        skill_execution: None,
+        frame_path: None,
+        parent_path: Some(event_rule),
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    assert!(result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::Skill { skill_id: 100, .. }))
+    ));
+    assert!(result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
+}
+
+#[test]
+fn entry_halos_stay_in_a_nested_active_skill() {
+    let (pool, mut managers, catalog) = entry_halo_summon_fixture();
+    let mut frames = Vec::new();
+    let setup = push_root(
+        &mut frames,
+        FrameOwner::SetupEntity { owner_uid: -1 },
+        FrameTrigger::Setup {
+            stage: SetupStage::EnterFight,
+            priority: 0,
+        },
+    );
+    let skill = push_child(
+        &mut frames,
+        &setup,
+        FrameOwner::Skill {
+            source_uid: -1,
+            skill_id: 100,
+            card_index: -1,
+            target_uid: None,
+        },
+        FrameTrigger::Active,
+    );
+    let mut queue = VecDeque::from([QueuedOp {
+        op: RuleOp::Skill(entry_halo_summon()),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: Some(skill),
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    let crate::engine::runtime::record::FrameItem::Child(skill) = &result.frames[0].items[0] else {
+        panic!("setup keeps the active summon skill");
+    };
+    assert!(skill.items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
+    assert!(!result.frames[0].items.iter().any(
+        |item| matches!(item, crate::engine::runtime::record::FrameItem::Child(child) if matches!(child.owner, FrameOwner::BuffRule { .. }))
+    ));
 }
 
 #[test]

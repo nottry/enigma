@@ -367,7 +367,7 @@ fn wave_entry_resolves_configured_identity_before_the_next_action() {
 }
 
 #[test]
-fn wave_entry_fans_existing_master_halo_to_each_entrant() {
+fn entity_entry_fans_existing_halo_to_each_entrant() {
     init_config();
     let entity = |uid, team_type| FightEntityInfo {
         uid: Some(uid),
@@ -397,7 +397,7 @@ fn wave_entry_fans_existing_master_halo_to_each_entrant() {
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
 
-    let result = run_wave_entry_master_halo_fanout(
+    let result = publish_entity_entries(
         &mut managers,
         &pool,
         &SkillEffectCatalog::default(),
@@ -407,18 +407,15 @@ fn wave_entry_fans_existing_master_halo_to_each_entrant() {
     )
     .unwrap();
 
-    let changes = result
-        .outcomes
-        .iter()
-        .find_map(|outcome| match outcome {
-            RuleOutcome::Buff(changes) => Some(changes.as_ref()),
-            _ => None,
-        })
-        .unwrap();
     assert_eq!(
-        changes
-            .fanout
+        result
+            .outcomes
             .iter()
+            .filter_map(|outcome| match outcome {
+                RuleOutcome::Buff(changes) => Some(changes.as_ref()),
+                _ => None,
+            })
+            .flat_map(|changes| &changes.fanout)
             .map(|fanout| {
                 let added = &fanout.added[0];
                 (
@@ -471,10 +468,10 @@ fn wave_entry_fans_existing_master_halo_to_each_entrant() {
     );
 
     let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
-    assert_eq!(steps.len(), 1);
-    let children = steps[0]
-        .act_effect
+    assert_eq!(steps.len(), 3);
+    let children = steps
         .iter()
+        .flat_map(|step| &step.act_effect)
         .filter_map(|effect| effect.fight_step.as_ref())
         .collect::<Vec<_>>();
     assert_eq!(children.len(), 3);
@@ -491,10 +488,132 @@ fn wave_entry_fans_existing_master_halo_to_each_entrant() {
     );
 }
 
-fn master_halo_additions(fight: &Fight, target_uids: &[i64]) -> Vec<(i64, i64)> {
+#[test]
+fn entity_entry_orders_halo_carriers_by_owner_uid() {
+    init_config();
+    let entity = |uid, team_type| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        current_hp: Some(100),
+        ..Default::default()
+    };
+    let mut attacker = entity(10, 1);
+    attacker.buffs.push(BuffInfo {
+        buff_id: Some(31270412),
+        uid: Some(1015),
+        from_uid: Some(10),
+        ..Default::default()
+    });
+    let mut defender = entity(-1, 2);
+    defender.buffs.push(BuffInfo {
+        buff_id: Some(109320111),
+        uid: Some(1016),
+        from_uid: Some(-1),
+        ..Default::default()
+    });
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![attacker],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![defender, entity(-4, 2)],
+            ..Default::default()
+        }),
+        version: Some(7),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let result = publish_entity_entries(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[-4],
+    )
+    .unwrap();
+
+    assert_eq!(
+        result
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                RuleOutcome::Buff(changes) => Some(changes.as_ref()),
+                _ => None,
+            })
+            .flat_map(|changes| &changes.fanout)
+            .map(|fanout| (fanout.emitter_uid, fanout.added[0].buff.buff_id.unwrap()))
+            .collect::<Vec<_>>(),
+        [(-1, 109320111), (10, 31270413)]
+    );
+}
+
+#[test]
+fn entity_entry_does_not_promote_a_derived_halo_to_a_carrier() {
+    init_config();
+    let entity = |uid| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(1),
+        current_hp: Some(100),
+        ..Default::default()
+    };
+    let mut source = entity(10);
+    source.buffs.push(BuffInfo {
+        buff_id: Some(109320111),
+        uid: Some(1015),
+        from_uid: Some(10),
+        ..Default::default()
+    });
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![source, entity(11), entity(12)],
+            ..Default::default()
+        }),
+        version: Some(7),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    publish_entity_entries(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[11],
+    )
+    .unwrap();
+    let result = publish_entity_entries(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[12],
+    )
+    .unwrap();
+
+    let emitters = result
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Buff(changes) => Some(changes.as_ref()),
+            _ => None,
+        })
+        .flat_map(|changes| &changes.fanout)
+        .map(|fanout| fanout.emitter_uid)
+        .collect::<Vec<_>>();
+    assert_eq!(emitters, [10]);
+}
+
+fn entry_halo_additions(fight: &Fight, target_uids: &[i64]) -> Vec<(i64, i64)> {
     let pool = TargetPool::from_fight(fight);
     let mut managers = BattleManagers::seeded(fight);
-    run_wave_entry_master_halo_fanout(
+    publish_entity_entries(
         &mut managers,
         &pool,
         &SkillEffectCatalog::default(),
@@ -515,8 +634,34 @@ fn master_halo_additions(fight: &Fight, target_uids: &[i64]) -> Vec<(i64, i64)> 
     .collect()
 }
 
+fn publish_entity_entries(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    target_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    let mut result = DrainResult::default();
+    for &target_uid in target_uids {
+        append(
+            &mut result,
+            drain::run_owner_event(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                BattleEvent::EntityEntered { target_uid },
+                std::slice::from_ref(&target_uid),
+            )?,
+        );
+    }
+    Ok(result)
+}
+
 #[test]
-fn pre_v7_wave_entry_master_halo_uses_the_emitter_uid_lane() {
+fn pre_v7_entry_halo_uses_the_emitter_uid_lane() {
     init_config();
     let entity = |uid, team_type| FightEntityInfo {
         uid: Some(uid),
@@ -544,11 +689,11 @@ fn pre_v7_wave_entry_master_halo_uses_the_emitter_uid_lane() {
         ..Default::default()
     };
 
-    assert_eq!(master_halo_additions(&fight, &[-3]), vec![(-3, 1016)]);
+    assert_eq!(entry_halo_additions(&fight, &[-3]), vec![(-3, 1016)]);
 }
 
 #[test]
-fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
+fn entry_halo_filters_inactive_expired_and_duplicate_plans() {
     init_config();
     let entity = |uid, team_type, current_hp| FightEntityInfo {
         uid: Some(uid),
@@ -579,7 +724,7 @@ fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
         ..Default::default()
     };
     assert_eq!(
-        master_halo_additions(&duplicate_targets, &[-3, -3]),
+        entry_halo_additions(&duplicate_targets, &[-3, -3]),
         vec![(-3, 1016)]
     );
 
@@ -593,7 +738,7 @@ fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
         version: Some(7),
         ..Default::default()
     };
-    assert!(master_halo_additions(&inactive_carrier, &[-3]).is_empty());
+    assert!(entry_halo_additions(&inactive_carrier, &[-3]).is_empty());
 
     let mut dead_source = active_source.clone();
     dead_source.current_hp = Some(0);
@@ -606,7 +751,7 @@ fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
         version: Some(7),
         ..Default::default()
     };
-    assert!(master_halo_additions(&dead_carrier, &[-3]).is_empty());
+    assert!(entry_halo_additions(&dead_carrier, &[-3]).is_empty());
 
     let inactive_entrant = Fight {
         attacker: duplicate_targets.attacker.clone(),
@@ -618,7 +763,7 @@ fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
         version: Some(7),
         ..Default::default()
     };
-    assert!(master_halo_additions(&inactive_entrant, &[-3]).is_empty());
+    assert!(entry_halo_additions(&inactive_entrant, &[-3]).is_empty());
 
     let mut expired_source = entity(10, 1, 100);
     expired_source.buffs.push(carrier(30860151, 0));
@@ -630,5 +775,5 @@ fn wave_entry_master_halo_filters_inactive_expired_and_duplicate_plans() {
         version: Some(7),
         ..Default::default()
     };
-    assert!(master_halo_additions(&expired_carrier, &[12]).is_empty());
+    assert!(entry_halo_additions(&expired_carrier, &[12]).is_empty());
 }

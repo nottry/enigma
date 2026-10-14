@@ -343,6 +343,58 @@ fn raw_contribution_plan_assigns_fractional_remainder_in_input_order() {
 }
 
 #[test]
+fn raw_batch_commits_fractional_remainder_in_input_order() {
+    let mut manager = GaugeManager::default();
+    manager
+        .execute_command(GaugeCommand::new(
+            ORIGIN,
+            KEY,
+            GaugeOperation::Enable { max: Some(750) },
+        ))
+        .unwrap();
+    manager
+        .execute_command(GaugeCommand::new(
+            ORIGIN,
+            KEY,
+            GaugeOperation::AccumulateRawValue {
+                amount: 34_063,
+                stream: 726,
+            },
+        ))
+        .unwrap();
+
+    let changes = manager
+        .execute_raw_batch(vec![
+            GaugeCommand::new(
+                ORIGIN,
+                KEY,
+                GaugeOperation::AccumulateRawValue {
+                    amount: 1_666,
+                    stream: 771,
+                },
+            ),
+            GaugeCommand::new(
+                ORIGIN,
+                KEY,
+                GaugeOperation::AccumulateRawValue {
+                    amount: 1_666,
+                    stream: 771,
+                },
+            ),
+        ])
+        .unwrap();
+
+    assert_eq!(
+        changes
+            .iter()
+            .map(|change| change.applied_delta)
+            .collect::<Vec<_>>(),
+        vec![2, 1]
+    );
+    assert_eq!(manager.raw_value(KEY), Some(37_395));
+}
+
+#[test]
 fn raw_value_accumulation_shares_the_gauge_fraction_between_opcodes() {
     let mut manager = GaugeManager::default();
     manager

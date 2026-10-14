@@ -282,14 +282,14 @@ fn run_defender_settlement(
         .collect::<Vec<_>>();
     owners.extend(pool.assist_boss(crate::engine::fight::rules::DEFENDER_SIDE_UID));
     owners.push(crate::engine::fight::rules::DEFENDER_SIDE_UID);
-    let mut result = drain::run_group_event(
+    let mut result = drain::run_group_event_lanes(
         managers,
         pool,
         catalog,
         determinism,
         context,
         BattleEvent::Kind(EventKind::RoundEnd),
-        drain::ReactionLane::BuffActs,
+        &[drain::ReactionLane::BuffActs, drain::ReactionLane::Skills],
         Some(&owners),
     )?;
     append(
@@ -303,19 +303,6 @@ fn run_defender_settlement(
             BattleEvent::Kind(EventKind::SmallRoundEnd),
             &owners,
             drain::ReactionLane::Skills,
-        )?,
-    );
-    append(
-        &mut result,
-        drain::run_group_event(
-            managers,
-            pool,
-            catalog,
-            determinism,
-            context,
-            BattleEvent::Kind(EventKind::RoundEnd),
-            drain::ReactionLane::Skills,
-            Some(&owners),
         )?,
     );
     let settlement = run_entity_settlement(
@@ -372,6 +359,13 @@ pub fn run_entity_settlement(
     };
     let mut result = DrainResult::default();
     let mut settlement_changes = Vec::new();
+    let mut active_owner_uids = owner_uids
+        .iter()
+        .copied()
+        .filter(|owner_uid| {
+            pool.entity(*owner_uid).is_none() || managers.hp.current(*owner_uid) > 0
+        })
+        .collect::<Vec<_>>();
     for step in schedule {
         let next = match step {
             SettlementStep::OwnerEvent(kind) => {
@@ -384,7 +378,7 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::BuffActs,
                     )?;
                     let mut skills = drain::run_grouped_owner_event(
@@ -394,13 +388,25 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::Skills,
                     )?;
                     if skills.events.first() == Some(&event) {
                         skills.events.remove(0);
                     }
                     append(&mut result, skills);
+                    let owner_settled = BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement);
+                    let after_owners = drain::run_grouped_owner_event(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        owner_settled,
+                        &active_owner_uids,
+                        drain::ReactionLane::Skills,
+                    )?;
+                    append(&mut result, after_owners);
                     result
                 } else {
                     let mut result = drain::run_grouped_owner_event(
@@ -410,7 +416,7 @@ pub fn run_entity_settlement(
                         determinism,
                         context,
                         event.clone(),
-                        owner_uids,
+                        &active_owner_uids,
                         drain::ReactionLane::Skills,
                     )?;
                     if *kind == EventKind::RoundEndEntitySettlement {
@@ -421,7 +427,7 @@ pub fn run_entity_settlement(
                             determinism,
                             context,
                             event.clone(),
-                            owner_uids,
+                            &active_owner_uids,
                             drain::ReactionLane::BuffActs,
                         )?;
                         if buff_acts.events.first() == Some(&event) {
@@ -439,7 +445,7 @@ pub fn run_entity_settlement(
                     catalog,
                     determinism,
                     context,
-                    owner_uids,
+                    &active_owner_uids,
                 )?;
                 settlement_changes = settlement
                     .events
@@ -463,7 +469,7 @@ pub fn run_entity_settlement(
                 context,
                 [RuleOp::Command(BattleCommand::Eureka(
                     EurekaCommand::ResetRound {
-                        owner_uids: owner_uids.to_vec(),
+                        owner_uids: active_owner_uids.clone(),
                     },
                 ))],
             )?,
@@ -477,6 +483,11 @@ pub fn run_entity_settlement(
             append_round_phase(&mut result, next);
         } else {
             append(&mut result, next);
+        }
+        if matches!(step, SettlementStep::Settlement) {
+            active_owner_uids.retain(|owner_uid| {
+                pool.entity(*owner_uid).is_none() || managers.hp.current(*owner_uid) > 0
+            });
         }
     }
     Ok(EntitySettlement {

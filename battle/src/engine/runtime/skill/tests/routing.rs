@@ -116,6 +116,41 @@ fn configured_target_rule_owns_slots_that_use_logic_target() {
     .into();
     invocation.target = SkillTarget::Explicit(-1);
 
+    let mut execution = SkillExecution::new(TargetContext::default());
+    let emission = emit_ops(
+        invocation.clone(),
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert_eq!(emission.target_uid, Some(11));
+    assert_eq!(execution.affected_targets, [11]);
+    assert!(execution.configured_target_replaces(invocation.target, 10, &pool));
+
+    catalog.insert_logic_target(
+        100,
+        crate::engine::skill::target::request::SOURCE_TARGET_CODE,
+    );
+    let mut execution = SkillExecution::new(TargetContext::default());
+    let emission = emit_ops(
+        invocation.clone(),
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+    assert_eq!(emission.target_uid, Some(-1));
+    assert!(!execution.configured_target_replaces(invocation.target, 10, &pool));
+
+    catalog.insert_logic_target(100, 112);
+
     assert!(matches!(
         emit_all_ops(
             invocation.clone(),

@@ -91,7 +91,7 @@ fn buff_spread_copies_the_primary_targets_scaled_layers_to_other_enemies() {
 }
 
 #[test]
-fn buff_sort_by_hp_redistributes_layers_by_manager_hp_and_preserves_uids() {
+fn buff_sort_by_hp_redistributes_layers_and_reassigns_the_inflicter() {
     crate::test_support::init_config();
     let enemy = |uid, position, hp, buff_uid, layer| FightEntityInfo {
         uid: Some(uid),
@@ -158,23 +158,41 @@ fn buff_sort_by_hp_redistributes_layers_by_manager_hp_and_preserves_uids() {
     assert!(matches!(
         ops.as_slice(),
         [
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::SetAmount(BuffSetAmount {
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::RemoveAfterTrigger(
+                BuffRemove {
+                    target_uid: -1,
+                    selector: BuffRemoveSelector::Uid(20),
+                    ..
+                }
+            ))),
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+                source_uid: 10,
                 target_uid: -1,
-                buff_uid: 20,
-                amount: BuffAmount::Layer(40),
+                buff_id: 31340022,
+                amount: Some(40),
                 ..
             }))),
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::SetAmount(BuffSetAmount {
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::RemoveAfterTrigger(
+                BuffRemove {
+                    target_uid: -3,
+                    selector: BuffRemoveSelector::Uid(22),
+                    ..
+                }
+            ))),
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+                source_uid: 10,
                 target_uid: -3,
-                buff_uid: 22,
-                amount: BuffAmount::Layer(20),
+                buff_id: 31340022,
+                amount: Some(20),
                 ..
             }))),
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::Remove(BuffRemove {
-                target_uid: -2,
-                selector: BuffRemoveSelector::Uid(21),
-                ..
-            })))
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::RemoveAfterTrigger(
+                BuffRemove {
+                    target_uid: -2,
+                    selector: BuffRemoveSelector::Uid(21),
+                    ..
+                }
+            )))
         ]
     ));
 }
@@ -410,6 +428,7 @@ fn consume_layer_and_team_grant_uses_the_consumed_amount() {
             RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
                 target_uid: 10,
                 amount: 3,
+                depleted: DepletedBuff::RemoveWithZeroLayer,
                 ..
             }))),
             RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {

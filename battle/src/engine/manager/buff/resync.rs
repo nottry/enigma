@@ -39,6 +39,8 @@ impl BuffManager {
                     .unwrap_or_default();
                 self.buffs[index].definition = definition;
                 self.buffs[index].type_id = type_id;
+                self.buffs[index].fanout_emitter_uid = None;
+                self.buffs[index].effective = true;
                 self.commit_grant_values(buff_uid, &grant_values);
             }
             self.buffs[index].buff = buff;
@@ -64,6 +66,8 @@ impl BuffManager {
             team_type,
             type_id,
             definition,
+            fanout_emitter_uid: None,
+            effective: true,
             buff,
         });
         self.commit_grant_values(buff_uid, &grant_values);

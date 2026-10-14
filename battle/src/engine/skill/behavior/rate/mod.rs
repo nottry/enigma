@@ -91,12 +91,12 @@ impl BehaviorHandler for Handler {
             }
             if *focus_rate != 0
                 && crystal_count > 0
-                && let Some(target_uid) = context
-                    .pool
-                    .enemies(context.source_uid, false)
-                    .iter()
-                    .map(|enemy| enemy.uid)
-                    .max_by_key(|uid| context.managers.buff.buff_id_amount(*uid, *buff_id))
+                && let Some(target_uid) = first_enemy_with_highest_buff_amount(
+                    context.pool,
+                    context.managers,
+                    context.source_uid,
+                    *buff_id,
+                )
             {
                 context.modifiers.rates.push(SkillRateModifier::new(
                     target_uid,
@@ -122,7 +122,8 @@ impl BehaviorHandler for Handler {
             return Some(Vec::new());
         }
         if behavior.spec.kind == BehaviorKind::CrystalAddCardRank {
-            let (all_rate, focus_rate) = crystal_fixed_skill_rates(&behavior.args)?;
+            let (all_rate, focus_rate) =
+                crystal_fixed_skill_rates(context.managers, context.source_uid, &behavior.args)?;
             if all_rate != 0 {
                 context.modifiers.rates.push(SkillRateModifier::fixed(
                     0,
@@ -153,7 +154,11 @@ impl BehaviorHandler for Handler {
             let delta = heat_scale_skill_rate(current, &behavior.args);
             if context.active_skill_id != 0 && delta != 0 {
                 context.modifiers.rates.push(SkillRateModifier::fixed(
-                    context.target_uid,
+                    if context.target_uid == context.source_uid {
+                        0
+                    } else {
+                        context.target_uid
+                    },
                     behavior.spec.key.opcode,
                     delta,
                     true,
@@ -267,10 +272,10 @@ fn conduit_power_up_ops(
     behavior: &ParsedBehavior,
 ) -> Option<Vec<RuleOp>> {
     let args = conduit_power_up_args(behavior)?;
-    context.modifiers.attack_career = Some(args.power_ids[0]);
-    context.modifiers.additional_attack_career = Some(args.power_ids[1]);
+    context.modifiers.attack_career = Some(args.attack_careers[0]);
+    context.modifiers.additional_attack_career = Some(args.attack_careers[1]);
     let spent = args
-        .power_ids
+        .consumed_power_ids
         .iter()
         .map(|power_id| {
             context
@@ -321,7 +326,7 @@ fn conduit_power_up_ops(
             source_uid: context.source_uid,
             team: context.source_team,
             skill_id: context.active_skill_id,
-            power_ids: args.power_ids,
+            power_ids: args.consumed_power_ids,
         })),
         RuleOp::EffectMarker {
             target_uid: context.source_uid,
@@ -334,9 +339,9 @@ fn conduit_power_up_ops(
     ])
 }
 
-#[derive(Clone, Copy)]
 struct ConduitPowerUpArgs {
-    power_ids: [i32; 2],
+    consumed_power_ids: Vec<i32>,
+    attack_careers: [i32; 2],
     rate_per_power: i32,
     thresholds: [i32; 3],
     threshold_bonuses: [i32; 3],
@@ -346,12 +351,18 @@ struct ConduitPowerUpArgs {
 }
 
 fn conduit_power_up_args(behavior: &ParsedBehavior) -> Option<ConduitPowerUpArgs> {
-    let power_ids = behavior.arg_list(0)?;
-    let [0, power_a, power_b] = power_ids.as_slice() else {
+    let consumed_power_ids = behavior.arg_list(0)?.to_vec();
+    let attack_careers = consumed_power_ids
+        .iter()
+        .copied()
+        .filter(|power_id| *power_id > 0)
+        .collect::<Vec<_>>();
+    let [power_a, power_b] = attack_careers.as_slice() else {
         return None;
     };
     let args = ConduitPowerUpArgs {
-        power_ids: [*power_a, *power_b],
+        consumed_power_ids,
+        attack_careers: [*power_a, *power_b],
         rate_per_power: behavior.arg(1)?,
         thresholds: [behavior.arg(2)?, behavior.arg(3)?, behavior.arg(4)?],
         threshold_bonuses: [behavior.arg(5)?, behavior.arg(6)?, behavior.arg(7)?],
@@ -359,7 +370,17 @@ fn conduit_power_up_args(behavior: &ParsedBehavior) -> Option<ConduitPowerUpArgs
         penetration: (AttrId::from_raw(behavior.arg(10)?)?, behavior.arg(11)?),
         excess_crit_conversion: behavior.arg(12)?,
     };
-    (args.power_ids.iter().all(|id| (1..=8).contains(id))
+    ((2..=3).contains(&args.consumed_power_ids.len())
+        && args
+            .consumed_power_ids
+            .iter()
+            .all(|id| (0..=8).contains(id))
+        && args
+            .consumed_power_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            == args.consumed_power_ids.len()
         && args.rate_per_power >= 0
         && args.thresholds.iter().all(|threshold| *threshold > 0)
         && args.thresholds.windows(2).all(|pair| pair[0] < pair[1])
@@ -432,7 +453,7 @@ fn collect_attack_modifier_slot(
     let Ok(route) = slot.compiled_route.as_ref() else {
         return false;
     };
-    let immediate_drivers = route
+    let attack_modifier_drivers = route
         .branches
         .iter()
         .filter_map(|branch| match branch.driver {
@@ -442,6 +463,7 @@ fn collect_attack_modifier_slot(
                     && matches!(
                         trigger.phase,
                         None | Some(crate::engine::skill::action::SkillPhase::Immediate)
+                            | Some(crate::engine::skill::action::SkillPhase::Damage)
                     ))
                     || (trigger.event
                         == crate::engine::event::kind::EventKind::SkillEffectStarted
@@ -454,7 +476,7 @@ fn collect_attack_modifier_slot(
         })
         .collect::<Vec<_>>();
     let has_static_branch = route.branches.iter().any(|branch| branch.driver.is_none());
-    if !has_static_branch && immediate_drivers.is_empty() {
+    if !has_static_branch && attack_modifier_drivers.is_empty() {
         return false;
     }
     let mut condition_sets = has_static_branch
@@ -462,7 +484,7 @@ fn collect_attack_modifier_slot(
         .into_iter()
         .collect::<Vec<_>>();
     condition_sets.extend(
-        immediate_drivers
+        attack_modifier_drivers
             .into_iter()
             .map(|key| satisfied_conditions(&slot.conditions, key)),
     );
@@ -470,36 +492,6 @@ fn collect_attack_modifier_slot(
         return false;
     };
     for conditions in condition_sets {
-        let condition_targets = TargetResolver::resolve_with_managers_and_context(
-            &slot.condition_target,
-            active_skill_id,
-            owner_uid,
-            pool,
-            determinism,
-            Some(managers),
-            context,
-        );
-        let fire_count = conditions_fire_count(
-            &conditions,
-            owner_uid,
-            &condition_targets,
-            Some(managers),
-            pool,
-            context,
-        );
-        let collect_count =
-            if let Some(has_committed) = definition.collect_attack_modifier_from_committed_state {
-                i32::from(has_committed(
-                    managers,
-                    context.hit_source_uid,
-                    &slot.behavior,
-                ))
-            } else {
-                fire_count.max(0)
-            };
-        if collect_count == 0 {
-            continue;
-        }
         let targets = TargetResolver::resolve_with_managers_and_context(
             &slot.target,
             active_skill_id,
@@ -524,6 +516,43 @@ fn collect_attack_modifier_slot(
             modifier_subject.is_some_and(|target_uid| targets.contains(&target_uid));
         let applies_to_current_attack = targets_owner || targets_subject;
         if !applies_to_current_attack {
+            continue;
+        }
+        let condition_targets =
+            if condition_registry::conditions_use_active_skill_target_group(&conditions) {
+                targets.clone()
+            } else if slot.target_from_condition && targets_subject {
+                vec![modifier_subject.unwrap_or_default()]
+            } else {
+                TargetResolver::resolve_with_managers_and_context(
+                    &slot.condition_target,
+                    active_skill_id,
+                    owner_uid,
+                    pool,
+                    determinism,
+                    Some(managers),
+                    context,
+                )
+            };
+        let fire_count = conditions_fire_count(
+            &conditions,
+            owner_uid,
+            &condition_targets,
+            Some(managers),
+            pool,
+            context,
+        );
+        let collect_count =
+            if let Some(has_committed) = definition.collect_attack_modifier_from_committed_state {
+                i32::from(has_committed(
+                    managers,
+                    context.hit_source_uid,
+                    &slot.behavior,
+                ))
+            } else {
+                fire_count.max(0)
+            };
+        if collect_count == 0 {
             continue;
         }
         let modifier_target_uid = if incoming_side
@@ -659,6 +688,37 @@ pub fn emit_passive_attack_attributes(
         determinism,
         context,
     );
+}
+
+pub fn emit_active_target_attack_attributes(
+    modifiers: &mut crate::engine::skill::action::SkillModifiers,
+    source_uid: i64,
+    effect_skill_id: i32,
+    active_skill_id: i32,
+    runtime: RateRuntime<'_>,
+    determinism: &mut RoundDeterminism,
+) {
+    let Some(effect) = runtime.effects.get(effect_skill_id) else {
+        return;
+    };
+    for slot in effect
+        .slots
+        .iter()
+        .filter(|slot| slot.target_from_condition)
+    {
+        collect_attack_modifier_slot(
+            modifiers,
+            ModifierOwner {
+                uid: source_uid,
+                skill_id: effect_skill_id,
+            },
+            active_skill_id,
+            slot,
+            runtime,
+            determinism,
+            ModifierSide::Source,
+        );
+    }
 }
 
 pub(crate) fn incoming_target_attack_modifiers(
@@ -854,6 +914,25 @@ pub fn emit(
     true
 }
 
+fn first_enemy_with_highest_buff_amount(
+    pool: &TargetPool,
+    managers: &BattleManagers,
+    source_uid: i64,
+    buff_id: i32,
+) -> Option<i64> {
+    pool.enemies(source_uid, false)
+        .iter()
+        .map(|enemy| (enemy.uid, managers.buff.buff_id_amount(enemy.uid, buff_id)))
+        .reduce(|best, candidate| {
+            if candidate.1 > best.1 {
+                candidate
+            } else {
+                best
+            }
+        })
+        .map(|(uid, _)| uid)
+}
+
 pub(super) fn supports_attr_fix(behavior: &ParsedBehavior) -> bool {
     matches!(behavior.args.as_slice(), [attr_id, _] if AttrId::from_raw(*attr_id).is_some())
 }
@@ -973,11 +1052,22 @@ fn crystal_rate_career_scaled(kind: BehaviorKind, _focus: bool) -> bool {
     )
 }
 
-fn crystal_fixed_skill_rates(args: &[i32]) -> Option<(i32, i32)> {
-    let [all_rate, focus_rate, _] = args else {
+fn crystal_fixed_skill_rates(
+    managers: &BattleManagers,
+    source_uid: i64,
+    args: &[i32],
+) -> Option<(i32, i32)> {
+    let [all_rate, focus_rate, crystal_type] = args else {
         return None;
     };
-    Some((*all_rate, *focus_rate))
+    let count = managers.emanation.count(
+        source_uid,
+        crate::engine::manager::emanation::EmanationKind::from_id(*crystal_type)?,
+    );
+    Some((
+        all_rate.saturating_mul(count),
+        focus_rate.saturating_mul(count),
+    ))
 }
 
 #[cfg(test)]

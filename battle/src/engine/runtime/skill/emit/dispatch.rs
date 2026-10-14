@@ -17,7 +17,10 @@ use crate::engine::{
             output::{BattleCommand, RuleOp},
             route::ConditionDriver,
         },
-        target::{TargetPool, TargetRequest, TargetResolver},
+        target::{
+            BehaviorTargetOrder, TargetPool, TargetRequest, TargetResolver,
+            request::SOURCE_TARGET_CODE,
+        },
     },
 };
 
@@ -154,6 +157,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             | crate::engine::skill::action::SkillExecutionMode::Device
             | crate::engine::skill::action::SkillExecutionMode::DeviceCard
     ) {
+        execution.context.active_skill_mode = invocation.mode;
         execution.context.active_skill_is_attack = catalog.is_attack(effect_skill_id);
         if matches!(trigger, SkillOpTrigger::Active) && invocation.card_index > 0 {
             execution.context.active_skill_slot = pool.skill_slot(
@@ -176,7 +180,7 @@ pub(in crate::engine::runtime) fn emit_ops(
         execution.record_targets([uid]);
     }
     if let SkillOpTrigger::Event(event) = trigger {
-        apply_event_context(managers, &mut execution.context, event);
+        apply_event_context(managers, catalog, &mut execution.context, event);
     }
     let source_team =
         pool.team_type(invocation.plan.source_uid)
@@ -202,13 +206,45 @@ pub(in crate::engine::runtime) fn emit_ops(
     let mut outputs = Vec::new();
     let mut fired_rules = Vec::new();
     let resume_slot = std::mem::take(&mut execution.resume_slot);
-    let active_phase = matches!(trigger, SkillOpTrigger::Active).then_some(
-        invocation
-            .phase
-            .unwrap_or(crate::engine::skill::action::SkillPhase::Immediate),
-    );
-    if resume_slot == 0
-        && active_phase == Some(crate::engine::skill::action::SkillPhase::Immediate)
+    let resume_target = std::mem::take(&mut execution.resume_target);
+    let active_phase = if matches!(trigger, SkillOpTrigger::Active) {
+        let has_source_opening_subscriber = invocation.phase.is_none()
+            && crate::engine::skill::subscriber::for_compiled_events(
+                pool,
+                managers,
+                catalog,
+                [crate::engine::event::kind::EventKind::SkillAction],
+            )?
+            .skills
+            .iter()
+            .any(|subscriber| subscriber.key.phase == Some(SkillPhase::SourceOpening));
+        Some(match invocation.phase {
+            Some(phase) => phase,
+            None if has_source_opening_subscriber
+                || skill_runs_in_phase(
+                    &effect.slots,
+                    SkillPhase::SourceOpening,
+                    invocation.plan.skill_id,
+                )? =>
+            {
+                SkillPhase::SourceOpening
+            }
+            None => SkillPhase::Immediate,
+        })
+    } else {
+        None
+    };
+    let resuming_phase = resume_slot > 0
+        || resume_target > 0
+        || (active_phase == Some(SkillPhase::Immediate) && execution.effect_started);
+    if !resuming_phase
+        && matches!(
+            active_phase,
+            Some(
+                crate::engine::skill::action::SkillPhase::SourceOpening
+                    | crate::engine::skill::action::SkillPhase::Immediate
+            )
+        )
         && execution.configured_targets.is_none()
     {
         let request = TargetRequest {
@@ -227,7 +263,8 @@ pub(in crate::engine::runtime) fn emit_ops(
                 ),
             )
         });
-        let configured_targets = if routes_configured_damage && !needs_action_targets {
+        let defers_configured_targets = routes_configured_damage && !needs_action_targets;
+        let configured_targets = if defers_configured_targets {
             Vec::new()
         } else {
             TargetResolver::resolve_action_targets(
@@ -240,15 +277,21 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.context,
             )
         };
-        execution.configured_additional_targets = determinism
-            .take_skill_target_choice(
-                invocation.plan.skill_id,
-                invocation.plan.source_uid,
-                request.code,
-            )
-            .map(|choice| choice.additional_targets)
-            .filter(|targets| !targets.is_empty())
-            .or_else(|| selected_target_order(invocation.target, &configured_targets));
+        if !defers_configured_targets
+            && execution.context.logic_target != SOURCE_TARGET_CODE
+            && let SkillTarget::Explicit(selected) = invocation.target
+            && !configured_targets.contains(&selected)
+        {
+            execution.primary_target_uid = None;
+            execution.affected_targets.clear();
+        }
+        let _ = determinism.take_skill_target_choice(
+            invocation.plan.skill_id,
+            invocation.plan.source_uid,
+            request.code,
+        );
+        execution.additional_damage_targets =
+            selected_target_order(invocation.target, &configured_targets);
         if let Some(&main_target) = configured_targets.first() {
             execution.context.runtime_target_uid = main_target;
             execution.primary_target_uid.get_or_insert(main_target);
@@ -256,7 +299,7 @@ pub(in crate::engine::runtime) fn emit_ops(
         execution.record_targets(configured_targets.iter().copied());
         execution.configured_targets = Some(configured_targets);
     }
-    if resume_slot == 0 && active_phase == Some(SkillPhase::Immediate) {
+    if !resuming_phase && active_phase == Some(SkillPhase::Immediate) {
         if let Some(modifier) = invocation.rate_modifier {
             execution.modifiers.rates.push(modifier);
         }
@@ -291,6 +334,15 @@ pub(in crate::engine::runtime) fn emit_ops(
                 pool,
                 execution,
             ));
+            execution.effect_started = true;
+            let mut continuation = invocation.clone();
+            continuation.phase = active_phase;
+            return Ok(SkillEmission {
+                ops: outputs,
+                fired_rules,
+                continuation: Some(continuation),
+                target_uid: execution.primary_target_uid,
+            });
         }
     }
     let has_row_damage = catalog.damage_rate(effect_skill_id) > 0
@@ -300,18 +352,19 @@ pub(in crate::engine::runtime) fn emit_ops(
             .any(|slot| slot.behavior.spec.kind == BehaviorKind::IgnoreSkillConfigDamageRate);
     // An extra action's Force Field Eureka cost and forced crit open the action, before its own
     // effects; other additional-damage activations follow those effects.
-    if resume_slot == 0 && active_phase == Some(SkillPhase::Immediate) && has_row_damage {
-        for activation in plan::additional_damage_activation(&invocation, managers, execution)
-            .into_iter()
-            .filter(|activation| activation.pays_extra_action_cost)
-        {
-            outputs.extend(emit_additional_damage_activation(
-                &invocation,
-                execution,
-                activation,
-            ));
+    if active_phase == Some(SkillPhase::Immediate) && !execution.opening_effects_emitted {
+        execution.opening_effects_emitted = true;
+        for activation in plan::LinkedDamagePlan::activations(&invocation, managers, execution) {
+            execution.record_unpaid_extra_action_cost_field(&activation.additional);
+            if has_row_damage && activation.pays_extra_action_cost {
+                outputs.extend(emit_additional_damage_activation(
+                    &invocation,
+                    execution,
+                    activation,
+                ));
+            }
         }
-        if plan::forces_critical(&invocation, managers, execution) {
+        if has_row_damage && plan::forces_critical(&invocation, managers, execution) {
             outputs.push(SkillEmissionOp {
                 op: RuleOp::EffectMarker {
                     target_uid: invocation.plan.source_uid,
@@ -327,7 +380,7 @@ pub(in crate::engine::runtime) fn emit_ops(
             });
         }
     }
-    if resume_slot == 0
+    if !resuming_phase
         && active_phase == Some(SkillPhase::Damage)
         && has_row_damage
         && execution.planned_crits.is_none()
@@ -355,6 +408,20 @@ pub(in crate::engine::runtime) fn emit_ops(
                 type_name: slot.behavior.spec.key.type_name.clone(),
             }
         })?;
+        if active_phase.is_some() && definition.attack_modifier_only && slot.target_from_condition {
+            continue;
+        }
+        if let Some(required_event) = definition.required_event {
+            let SkillOpTrigger::Event(event) = trigger else {
+                continue;
+            };
+            if !event
+                .subscription_kinds()
+                .any(|published| published == required_event)
+            {
+                continue;
+            }
+        }
         if let Some(phase) = active_phase {
             let routed_phases =
                 slot.active_phases()
@@ -489,10 +556,12 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.context,
             )
         };
-        let per_target_conditions = slot.target_from_condition
-            && crate::engine::skill::condition::registry::conditions_filter_behavior_targets(
-                &conditions,
-            );
+        let behavior_target_order = if slot.target_from_condition {
+            crate::engine::skill::condition::registry::behavior_target_order(&conditions)
+        } else {
+            None
+        };
+        let per_target_conditions = behavior_target_order.is_some();
         let fire_count = if per_target_conditions {
             1
         } else {
@@ -586,6 +655,10 @@ pub(in crate::engine::runtime) fn emit_ops(
         } else {
             None
         };
+        let targets_are_hits = condition_uses_hit_targets
+            && definition.target_emission_mode != behavior::registry::TargetEmissionMode::Owner
+            && (event_targets.is_some()
+                || active_phase.is_some() && has_row_damage && uses_action_targets);
         let mut targets =
             if definition.target_emission_mode == behavior::registry::TargetEmissionMode::Owner {
                 vec![invocation.plan.source_uid]
@@ -599,10 +672,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                 execution.attacked_targets.clone()
             } else if active_phase.is_some()
                 && uses_action_targets
-                && let Some(targets) = execution
-                    .configured_additional_targets
-                    .as_ref()
-                    .or(execution.configured_targets.as_ref())
+                && let Some(targets) = execution.configured_targets.as_ref()
             {
                 targets.clone()
             } else {
@@ -626,7 +696,11 @@ pub(in crate::engine::runtime) fn emit_ops(
                     )
                 })
             };
-        if per_target_conditions {
+        if targets_are_hits && invocation.phase == Some(SkillPhase::AfterDamage) {
+            targets.retain(|target_uid| managers.hp.current(*target_uid) > 0);
+        }
+        if let Some(target_order) = behavior_target_order {
+            TargetResolver::order_behavior_candidates(&mut targets, target_order, managers);
             targets.retain(|target_uid| {
                 conditions.iter().all(|condition| {
                     conditions_match(
@@ -644,7 +718,9 @@ pub(in crate::engine::runtime) fn emit_ops(
             targets.truncate(1);
         }
         let outputs_before = outputs.len();
-        for target_uid in targets {
+        let target_count = targets.len();
+        for (target_index, target_uid) in targets.into_iter().enumerate().skip(resume_target) {
+            let target_outputs_before = outputs.len();
             if !has_row_damage && target_uid != 0 {
                 execution.primary_target_uid.get_or_insert(target_uid);
             }
@@ -689,6 +765,29 @@ pub(in crate::engine::runtime) fn emit_ops(
                         frame_owner: None,
                     }
                 }));
+            }
+            if definition.target_emission_mode
+                == behavior::registry::TargetEmissionMode::EachSettled
+                && outputs.len() > target_outputs_before
+                && target_index + 1 < target_count
+            {
+                if let Some(child_skill_kind) = child_skill_kind {
+                    for emission in outputs.iter_mut().skip(target_outputs_before) {
+                        if let RuleOp::Skill(child) = &mut emission.op {
+                            child.extra_skill_kind = Some(child_skill_kind);
+                        }
+                    }
+                }
+                execution.resume_slot = slot_index;
+                execution.resume_target = target_index + 1;
+                let mut continuation = invocation.clone();
+                continuation.phase = active_phase;
+                return Ok(SkillEmission {
+                    ops: outputs,
+                    fired_rules,
+                    continuation: Some(continuation),
+                    target_uid: execution.primary_target_uid,
+                });
             }
         }
         if let Some(child_skill_kind) = child_skill_kind {
@@ -786,7 +885,7 @@ pub(in crate::engine::runtime) fn emit_ops(
         );
     }
     if active_phase == Some(SkillPhase::Immediate) && has_row_damage {
-        for activation in plan::additional_damage_activation(&invocation, managers, execution) {
+        for activation in plan::LinkedDamagePlan::activations(&invocation, managers, execution) {
             let activated = execution.has_activated_additional_damage(&activation.additional);
             if !activated {
                 outputs.extend(emit_additional_damage_activation(
@@ -954,6 +1053,9 @@ pub(in crate::engine::runtime) fn emit_ops(
         }));
     }
     let next_phase = match active_phase {
+        Some(crate::engine::skill::action::SkillPhase::SourceOpening) => {
+            Some(crate::engine::skill::action::SkillPhase::Immediate)
+        }
         Some(crate::engine::skill::action::SkillPhase::Immediate) if has_row_damage => {
             Some(crate::engine::skill::action::SkillPhase::Damage)
         }
@@ -1012,7 +1114,19 @@ pub(in crate::engine::runtime) fn emit_ops(
         });
     }
 
-    if publishes_lifecycle && active_phase == Some(SkillPhase::AdditionalDamage) && has_row_damage {
+    if publishes_lifecycle && active_phase == Some(SkillPhase::SourceOpening) {
+        outputs.push(phase_completed_op(
+            &invocation,
+            managers,
+            catalog,
+            pool,
+            execution,
+            SkillPhase::SourceOpening,
+        ));
+    } else if publishes_lifecycle
+        && active_phase == Some(SkillPhase::AdditionalDamage)
+        && has_row_damage
+    {
         outputs.push(phase_completed_op(
             &invocation,
             managers,
@@ -1097,7 +1211,18 @@ pub(in crate::engine::runtime) fn emit_ops(
                     crate::engine::skill::action::ActionEvent {
                         source_uid: invocation.plan.source_uid,
                         skill_id: invocation.plan.skill_id,
-                        target_uid: execution.primary_target_uid.unwrap_or_default(),
+                        target_uid: match invocation.target {
+                            SkillTarget::Explicit(selected)
+                                if !execution.configured_target_replaces(
+                                    invocation.target,
+                                    invocation.plan.source_uid,
+                                    pool,
+                                ) =>
+                            {
+                                selected
+                            }
+                            _ => execution.primary_target_uid.unwrap_or_default(),
+                        },
                         target_uids: execution.affected_targets.clone(),
                         skill_slot: pool.skill_slot(
                             managers,
@@ -1111,6 +1236,7 @@ pub(in crate::engine::runtime) fn emit_ops(
                         additional_moxie: invocation.additional_moxie,
                         extra_skill_kind: execution.context.extra_skill_kind,
                         mode: invocation.mode,
+                        is_interval: catalog.is_interval(invocation.plan.skill_id),
                         assassinate: execution.context.active_skill_assassinate,
                         damage_amount: execution.context.action_damage_amount,
                         kill_count: execution.context.action_kill_count,
@@ -1142,6 +1268,19 @@ fn later_condition_runs_in_phase(
     skill_id: i32,
 ) -> Result<bool, SkillOpError> {
     for slot in slots.iter().filter(|slot| !slot.conditions.is_empty()) {
+        if slot_runs_in_phase(slot, phase, skill_id)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn skill_runs_in_phase(
+    slots: &[SkillEffectSlot],
+    phase: SkillPhase,
+    skill_id: i32,
+) -> Result<bool, SkillOpError> {
+    for slot in slots {
         if slot_runs_in_phase(slot, phase, skill_id)? {
             return Ok(true);
         }

@@ -60,10 +60,6 @@ pub enum GaugeOperation {
         amount: i32,
         stream: i32,
     },
-    ApplyRawContribution {
-        raw_amount: i32,
-        value_delta: i32,
-    },
     AccumulateValue {
         amount: i32,
         threshold: i32,
@@ -168,6 +164,7 @@ impl GaugeChange {
     pub fn events(self) -> Vec<BattleEvent> {
         let changed = self.enabled_before != self.enabled_after
             || self.applied_delta != 0
+            || self.progress_raw_delta != 0
             || self.overflow != 0;
         changed
             .then_some(BattleEvent::GaugeChanged(GaugeChangeEvent {
@@ -499,15 +496,6 @@ impl GaugeManager {
                     .with_progress_raw_delta(amount);
                 self.change_value(command, delta, true)
             }
-            GaugeOperation::ApplyRawContribution {
-                raw_amount,
-                value_delta,
-            } => {
-                if raw_amount <= 0 || value_delta < 0 {
-                    return Err(GaugeCommandError::InvalidCommand);
-                }
-                self.change_value(command.with_raw_delta(raw_amount), value_delta, true)
-            }
             GaugeOperation::AccumulateValue { amount, threshold } => {
                 if amount <= 0 || threshold <= 0 {
                     return Err(GaugeCommandError::InvalidCommand);
@@ -706,6 +694,37 @@ impl GaugeManager {
                 ))
             }
         }
+    }
+
+    pub(crate) fn execute_raw_batch(
+        &mut self,
+        commands: Vec<GaugeCommand>,
+    ) -> Result<Vec<GaugeChange>, GaugeCommandError> {
+        let Some(key) = commands.first().map(|command| command.key) else {
+            return Err(GaugeCommandError::InvalidCommand);
+        };
+        let raw_amounts = commands
+            .iter()
+            .map(|command| match command.operation {
+                GaugeOperation::AccumulateRawValue { amount, .. }
+                    if command.key == key && amount > 0 =>
+                {
+                    Ok(amount)
+                }
+                _ => Err(GaugeCommandError::InvalidCommand),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let deltas = self
+            .plan_raw_contributions(key, &raw_amounts)
+            .ok_or(GaugeCommandError::InvalidCommand)?;
+        commands
+            .into_iter()
+            .zip(raw_amounts)
+            .zip(deltas)
+            .map(|((command, raw_amount), value_delta)| {
+                self.change_value(command.with_raw_delta(raw_amount), value_delta, true)
+            })
+            .collect()
     }
 
     fn change_value(
