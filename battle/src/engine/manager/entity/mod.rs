@@ -29,6 +29,18 @@ pub enum EntityOperation {
     ChangeCareer { career: i32 },
 }
 
+impl EntityOperation {
+    pub(crate) fn clears_buffs(self) -> bool {
+        matches!(
+            self,
+            Self::Transform {
+                parameters: [_, 1],
+                ..
+            }
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityCommand {
     pub origin: CommandOrigin,
@@ -321,7 +333,9 @@ impl EntityManager {
                 entity.ex_point = current.ex_point;
                 entity.expoint_max_add = current.expoint_max_add;
                 entity.shield_value = current.shield_value;
-                entity.buffs = current.buffs.clone();
+                if !command.operation.clears_buffs() {
+                    entity.buffs = current.buffs.clone();
+                }
                 entity.power_infos = current.power_infos.clone();
                 self.identities.insert(command.target_uid, entity.clone());
                 self.replacements.insert(command.target_uid, entity.clone());

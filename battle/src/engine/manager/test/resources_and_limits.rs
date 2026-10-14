@@ -143,6 +143,45 @@ fn transform_projects_active_primary_attribute_buffs_without_rewriting_the_base(
 }
 
 #[test]
+fn transform_reset_mode_removes_carried_buffs_from_manager_state() {
+    crate::test_support::init_config();
+    let mut original =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(251417, -7, 1, 2).unwrap();
+    original.buffs.push(BuffInfo {
+        buff_id: Some(229103),
+        uid: Some(100_007),
+        from_uid: Some(-7),
+        ..Default::default()
+    });
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![original],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let changes = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(40006, "MonsterChange"),
+            },
+            source_uid: -7,
+            target_uid: -7,
+            operation: crate::engine::manager::entity::EntityOperation::Transform {
+                model_id: 251407,
+                parameters: [1000, 1],
+            },
+        })
+        .unwrap();
+
+    assert!(changes.entity.buffs.is_empty());
+    assert!(!managers.buff.has_buff_id(-7, 229103));
+}
+
+#[test]
 fn entity_projection_includes_passive_skills_linked_by_active_buffs() {
     crate::test_support::init_config();
     let mut fight = Fight {

@@ -1,4 +1,4 @@
-use sonettobuf::{FightTeam, HeroAttribute};
+use sonettobuf::{BuffInfo, FightTeam, HeroAttribute};
 
 use super::*;
 use crate::engine::skill::rule::{DefinitionKey, RuleDomain};
@@ -290,6 +290,12 @@ fn transform_replaces_identity_without_changing_uid_or_position() {
     crate::test_support::init_config();
     let mut original = Defender::build_monster_with_uid(251417, -7, 1, 2).unwrap();
     original.passive_skill.push(71004);
+    original.buffs.push(BuffInfo {
+        buff_id: Some(229103),
+        uid: Some(100_007),
+        from_uid: Some(-7),
+        ..Default::default()
+    });
     let mut fight = Fight {
         battle_id: Some(2514),
         defender: Some(FightTeam {
@@ -328,6 +334,7 @@ fn transform_replaces_identity_without_changing_uid_or_position() {
     assert!(changes.entity.passive_skill.contains(&1144005));
     assert!(!changes.entity.passive_skill.contains(&1144006));
     assert!(changes.entity.passive_skill.contains(&71004));
+    assert!(changes.entity.buffs.is_empty());
     assert_eq!(
         manager.passive_override(-7),
         Some(changes.entity.passive_skill.as_slice())
