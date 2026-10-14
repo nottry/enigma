@@ -950,7 +950,7 @@ impl BattleManagers {
             changes.entity.shield_value = Some(self.hp.shield(changes.target_uid));
             self.eureka
                 .sync_entity(changes.target_uid, &mut changes.entity);
-            if !changes.operation.clears_buffs() {
+            if !changes.operation.resets_state() {
                 self.buff.sync_entity(&mut changes.entity);
             }
             self.entity.update(changes.entity.clone());

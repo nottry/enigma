@@ -373,4 +373,12 @@ impl EffectPacket {
             ..Default::default()
         }
     }
+
+    pub fn toughness_reset(change: crate::engine::manager::toughness::ToughnessReset) -> ActEffect {
+        ActEffect {
+            target_id: Some(change.target_uid),
+            effect_type: Some(EffectType::Toughnessreset as i32),
+            ..Default::default()
+        }
+    }
 }

@@ -225,6 +225,21 @@ pub struct CardOwnerRemoval {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CardInvalidateAiOwner {
+    pub origin: CommandOrigin,
+    pub owner_uid: i64,
+    pub team_type: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardInvalidatedAi {
+    pub card_index: i32,
+    pub team_type: i32,
+    pub config_effect: i32,
+    pub card: CardInfo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CardInvalidatePlayed {
     pub origin: CommandOrigin,
     pub card_index: i32,
@@ -375,6 +390,7 @@ pub enum CardCommand {
     SetAiQueue(CardSetAiQueue),
     SetTeamCards(CardSetTeamCards),
     RemoveOwner(CardRemoveOwner),
+    InvalidateAiOwner(CardInvalidateAiOwner),
     ReplaceOwnerSkills(CardReplaceOwnerSkills),
     InvalidatePlayed(CardInvalidatePlayed),
     ComposeAdjacent {
@@ -461,6 +477,7 @@ pub enum CardChangeKind {
     AiQueueSet,
     TeamCardsSet,
     AiOwnerRemoved,
+    AiCardsInvalidated,
     OwnerSkillsReplaced,
     PlayedInvalidated,
     Composed,
@@ -501,6 +518,7 @@ pub struct CardChanges {
     pub entity: Option<FightEntityInfo>,
     pub hand_limit: Option<(i64, i32)>,
     pub owner_removal: Option<CardOwnerRemoval>,
+    pub ai_invalidations: Vec<CardInvalidatedAi>,
     pub ai_queue: Option<Vec<CardInfo>>,
     pub team_cards: Option<Vec<CardInfo>>,
 }
@@ -553,6 +571,7 @@ pub(super) fn execute(
     let mut consumption_kind = None;
     let mut hand_limit = None;
     let mut owner_removal = None;
+    let mut ai_invalidations = Vec::new();
     let mut ai_queue = None;
     let mut team_cards = None;
     let (origin, kind, added, played, drawn, composed_owners) = match command {
@@ -1066,6 +1085,29 @@ pub(super) fn execute(
                 owners.unwrap_or_default(),
             )
         }
+        CardCommand::InvalidateAiOwner(invalidate) => {
+            if invalidate.owner_uid == 0 || invalidate.team_type == 0 {
+                return Err(CardCommandError::InvalidCommand);
+            }
+            ai_invalidations = manager
+                .invalidate_ai_owner(invalidate.owner_uid)
+                .into_iter()
+                .map(|(card_index, card)| CardInvalidatedAi {
+                    card_index,
+                    team_type: invalidate.team_type,
+                    config_effect: invalidate.origin.key.opcode,
+                    card,
+                })
+                .collect();
+            (
+                Some(invalidate.origin),
+                CardChangeKind::AiCardsInvalidated,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+        }
         CardCommand::ReplaceOwnerSkills(replace) => {
             if replace.owner_uid == 0 {
                 return Err(CardCommandError::InvalidCommand);
@@ -1435,6 +1477,7 @@ pub(super) fn execute(
         entity: None,
         hand_limit,
         owner_removal,
+        ai_invalidations,
         ai_queue,
         team_cards,
     })

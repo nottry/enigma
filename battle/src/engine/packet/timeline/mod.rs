@@ -839,6 +839,19 @@ fn project_change(
             .map(|removal| EffectPacket::remove_entity_cards(removal.owner_uid, removal.team_type))
             .into_iter()
             .collect(),
+        BattleChange::Card(changes) if changes.kind == CardChangeKind::AiCardsInvalidated => {
+            changes
+                .ai_invalidations
+                .iter()
+                .map(|invalidated| {
+                    CardPacket::card_invalid(
+                        invalidated.card_index,
+                        invalidated.team_type,
+                        invalidated.config_effect,
+                    )
+                })
+                .collect()
+        }
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Moved => Vec::new(),
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Dissolved => changes
             .operation
@@ -1247,6 +1260,9 @@ fn project_change(
                 )]
             }
         },
+        BattleChange::ToughnessReset(change) => {
+            vec![EffectPacket::toughness_reset(*change)]
+        }
         BattleChange::ToughnessRecovered(change) => {
             vec![EffectPacket::toughness_recover(*change)]
         }

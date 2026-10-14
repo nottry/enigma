@@ -184,8 +184,6 @@ impl BattleRuntime {
                 std::iter::empty(),
             );
         }
-        let ai_envelope = self.managers.card.ai_queue().to_vec();
-
         let catalog = &mut self.catalog;
         let mut pool = crate::engine::skill::target::TargetPool::from_fight_with_catalog(
             self.catalog_data
@@ -431,18 +429,32 @@ impl BattleRuntime {
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
-            let choices = captured_ai_choices.unwrap_or_else(|| {
-                ai_envelope
-                    .iter()
-                    .filter_map(|card| {
-                        Some(determinism::AiSkillChoice {
-                            source_uid: card.uid?,
-                            skill_id: card.skill_id?,
-                            target_uid: card.target_uid.unwrap_or_default(),
+            let choices = captured_ai_choices.map_or_else(
+                || {
+                    self.managers
+                        .card
+                        .ai_queue()
+                        .iter()
+                        .filter_map(|card| {
+                            Some(determinism::AiSkillChoice {
+                                source_uid: card.uid?,
+                                skill_id: card.skill_id?,
+                                target_uid: card.target_uid.unwrap_or_default(),
+                            })
                         })
-                    })
-                    .collect()
-            });
+                        .collect()
+                },
+                |mut choices| {
+                    choices.retain(|choice| {
+                        self.managers
+                            .card
+                            .ai_queue()
+                            .iter()
+                            .any(|card| card.uid == Some(choice.source_uid))
+                    });
+                    choices
+                },
+            );
             let ai = schedule::run_ai_actions(
                 &self.fight,
                 &mut self.managers,

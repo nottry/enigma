@@ -30,7 +30,7 @@ pub enum EntityOperation {
 }
 
 impl EntityOperation {
-    pub(crate) fn clears_buffs(self) -> bool {
+    pub(crate) fn resets_state(self) -> bool {
         matches!(
             self,
             Self::Transform {
@@ -333,7 +333,7 @@ impl EntityManager {
                 entity.ex_point = current.ex_point;
                 entity.expoint_max_add = current.expoint_max_add;
                 entity.shield_value = current.shield_value;
-                if !command.operation.clears_buffs() {
+                if !command.operation.resets_state() {
                     entity.buffs = current.buffs.clone();
                 }
                 entity.power_infos = current.power_infos.clone();

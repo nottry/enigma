@@ -1,5 +1,6 @@
 use crate::engine::{
     manager::entity::{EntityCommand, EntityOperation},
+    mechanic::monster_change::MonsterChangeCommand,
     skill::{
         behavior::{BehaviorOpContext, registry::BehaviorHandler},
         effect::ParsedBehavior,
@@ -26,15 +27,19 @@ impl BehaviorHandler for Handler {
             return None;
         };
         (*model_id > 0).then(|| {
-            vec![RuleOp::Command(BattleCommand::Entity(EntityCommand {
-                origin: super::command_origin(behavior).expect("registered behavior"),
-                source_uid: context.source_uid,
-                target_uid: context.target_uid,
-                operation: EntityOperation::Transform {
-                    model_id: *model_id,
-                    parameters: [*parameter1, *parameter2],
+            vec![RuleOp::Command(BattleCommand::MonsterChange(
+                MonsterChangeCommand {
+                    entity: EntityCommand {
+                        origin: super::command_origin(behavior).expect("registered behavior"),
+                        source_uid: context.source_uid,
+                        target_uid: context.target_uid,
+                        operation: EntityOperation::Transform {
+                            model_id: *model_id,
+                            parameters: [*parameter1, *parameter2],
+                        },
+                    },
                 },
-            }))]
+            ))]
         })
     }
 }
@@ -85,15 +90,19 @@ mod tests {
 
         assert!(matches!(
             ops.as_slice(),
-            [RuleOp::Command(BattleCommand::Entity(EntityCommand {
-                source_uid: -7,
-                target_uid: -7,
-                operation: EntityOperation::Transform {
-                    model_id: 251407,
-                    parameters: [1000, 1],
-                },
-                ..
-            }))]
+            [RuleOp::Command(BattleCommand::MonsterChange(
+                MonsterChangeCommand {
+                    entity: EntityCommand {
+                        source_uid: -7,
+                        target_uid: -7,
+                        operation: EntityOperation::Transform {
+                            model_id: 251407,
+                            parameters: [1000, 1],
+                        },
+                        ..
+                    },
+                }
+            ))]
         ));
     }
 }

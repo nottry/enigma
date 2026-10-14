@@ -19,12 +19,12 @@ pub use command::{
     CardAddPrecast, CardAddTemporary, CardAddUniversal, CardChangeKind, CardChangeToTemporary,
     CardChanges, CardCommand, CardCommandError, CardConsumeForEffect, CardConsumptionKind,
     CardDeckRankUpRange, CardDraw, CardEnchantHand, CardEnergyAllocation, CardEnergyChange,
-    CardHandLimitChange, CardInvalidatePlayed, CardMarkTemporary, CardOpeningDraw,
-    CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange, CardRankFailure, CardRankResult,
-    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
-    CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards, CardSetUltimateAvailability,
-    CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange, QueuedCardRankUp,
-    QueuedUseCard, TemporaryCardKind,
+    CardHandLimitChange, CardInvalidateAiOwner, CardInvalidatePlayed, CardInvalidatedAi,
+    CardMarkTemporary, CardOpeningDraw, CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange,
+    CardRankFailure, CardRankResult, CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne,
+    CardRefreshAiQueue, CardRemoveOwner, CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards,
+    CardSetUltimateAvailability, CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange,
+    QueuedCardRankUp, QueuedUseCard, TemporaryCardKind,
 };
 pub use deck::CardDeck;
 use deck::CardInstanceId;
@@ -234,6 +234,21 @@ impl CardManager {
             .collect();
         self.set_ai_queue(cards);
         composed_owners
+    }
+
+    fn invalidate_ai_owner(&mut self, owner_uid: i64) -> Vec<(i32, CardInfo)> {
+        let mut card_index = 0;
+        let mut invalidated = Vec::new();
+        self.ai_queue.retain(|card| {
+            card_index += 1;
+            if card.uid == Some(owner_uid) {
+                invalidated.push((card_index, card.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        invalidated
     }
 
     fn rank_depth(&self, owner_uid: i64, skill_id: i32) -> u32 {

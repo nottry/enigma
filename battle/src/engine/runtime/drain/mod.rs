@@ -1585,11 +1585,22 @@ fn drain_queue_with_deferred(
                     push_cue(&mut result.frames, RoundCue::RedealHandSync { cards });
                 }
                 for (owner, change) in outcome.owned_changes() {
-                    push_change(
-                        &mut result.frames,
-                        &output_frame_path(owner, &frame_path),
-                        change,
-                    );
+                    if owner == crate::engine::skill::behavior::registry::OutputOwner::NestedCommand
+                    {
+                        let nested = push_child(
+                            &mut result.frames,
+                            &frame_path,
+                            FrameOwner::Command,
+                            frame_trigger(&trigger),
+                        );
+                        push_change(&mut result.frames, &nested, change);
+                    } else {
+                        push_change(
+                            &mut result.frames,
+                            &output_frame_path(owner, &frame_path),
+                            change,
+                        );
+                    }
                 }
                 for fanout in fanout {
                     let fanout_parent = output_frame_path(fanout_output_owner, &event_scope);
@@ -1938,6 +1949,7 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
+                        | crate::engine::skill::behavior::registry::OutputOwner::NestedCommand
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
                             unreachable!("manager follow-up owner must be resolved")
@@ -2151,6 +2163,7 @@ fn output_frame_path(
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
         OutputOwner::CausingEvent
+        | OutputOwner::NestedCommand
         | OutputOwner::SetupParent
         | OutputOwner::SetupOrFinalSettlementParent => {
             unreachable!("conditional output ownership must be resolved before draining")

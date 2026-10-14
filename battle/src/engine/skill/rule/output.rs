@@ -23,8 +23,8 @@ use crate::engine::{
     },
     mechanic::{
         buff_precast::BuffPrecastCommand, field_transfer::FieldTransferCommand,
-        focus_all_entity_buff::FocusAllEntityBuffCommand, nuo_di_ka::NuoDiKaCommand,
-        shell::ShellCommand,
+        focus_all_entity_buff::FocusAllEntityBuffCommand, monster_change::MonsterChangeCommand,
+        nuo_di_ka::NuoDiKaCommand, shell::ShellCommand,
     },
     skill::action::{SkillInvocation, SkillLifecycle},
     skill::buff_act::{
@@ -72,6 +72,7 @@ pub enum BattleCommand {
     RawGaugeBatch(Vec<GaugeCommand>),
     Emitter(EmitterCommand),
     Entity(EntityCommand),
+    MonsterChange(MonsterChangeCommand),
     EntitySkill(EntitySkillCommand),
     Card(CardCommand),
     BuffPrecast(BuffPrecastCommand),

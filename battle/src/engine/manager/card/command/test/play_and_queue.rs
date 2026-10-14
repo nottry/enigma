@@ -78,6 +78,53 @@ fn invalidated_play_discards_normal_cards_and_restores_ultimates() {
 }
 
 #[test]
+fn invalidating_ai_owner_reports_original_queue_indices() {
+    let mut manager = CardManager::default();
+    manager
+        .execute_command(CardCommand::SetAiQueue(CardSetAiQueue {
+            origin: ORIGIN,
+            cards: vec![
+                CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(100),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(-2),
+                    skill_id: Some(200),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(-1),
+                    skill_id: Some(300),
+                    ..Default::default()
+                },
+            ],
+        }))
+        .unwrap();
+
+    let changes = manager
+        .execute_command(CardCommand::InvalidateAiOwner(CardInvalidateAiOwner {
+            origin: ORIGIN,
+            owner_uid: -1,
+            team_type: 2,
+        }))
+        .unwrap();
+
+    assert_eq!(changes.kind, CardChangeKind::AiCardsInvalidated);
+    assert_eq!(
+        changes
+            .ai_invalidations
+            .iter()
+            .map(|invalidated| (invalidated.card_index, invalidated.card.skill_id))
+            .collect::<Vec<_>>(),
+        vec![(1, Some(100)), (3, Some(300))]
+    );
+    assert_eq!(manager.ai_queue().len(), 1);
+    assert_eq!(manager.ai_queue()[0].uid, Some(-2));
+}
+
+#[test]
 fn cloth_cards_add_universal_and_redeal_without_touching_special_cards() {
     crate::test_support::init_config();
     let mut manager = CardManager::new(vec![
