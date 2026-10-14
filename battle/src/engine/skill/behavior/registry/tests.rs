@@ -45,6 +45,18 @@ fn consume_buff_reset_device_listens_to_allies_and_targets_its_owner() {
 }
 
 #[test]
+fn lethal_lost_life_settles_death_immediately() {
+    assert_eq!(
+        find_key(30006, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::Immediate)
+    );
+    assert_eq!(
+        find_key(30005, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::ActionBoundary)
+    );
+}
+
+#[test]
 fn ezio_behaviors_accept_only_their_configured_shapes() {
     let behavior = |opcode, type_name, raw_args: &[&str]| {
         ParsedBehavior::from_spec(

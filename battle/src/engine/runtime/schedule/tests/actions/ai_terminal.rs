@@ -24,6 +24,15 @@ fn skill_contains_effect(
         })
 }
 
+fn find_skill(step: &sonettobuf::FightStep, skill_id: i32) -> Option<&sonettobuf::FightStep> {
+    (step.act_id == Some(skill_id)).then_some(step).or_else(|| {
+        step.act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+            .find_map(|child| find_skill(child, skill_id))
+    })
+}
+
 #[test]
 fn ai_self_target_skills_ignore_the_selected_opponent() {
     init_config();
@@ -676,4 +685,91 @@ fn action_queue_stops_when_the_configured_win_target_dies() {
 
     assert_eq!(managers.hp.current(-1), 0);
     assert_eq!(managers.hp.current(-4), 1_000);
+}
+
+#[test]
+fn lethal_skill_cost_settles_before_damage_and_stops_later_behaviors() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(10),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [119381126], []);
+
+    let result = run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [AiSkillChoice {
+            source_uid: -1,
+            skill_id: 119381126,
+            target_uid: 10,
+        }],
+        &[],
+    )
+    .unwrap();
+
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find_map(|step| find_skill(step, 119381126))
+        .unwrap();
+    let death = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Dead as i32)
+                && effect.target_id == Some(-1)
+        })
+        .unwrap();
+    let damage = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect.effect_type,
+                Some(kind)
+                    if kind == sonettobuf::effect_type_enum::EffectType::Damage as i32
+                        || kind == sonettobuf::effect_type_enum::EffectType::Crit as i32
+            ) && effect.target_id == Some(10)
+        })
+        .unwrap();
+
+    assert!(death < damage);
+    assert!(!skill.act_effect.iter().any(|effect| {
+        effect
+            .buff
+            .as_ref()
+            .and_then(|buff| buff.buff_id)
+            .is_some_and(|buff_id| matches!(buff_id, 4101 | 5112))
+    }));
 }

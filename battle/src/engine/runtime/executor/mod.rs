@@ -183,6 +183,26 @@ impl RuleOutcome {
         }
     }
 
+    pub(crate) fn settles_death_immediately(&self) -> bool {
+        let immediate = |changes: &HpChanges| {
+            crate::engine::skill::behavior::registry::find_key(
+                changes.origin.key.opcode,
+                changes.origin.key.type_name,
+            )
+            .is_some_and(|definition| {
+                definition.death_settlement
+                    == crate::engine::skill::behavior::registry::DeathSettlement::Immediate
+            })
+        };
+        match self {
+            Self::Hp(execution) => immediate(&execution.changes),
+            Self::HpBatch(changes) => changes
+                .iter()
+                .any(|execution| immediate(&execution.changes)),
+            _ => false,
+        }
+    }
+
     pub(crate) fn injured_targets(&self) -> Vec<i64> {
         let injured =
             |change: &HpChanges| change.hp.filter(|hp| hp.delta < 0).map(|hp| hp.target_uid);

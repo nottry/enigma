@@ -35,6 +35,13 @@ pub enum OutputOwner {
     SetupOrFinalSettlementParent,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DeathSettlement {
+    #[default]
+    ActionBoundary,
+    Immediate,
+}
+
 impl OutputOwner {
     pub fn resolve(self, event: Option<EventKind>, setup_triggered: bool) -> Self {
         match self {
@@ -101,6 +108,7 @@ pub struct BehaviorDefinition {
     pub target_emission_mode: TargetEmissionMode,
     pub output_owner: OutputOwner,
     pub output_owner_for: fn(&ParsedBehavior, &RuleOp, usize) -> Option<OutputOwner>,
+    pub death_settlement: DeathSettlement,
     pub references: fn(&ParsedBehavior) -> RuleReferences,
     pub card_play_role: CardPlayRole,
     pub condition_route_override: Option<ConditionRouteOverride>,
@@ -199,6 +207,7 @@ pub const fn definition<H: BehaviorHandler>(
         target_emission_mode: TargetEmissionMode::Each,
         output_owner: OutputOwner::Skill,
         output_owner_for: H::output_owner,
+        death_settlement: DeathSettlement::ActionBoundary,
         references: H::references,
         card_play_role: CardPlayRole::Action,
         condition_route_override: None,
@@ -389,6 +398,18 @@ pub const fn destination_definition<H: BehaviorHandler>(
     }
 }
 
+pub const fn immediate_death_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        death_settlement: DeathSettlement::Immediate,
+        ..destination_definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
 pub const fn ally_action_owner_destination_definition<H: BehaviorHandler>(
     opcode: i32,
     type_name: &'static str,
@@ -523,6 +544,9 @@ macro_rules! behavior_definitions {
     };
     (@definition destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
+    (@definition immediate_death_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::immediate_death_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
     (@definition ally_action_owner_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::ally_action_owner_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
@@ -783,7 +807,7 @@ behavior_definitions! {
     [60309] "FakeHpToHeal" => super::fake_hp::Handler, FakeHpToHeal, AfterDamage, destination;
     [20010] "Bloodlust" => crate::engine::damage::handler::Handler, Bloodlust, AfterDamage, destination, crate::engine::damage::handler::supports_bloodlust;
     [30005] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
-    [30006] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
+    [30006] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, immediate_death_destination, crate::engine::damage::handler::supports_lost_life;
     [30018] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
     [60288] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
     [60310] "LostLife" => crate::engine::damage::handler::Handler, ToughnessOverflowDamage, Immediate, destination, crate::engine::damage::handler::supports_lost_life;

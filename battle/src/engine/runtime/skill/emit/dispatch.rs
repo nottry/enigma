@@ -396,6 +396,14 @@ pub(in crate::engine::runtime) fn emit_ops(
         );
     }
     for (slot_index, slot) in effect.slots.iter().enumerate().skip(resume_slot) {
+        if managers.hp.current(invocation.plan.source_uid) <= 0
+            && matches!(
+                active_phase,
+                Some(SkillPhase::AfterDamage | SkillPhase::HitPassives | SkillPhase::AfterHit)
+            )
+        {
+            continue;
+        }
         if invocation
             .condition_slot
             .is_some_and(|selected| selected != slot_index)

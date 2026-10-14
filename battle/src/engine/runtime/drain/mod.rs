@@ -1597,6 +1597,7 @@ fn drain_queue_with_deferred(
 
                 // Once pre-publication work is complete, record the authoritative
                 // outcome and any buff fanout beneath their semantic owners.
+                let settles_death_immediately = outcome.settles_death_immediately();
                 let pending_deaths = outcome.take_deaths();
                 let redeal_hand = match &outcome {
                     RuleOutcome::Card(changes)
@@ -1825,10 +1826,22 @@ fn drain_queue_with_deferred(
                 let mut terminal_death = settled_deaths.first().map(|death| death.transition());
                 let mut cleanup_deaths = Vec::new();
                 let mut non_action_deaths = Vec::new();
-                let active_action_scope = action_scope.as_ref().filter(|path| {
+                let settlement_action_scope = action_scope.as_ref().filter(|path| {
                     matches!(trigger, SkillOpTrigger::Active) || state.action_in_progress(path)
                 });
-                if let Some(action_scope) = active_action_scope {
+                let active_action_scope = (!settles_death_immediately)
+                    .then_some(settlement_action_scope)
+                    .flatten();
+                if settles_death_immediately && let Some(action_scope) = settlement_action_scope {
+                    for death in &settled_deaths {
+                        push_change(
+                            &mut result.frames,
+                            action_scope,
+                            crate::engine::runtime::change::BattleChange::Death(death.transition()),
+                        );
+                    }
+                    cleanup_deaths.extend(settled_deaths.iter().map(|death| death.transition()));
+                } else if let Some(action_scope) = active_action_scope {
                     state.record_deaths(action_scope.clone(), settled_deaths.iter().copied());
                 } else {
                     cleanup_deaths.extend(settled_deaths.iter().map(|death| death.transition()));
@@ -1876,7 +1889,7 @@ fn drain_queue_with_deferred(
                 {
                     execution.record_kills(settled_deaths.len() as i32);
                 }
-                let cleanup_parent_path = active_action_scope
+                let cleanup_parent_path = settlement_action_scope
                     .map(Vec::as_slice)
                     .unwrap_or(event_scope.as_slice());
                 after_publish.extend(cleanup_deaths.into_iter().filter_map(|death| {
