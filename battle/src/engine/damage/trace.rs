@@ -15,6 +15,8 @@ pub enum DefenseTrace {
         penetration: i32,
         effective_defense: i32,
         minimum: i32,
+        minimum_numerator: i128,
+        minimum_denominator: i128,
         calculated_output: i32,
         output: i32,
     },

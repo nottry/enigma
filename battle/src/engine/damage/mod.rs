@@ -12,7 +12,7 @@ pub use formula::{
     butterfly_damage, deadly_poison_damage, scale_permille, scale_permille_stacks,
 };
 pub use pipeline::{
-    DamageFormulaInput, DamageKind, calculate, calculate_with_trace,
+    DamageFormulaInput, DamageKind, MinimumDamage, calculate, calculate_with_trace,
     calculate_with_trace_for_version,
 };
 pub use plan::{AttackPlan, DamageRateComposition, DamageRateTerm};

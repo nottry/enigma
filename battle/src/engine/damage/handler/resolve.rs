@@ -3,6 +3,7 @@ use sonettobuf::effect_type_enum::EffectType;
 use crate::engine::{
     damage::{
         AttackPlan, DamageFormula, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm,
+        MinimumDamage,
     },
     entity::attr::AttrId,
     manager::{
@@ -839,7 +840,6 @@ fn direct_damage_trace(
     } else {
         final_atk
     };
-    let minimum = (final_atk / 10).max(1);
     let defense_attr =
         if source.damage_type == crate::engine::skill::target::EntityDamageType::Mental {
             AttrId::MentalDef
@@ -1036,7 +1036,7 @@ fn direct_damage_trace(
         defense: target_defense,
         defense_multiplier,
         penetration,
-        minimum,
+        minimum: MinimumDamage::AttackTenth,
         base_rate,
         added_rate,
         career,
