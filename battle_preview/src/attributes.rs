@@ -390,13 +390,16 @@ fn validated_equipment_loadout(
     let primary_equip_id = primary.equip_id.filter(|id| *id > 0).ok_or(())?;
     let primary_equipment = game.equip.get(primary_equip_id).ok_or(())?;
     let primary_level = primary.equip_lv.filter(|level| *level > 0).ok_or(())?;
+    let primary_break_level = primary.break_lv.unwrap_or_default();
     game.equip_strengthen_cost(primary_equipment.rare, primary_level)
+        .ok_or(())?;
+    game.equip_break_cost(primary_equipment.rare, primary_break_level)
         .ok_or(())?;
     let primary = EquipmentBuildInput {
         uid: selected_equip_uid,
         equip_id: primary_equip_id,
         level: primary_level,
-        break_level: primary.break_lv.unwrap_or_default(),
+        break_level: primary_break_level,
         refine_level: primary.refine_lv.unwrap_or_default(),
     };
 
@@ -412,13 +415,16 @@ fn validated_equipment_loadout(
             }
             let equipment = game.equip.get(equip_id).ok_or(())?;
             let level = equip.equip_lv.filter(|level| *level > 0).ok_or(())?;
+            let break_level = equip.break_lv.unwrap_or_default();
             game.equip_strengthen_cost(equipment.rare, level)
+                .ok_or(())?;
+            game.equip_break_cost(equipment.rare, break_level)
                 .ok_or(())?;
             Ok(EquipmentBuildInput {
                 uid,
                 equip_id,
                 level,
-                break_level: equip.break_lv.unwrap_or_default(),
+                break_level,
                 refine_level: equip.refine_lv.unwrap_or_default(),
             })
         })
@@ -438,6 +444,9 @@ fn validated_captured_equipment(equip: &Equip) -> Result<EquipmentBuildInput, ()
     let configured = config::configs::get().equip.get(equip_id).ok_or(())?;
     config::configs::get()
         .equip_strengthen_cost(configured.rare, level)
+        .ok_or(())?;
+    config::configs::get()
+        .equip_break_cost(configured.rare, break_level)
         .ok_or(())?;
     Ok(EquipmentBuildInput {
         uid,
@@ -1036,6 +1045,40 @@ mod tests {
 
         assert_eq!(equips[0].break_level, 3);
         assert_eq!(equips[1].break_level, 2);
+    }
+
+    #[test]
+    fn invalid_captured_equipment_breakthrough_fails_loudly() {
+        crate::init_test_config();
+        let uid = 42;
+        let mut fight = fight(uid);
+        fight.attacker.as_mut().unwrap().entitys[0].equips[0].break_lv = Some(4);
+        let entity = &fight.attacker.as_ref().unwrap().entitys[0];
+
+        assert!(validated_equipment_loadout(entity, &hero(uid), None, None).is_err());
+    }
+
+    #[test]
+    fn preview_preserves_explicitly_empty_talent_layout() {
+        crate::init_test_config();
+        let uid = 42;
+        let directory = test_directory("empty-talent-layout");
+        let mut hero = hero(uid);
+        hero.talent_cube_infos.clear();
+        let fight = fight(uid);
+        write_roster(&directory, hero.clone());
+        let entity = &fight.attacker.as_ref().unwrap().entitys[0];
+        let build = preview_build_input(entity, &hero).unwrap();
+        let equips = validated_equipment_loadout(entity, &hero, None, None).unwrap();
+        let captured = Stats::build_for_captured_loadout(&build, &equips);
+        let inferred = Stats::build_for_loadout(&build, &equips);
+
+        assert_eq!(
+            preview_attributes(&fight, &directory.join("BeginRoundReply_1.json")).unwrap(),
+            (vec![(uid, captured.ex())], vec![(uid, captured.sp())]),
+        );
+        assert_ne!(captured, inferred);
+        fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
