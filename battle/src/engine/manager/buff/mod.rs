@@ -31,7 +31,7 @@ pub use command::{
     BuffGrantRelation, BuffGrantUidReservation, BuffLifecycleTransition, BuffRefreshDuration,
     BuffRefreshDurationBySelector, BuffRefreshWire, BuffRemove, BuffRemoveSelector, BuffReplace,
     BuffRoundStartDurationSync, BuffSelector, BuffSetAmount, BuffSetState, BuffSpecialCount,
-    BuffStateSnapshotWire, DepletedBuff, RelatedBuffGrant,
+    BuffStateSnapshotWire, DepletedBuff, RelatedBuffGrant, SourceRelativeBuffGrant,
 };
 use definition::BuffDefinition;
 pub use feature::BuffPassiveSkillLink;

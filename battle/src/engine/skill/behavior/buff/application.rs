@@ -150,6 +150,43 @@ pub(super) fn team_energy_snapshot_grant_ops(
     )
 }
 
+pub(super) fn source_relative_attribute_snapshot_grant_ops(
+    context: &BehaviorOpContext<'_>,
+    behavior: &ParsedBehavior,
+) -> Option<Vec<RuleOp>> {
+    if !matches!(
+        behavior.spec.kind,
+        BehaviorKind::AddBuff
+            | BehaviorKind::AddBuffPowerUse
+            | BehaviorKind::AddBuffRound
+            | BehaviorKind::AddBuffRound2
+    ) {
+        return None;
+    }
+    let buff_id = behavior.arg(0)?;
+    let act_info = crate::engine::skill::buff_act::each_change_attr_one_way::definition_snapshot(
+        context.managers,
+        buff_id,
+        context.source_uid,
+    )?;
+    let origin = super::command_origin(behavior)?;
+    Some(vec![RuleOp::Command(BattleCommand::Buff(
+        BuffCommand::GrantSourceRelative(crate::engine::manager::buff::SourceRelativeBuffGrant {
+            grant: BuffGrant {
+                origin,
+                source_uid: context.source_uid,
+                target_uid: context.target_uid,
+                buff_id,
+                amount: behavior.arg(1),
+                occurrences: context.transfer_count.max(0) as u32,
+                child_uid_reservations: 0,
+            },
+            act_info,
+            relation: None,
+        }),
+    ))])
+}
+
 pub(super) fn consume_card_grant_ops(
     context: &BehaviorOpContext<'_>,
     target_uid: i64,

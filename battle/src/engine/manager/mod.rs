@@ -299,6 +299,20 @@ impl BattleManagers {
                     ),
                 })
             }
+            BuffCommand::GrantSourceRelative(stateful) => {
+                let grant = &stateful.grant;
+                let chance = self.buff.buff_resistance(grant.target_uid, grant.buff_id);
+                (chance > 0 && chance < 1000).then(|| buff::ResistRoll {
+                    target_uid: grant.target_uid,
+                    buff_id: grant.buff_id,
+                    resisted: determinism.roll_crit(
+                        grant.buff_id,
+                        grant.source_uid,
+                        grant.target_uid,
+                        chance,
+                    ),
+                })
+            }
             _ => None,
         };
         let plan = self.plan_buff_with(command, resist_roll)?;
@@ -332,6 +346,11 @@ impl BattleManagers {
             } else {
                 grant.target_uid
             }),
+            BuffCommand::GrantSourceRelative(stateful) => Some(if stateful.grant.source_uid != 0 {
+                stateful.grant.source_uid
+            } else {
+                stateful.grant.target_uid
+            }),
             BuffCommand::Convert(convert) => Some(convert.source_uid),
             BuffCommand::Replace(replace) => Some(if replace.source_uid != 0 {
                 replace.source_uid
@@ -358,22 +377,12 @@ impl BattleManagers {
             .map(|uid| (uid, self.attack(uid)))
             .collect();
         plan.initialize_fanout_source_attacks(&fanout_attacks);
-        if let Some((source_uid, features)) = plan.source_relative_attribute_features() {
-            let act_info = features
-                .into_iter()
-                .filter_map(|(act_id, raw_attr, rate, cap)| {
-                    let attr = crate::engine::entity::attr::AttrId::from_raw(raw_attr)?;
-                    let value = (i64::from(self.origin_attribute(source_uid, attr))
-                        * i64::from(rate)
-                        / 1000)
-                        .clamp(0, i64::from(cap)) as i32;
-                    Some(sonettobuf::BuffActInfo {
-                        act_id: Some(act_id),
-                        param: Vec::new(),
-                        str_param: Some(format!("{raw_attr}#{value}")),
-                    })
-                })
-                .collect();
+        if let Some((source_uid, buff_id)) = plan.source_relative_attribute_source()
+            && let Some(act_info) =
+                crate::engine::skill::buff_act::each_change_attr_one_way::definition_snapshot(
+                    self, buff_id, source_uid,
+                )
+        {
             plan.initialize_added_act_info_without_markers(act_info);
         }
         Ok(plan)

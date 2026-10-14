@@ -225,6 +225,7 @@ impl BehaviorHandler for Handler {
                 shield_grant_ops(&context, behavior)
                     .or_else(|| heat_scale_snapshot_grant_ops(&context, behavior))
                     .or_else(|| team_energy_snapshot_grant_ops(&context, behavior))
+                    .or_else(|| source_relative_attribute_snapshot_grant_ops(&context, behavior))
                     .or_else(|| {
                         grant_command(
                             context.source_uid,

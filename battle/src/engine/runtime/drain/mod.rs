@@ -2087,6 +2087,18 @@ fn attach_relation(
                 relation: BuffGrantRelation::Normal,
             })
         }
+        BuffCommand::GrantSourceRelative(mut stateful)
+            if consequence == ConsequencePolicy::ChildBuffGrant =>
+        {
+            stateful.relation = Some(BuffGrantRelation::Child);
+            BuffCommand::GrantSourceRelative(stateful)
+        }
+        BuffCommand::GrantSourceRelative(mut stateful)
+            if consequence == ConsequencePolicy::NormalBuffGrant =>
+        {
+            stateful.relation = Some(BuffGrantRelation::Normal);
+            BuffCommand::GrantSourceRelative(stateful)
+        }
         other => other,
     }
 }
