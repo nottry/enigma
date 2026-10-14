@@ -231,6 +231,96 @@ fn version_seven_terminal_round_does_not_advance_to_an_unplayed_round() {
 }
 
 #[test]
+fn terminal_round_keeps_the_unplayed_enemy_ai_queue() {
+    crate::test_support::init_config();
+    let entity = |uid, team_type| FightEntityInfo {
+        uid: Some(uid),
+        position: Some(1),
+        team_type: Some(team_type),
+        current_hp: Some(100),
+        attr: Some(sonettobuf::HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut runtime = runtime(Fight {
+        version: Some(7),
+        cur_round: Some(3),
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let skill_id = 9_900_080;
+    runtime.catalog.insert(ParsedSkillEffect {
+        skill_id,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(BehaviorSpec::new(60015, "Kill"), Vec::new(), Vec::new()),
+            TargetRequest {
+                code: 202,
+                raw: Vec::new(),
+            },
+        )],
+    });
+    runtime
+        .managers
+        .execute_card(crate::engine::manager::card::CardCommand::Setup(
+            CardSetup {
+                hand: vec![sonettobuf::CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(skill_id),
+                    ..Default::default()
+                }],
+                draw_pile: Vec::new(),
+                deck_num: 0,
+            },
+        ))
+        .unwrap();
+    let ai_card = sonettobuf::CardInfo {
+        uid: Some(-1),
+        skill_id: Some(100),
+        target_uid: Some(10),
+        ..Default::default()
+    };
+    runtime
+        .managers
+        .execute_card(crate::engine::manager::card::CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: crate::engine::skill::rule::CommandOrigin {
+                    domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                    key: crate::engine::skill::rule::DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![ai_card.clone()],
+            },
+        ))
+        .unwrap();
+    let round = runtime
+        .build_begin_round_from_schedule(&BeginRoundRequest {
+            opers: vec![BeginRoundOper {
+                oper_type: Some(crate::engine::manager::card::CardOpType::PlayCard.id()),
+                param1: Some(1),
+                to_id: Some(-1),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(round.is_finish, Some(true));
+    assert_eq!(
+        runtime.managers.card.ai_queue(),
+        std::slice::from_ref(&ai_card)
+    );
+    assert_eq!(round.ai_use_cards, vec![ai_card]);
+}
+
+#[test]
 fn terminal_during_next_round_preparation_preserves_phase_two_card_snapshots() {
     crate::test_support::init_config();
     let skill_id = 9_900_070;

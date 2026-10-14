@@ -185,6 +185,19 @@ pub fn run_conduit_phase(
                     used_free_skills.insert((source_uid, skill.skill_id));
                 }
                 if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+                    append(
+                        &mut result,
+                        drain::run_conduit_stop(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            context,
+                            source_uid,
+                            device_index,
+                            position as i32 + 1,
+                        )?,
+                    );
                     break;
                 }
             }
@@ -1179,7 +1192,7 @@ pub(super) fn run_active_action(
     });
     append(
         &mut result,
-        drain::run_action_with_cost(
+        drain::run_round_action_with_cost(
             managers,
             pool,
             catalog,

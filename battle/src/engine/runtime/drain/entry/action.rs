@@ -82,6 +82,55 @@ pub fn run_action_with_cost(
     action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
     invocation: crate::engine::skill::action::SkillInvocation,
 ) -> Result<DrainResult, DrainError> {
+    run_action_with_cost_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        prelude,
+        action_cost,
+        invocation,
+        DefenderCardCleanupOwner::DeathAction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_action_with_cost(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    prelude: impl IntoIterator<Item = RuleOp>,
+    action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
+    invocation: crate::engine::skill::action::SkillInvocation,
+) -> Result<DrainResult, DrainError> {
+    run_action_with_cost_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        prelude,
+        action_cost,
+        invocation,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_action_with_cost_and_cleanup_owner(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    prelude: impl IntoIterator<Item = RuleOp>,
+    action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
+    invocation: crate::engine::skill::action::SkillInvocation,
+    cleanup_owner: DefenderCardCleanupOwner,
+) -> Result<DrainResult, DrainError> {
     let current_pool = pool.runtime_view(managers);
     if attack_has_no_target(
         &invocation,
@@ -131,7 +180,7 @@ pub fn run_action_with_cost(
         subscriber: None,
         caster_frame: None,
     });
-    drain_queue_with_frames(
+    drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -139,6 +188,7 @@ pub fn run_action_with_cost(
         context,
         &mut queue,
         frames,
+        cleanup_owner,
     )
 }
 
@@ -358,7 +408,7 @@ pub fn run_conduit_action(
             caster_frame: None,
         },
     ]);
-    drain_queue_with_frames(
+    drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -366,6 +416,7 @@ pub fn run_conduit_action(
         context,
         &mut queue,
         frames,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
     )
 }
 

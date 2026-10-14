@@ -62,6 +62,82 @@ fn conduit_attack_does_not_begin_without_a_living_enemy() {
 }
 
 #[test]
+fn terminal_conduit_action_closes_its_running_state() {
+    init_config();
+    let entity = |uid, model_id, hp| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        current_hp: Some(hp),
+        attr: Some(HeroAttribute {
+            hp: Some(hp),
+            attack: Some(100_000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut twins = entity(10, 3149, 100_000);
+    twins.ex_skill = Some(31490151);
+    twins.ex_point = Some(100);
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![twins],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1001, 1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::SelectGroup {
+                source_uid: 10,
+                group: 3,
+            },
+        )
+        .unwrap();
+    let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_conduit_phase(
+        managers.catalog(),
+        &fight,
+        &mut managers,
+        &pool,
+        &mut catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[sonettobuf::FightDeviceOper {
+            uid: Some(10),
+            index: Some(3),
+        }],
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 0);
+    assert!(!managers.conduit.is_running(10));
+    assert_eq!(
+        crate::engine::packet::timeline::project(&result.frames)
+            .unwrap()
+            .into_iter()
+            .filter_map(|step| {
+                step.act_effect
+                    .iter()
+                    .find(|effect| {
+                        effect.effect_type
+                            == Some(sonettobuf::effect_type_enum::EffectType::Devicerunning as i32)
+                    })
+                    .map(|effect| effect.effect_num)
+            })
+            .collect::<Vec<_>>(),
+        [Some(1), Some(0)]
+    );
+}
+
+#[test]
 fn regulus_device_ultimate_selects_the_group_for_the_living_enemy_count() {
     init_config();
     let entity = |uid, model_id| FightEntityInfo {
