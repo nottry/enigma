@@ -433,6 +433,29 @@ fn per_buff_id_skill_condition_keeps_exact_identity_and_stack_semantics() {
 }
 
 #[test]
+fn round_end_per_buff_id_count_keeps_one_repeat_per_layer() {
+    assert_eq!(
+        parse(61302, "PerBuffIdCount", &["116340011".into()]),
+        Some(ParsedConditionKind::BuffIdCount {
+            buff_ids: vec![116340011],
+            compare: ConditionCompare::GreaterThanOrEqual,
+            threshold: 1,
+        })
+    );
+    assert_eq!(
+        find_key(61302, "PerBuffIdCount").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::RoundEnd,
+            phase: None,
+        })
+    );
+    assert_eq!(
+        parse(61302, "PerBuffIdCount", &["116340011".into(), "2".into()]),
+        None
+    );
+}
+
+#[test]
 fn small_round_end_buff_and_status_gates_keep_separate_exact_keys() {
     assert_eq!(
         parse(19301, "HasBuffId", &["118353052".into()]),

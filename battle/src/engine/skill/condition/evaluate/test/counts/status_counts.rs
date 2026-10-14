@@ -18,7 +18,7 @@ fn per_buff_id_count_repeats_once_per_matching_layer() {
         managers.buff.add(&managers.hp, 10, 10, 31260151, 1);
     }
     let condition = ParsedCondition {
-        opcode: 61203,
+        opcode: 61302,
         type_name: "PerBuffIdCount".into(),
         kind: ParsedConditionKind::BuffIdCount {
             buff_ids: vec![31260151],

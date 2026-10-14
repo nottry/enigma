@@ -630,6 +630,7 @@ condition_definitions! {
     [61201] "PerBuffIdCount" => buff::per_buff_id_count, uses_active_skill_targets(predicate(&[EventKind::BuffChanged]));
     [61102] "PerBuffIdCount" => buff::per_buff_id_count, setup_route(SetupStage::RoundStartCondition, 102, &[]);
     [61203] "PerBuffIdCount" => buff::per_buff_id_count, uses_active_skill_targets(predicate(&[EventKind::BuffChanged]));
+    [61302] "PerBuffIdCount" => buff::each_buff_id_layer, event_trigger(EventKind::RoundEnd, None);
     [59203] "PerBuffId" => buff::per_buff_id, predicate(&[EventKind::BuffChanged]);
     [59302] "PerBuffId" => buff::per_buff_id, event_trigger(EventKind::RoundEnd, None);
     [61208] "PerBuffIdCount" => buff::per_buff_id_count, uses_active_skill_targets(matching_buff_act_owns_behavior(event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage))));
