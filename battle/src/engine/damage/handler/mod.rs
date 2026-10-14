@@ -42,7 +42,7 @@ use resolve::{DirectOptions, direct_damage};
 #[cfg(test)]
 use affinity::technique_bonus;
 #[cfg(test)]
-use resolve::composed_damage_rates;
+use resolve::{composed_damage_rates, minimum_damage_for_direct_formula};
 
 #[cfg(test)]
 use crate::engine::damage::calculate as calculate_damage;

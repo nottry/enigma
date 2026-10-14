@@ -588,6 +588,18 @@ pub(super) fn direct_damage(
     direct_damage_trace(request, runtime, source, target, options).amount
 }
 
+pub(super) fn minimum_damage_for_direct_formula(
+    formula: DamageFormula,
+    is_crit: bool,
+    attack: i32,
+) -> MinimumDamage {
+    if formula == DamageFormula::StandardSkill && !is_crit {
+        MinimumDamage::AttackTenth
+    } else {
+        MinimumDamage::Absolute((attack / 10).max(1))
+    }
+}
+
 fn direct_damage_trace(
     request: DamageRequest<'_>,
     runtime: DamageRuntime<'_>,
@@ -1036,7 +1048,7 @@ fn direct_damage_trace(
         defense: target_defense,
         defense_multiplier,
         penetration,
-        minimum: MinimumDamage::AttackTenth,
+        minimum: minimum_damage_for_direct_formula(formula, is_crit, final_atk),
         base_rate,
         added_rate,
         career,

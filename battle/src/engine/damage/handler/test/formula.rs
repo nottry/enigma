@@ -1,6 +1,32 @@
 use super::*;
 
 #[test]
+fn fractional_minimum_is_limited_to_noncritical_standard_skills() {
+    assert_eq!(
+        minimum_damage_for_direct_formula(DamageFormula::StandardSkill, false, 894),
+        MinimumDamage::AttackTenth
+    );
+    assert_eq!(
+        minimum_damage_for_direct_formula(DamageFormula::StandardSkill, true, 894),
+        MinimumDamage::Absolute(89)
+    );
+    for formula in [
+        DamageFormula::AdditionalDamage,
+        DamageFormula::ResolvedHitProportionalAdditional,
+        DamageFormula::CreditedSourceAdditional,
+        DamageFormula::AttributeReplacementAdditional,
+        DamageFormula::MaxHpAdditionalDamage,
+        DamageFormula::AttributeReplacement,
+        DamageFormula::HpSkillDamage,
+    ] {
+        assert_eq!(
+            minimum_damage_for_direct_formula(formula, false, 894),
+            MinimumDamage::Absolute(89)
+        );
+    }
+}
+
+#[test]
 fn formula_truncates_once_then_applies_crit() {
     let inputs = DamageInputs {
         kind: DamageKind::Reality,

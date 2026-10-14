@@ -3,7 +3,8 @@
 use super::*;
 use crate::engine::{
     damage::{
-        AttackPlan, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm, MinimumDamage,
+        AttackPlan, DamageFormula, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm,
+        MinimumDamage,
     },
     manager::BattleManagers,
     skill::{
