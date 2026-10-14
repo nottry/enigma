@@ -75,6 +75,24 @@ fn configured_pickles_stats_are_generated_from_build_inputs() {
 }
 
 #[test]
+fn captured_empty_talent_layout_stays_empty() {
+    crate::test_support::init_config();
+    let hero = HeroBuildInput {
+        hero_id: 3145,
+        level: 1,
+        rank: 1,
+        talent: 1,
+        ..Default::default()
+    };
+
+    let inferred = Stats::build_for_loadout(&hero, &[]);
+    let captured = Stats::build_for_captured_loadout(&hero, &[]);
+
+    assert_eq!((captured.add_dmg, captured.drop_dmg), (0, 0));
+    assert_eq!((inferred.add_dmg, inferred.drop_dmg), (5, 15));
+}
+
+#[test]
 fn rank_comes_from_character_rank_level_caps() {
     crate::test_support::init_config();
     assert_eq!(rank_from_level(3063, 30), 1);

@@ -77,7 +77,7 @@ pub fn preview_attributes_with_request(
                 )
             })?;
         let stats = battle_balance.map_or_else(
-            || Stats::build_for_loadout(&build, &equips),
+            || Stats::build_for_captured_loadout(&build, &equips),
             |balance| balance.stats_for(&build, &equips),
         );
 

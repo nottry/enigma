@@ -184,6 +184,21 @@ impl Stats {
         )
     }
 
+    pub fn build_for_captured_loadout(
+        hero: &HeroBuildInput,
+        equips: &[EquipmentBuildInput],
+    ) -> Self {
+        let game = crate::catalog::BattleCatalog::global().game_data();
+        let base = StatInputs::from_build_input(hero, None);
+        equips.iter().fold(
+            Self::configured_with_talent_layout(game, &base, false),
+            |stats, equip| {
+                let input = StatInputs::from_build_input(hero, Some(equip));
+                stats + Self::equipment(game, &input)
+            },
+        )
+    }
+
     pub(crate) fn loadout(
         game: &config::GameDB,
         hero: &HeroBuildInput,
@@ -203,6 +218,14 @@ impl Stats {
     }
 
     pub(crate) fn configured(game: &config::GameDB, input: &StatInputs) -> Self {
+        Self::configured_with_talent_layout(game, input, true)
+    }
+
+    fn configured_with_talent_layout(
+        game: &config::GameDB,
+        input: &StatInputs,
+        infer_empty_layout: bool,
+    ) -> Self {
         let level = level_base(game, input.hero_id, input.level);
         let rank = rank_bonus(game, input.hero_id, input.rank);
         let core = apply_destiny(
@@ -210,7 +233,8 @@ impl Stats {
             rank,
             destiny_bonus(game, input.hero_id, input.destiny_rank),
         );
-        core + talent_bonus(game, input, level, rank) + Self::equipment(game, input)
+        core + talent_bonus(game, input, level, rank, infer_empty_layout)
+            + Self::equipment(game, input)
     }
 
     pub(crate) fn equipment(game: &config::GameDB, input: &StatInputs) -> Self {
@@ -717,6 +741,7 @@ fn talent_bonus(
     input: &StatInputs,
     actual_base: Stats,
     actual_rank: Stats,
+    infer_empty_layout: bool,
 ) -> Stats {
     let Some(character) = game
         .character_talent
@@ -728,7 +753,7 @@ fn talent_bonus(
     let Some((star_cube, star_level)) = parse_pair(&character.exclusive) else {
         return Stats::default();
     };
-    let placements = if input.talent_placements.is_empty() {
+    let placements = if infer_empty_layout && input.talent_placements.is_empty() {
         default_placements(game, input.talent, character.talent_mould, star_cube)
     } else {
         input.talent_placements.clone()
