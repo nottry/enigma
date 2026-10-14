@@ -181,6 +181,11 @@ pub enum ParsedConditionKind {
         compare_code: i32,
         threshold_permille: i32,
     },
+    FightProgressValue {
+        progress_id: i32,
+        compare_code: i32,
+        threshold: i32,
+    },
     PowerIncrChange {
         power_id: i32,
         compare_code: i32,

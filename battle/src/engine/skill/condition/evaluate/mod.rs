@@ -839,6 +839,13 @@ fn condition_kind_matches(
                     *threshold_permille,
                 )
         }),
+        ParsedConditionKind::FightProgressValue {
+            progress_id,
+            compare_code,
+            threshold,
+        } => managers
+            .and_then(|managers| managers.fight_progress.get(*progress_id))
+            .is_some_and(|progress| compare_resource(progress.value, *compare_code, *threshold)),
         ParsedConditionKind::ConduitExPoint {
             compare_code,
             threshold,

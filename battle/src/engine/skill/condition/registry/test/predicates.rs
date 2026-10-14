@@ -363,6 +363,38 @@ fn team_status_type_groups_keep_divisor_cap_and_categories() {
 }
 
 #[test]
+fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
+    assert_eq!(
+        parse(
+            1010301,
+            "ProgressValue",
+            &["8".into(), "3".into(), "100".into()]
+        ),
+        Some(ParsedConditionKind::FightProgressValue {
+            progress_id: 8,
+            compare_code: 3,
+            threshold: 100,
+        })
+    );
+    assert_eq!(
+        find_key(1010301, "ProgressValue").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SmallRoundEnd,
+            phase: None,
+        })
+    );
+    assert!(find_key(1010101, "ProgressValue").is_none());
+    assert_eq!(
+        parse(
+            1010301,
+            "ProgressValue",
+            &["8".into(), "4".into(), "100".into()]
+        ),
+        None
+    );
+}
+
+#[test]
 fn active_team_status_type_count_keeps_its_exact_predicate_route() {
     let definition = find_key(539203, "PerSelfTeamTypeType2BuffTypeIdNum").unwrap();
 
