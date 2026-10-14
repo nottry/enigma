@@ -148,6 +148,7 @@ struct QueuedOp {
 #[derive(Clone)]
 struct SubscriberContext {
     owner_uid: i64,
+    skill_id: Option<i32>,
     group: Option<Rc<RefCell<SubscriberDeathGroup>>>,
 }
 
@@ -155,6 +156,15 @@ impl SubscriberContext {
     fn new(owner_uid: i64) -> Self {
         Self {
             owner_uid,
+            skill_id: None,
+            group: None,
+        }
+    }
+
+    fn for_skill(owner_uid: i64, skill_id: i32) -> Self {
+        Self {
+            owner_uid,
+            skill_id: Some(skill_id),
             group: None,
         }
     }
@@ -1242,6 +1252,22 @@ fn drain_queue_with_deferred(
                 // This is the single durable commit point for non-skill RuleOps.
                 // The returned outcome describes committed changes and follow-ups.
                 let mut outcome = execute_rule_op_with(managers, &mut bus, determinism, command)?;
+                if let RuleOutcome::Entity(changes) = &outcome
+                    && matches!(
+                        changes.operation,
+                        crate::engine::manager::entity::EntityOperation::Transform { .. }
+                    )
+                {
+                    let current_pool = base_pool.runtime_view(managers);
+                    let active_skills =
+                        crate::engine::skill::subscriber::active_skills(&current_pool, managers);
+                    state.retire_replaced_subscriber_casts(
+                        changes.target_uid,
+                        active_skills.iter().filter_map(|(owner_uid, skill_id)| {
+                            (*owner_uid == changes.target_uid).then_some(*skill_id)
+                        }),
+                    );
+                }
                 if let RuleOutcome::ActiveSkillTargetsModified(additional_count) = outcome {
                     let action_scope = action_scope
                         .clone()

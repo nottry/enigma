@@ -726,6 +726,7 @@ fn death_outside_the_subscriber_group_supersedes_its_pending_transition() {
     let outer_group = Rc::new(RefCell::new(SubscriberDeathGroup::default()));
     let outer = SubscriberContext {
         owner_uid: -1,
+        skill_id: None,
         group: Some(outer_group),
     };
     drain_nested_queue(

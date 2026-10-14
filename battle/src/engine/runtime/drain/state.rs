@@ -218,6 +218,24 @@ impl DrainState {
             .unwrap_or_default()
     }
 
+    pub(super) fn retire_replaced_subscriber_casts(
+        &mut self,
+        owner_uid: i64,
+        active_skills: impl IntoIterator<Item = i32>,
+    ) {
+        let active_skills = active_skills.into_iter().collect::<HashSet<_>>();
+        for casts in self.after_action_casts.values_mut() {
+            casts.retain(|(_, queued)| {
+                !queued.subscriber.as_ref().is_some_and(|subscriber| {
+                    subscriber.owner_uid == owner_uid
+                        && subscriber
+                            .skill_id
+                            .is_some_and(|skill_id| !active_skills.contains(&skill_id))
+                })
+            });
+        }
+    }
+
     pub(super) fn take_claimed_reaction_casts(
         &mut self,
         action_path: &FramePath,
