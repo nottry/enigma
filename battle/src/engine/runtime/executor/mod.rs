@@ -11,7 +11,7 @@ use crate::engine::{
         eureka::{EurekaChanges, EurekaCommandError},
         ex_point::{ExPointChanges, ExPointCommandError},
         field::{FieldChange, FieldCommandError},
-        fight_progress::{FightProgressChange, FightProgressError},
+        fight_progress::{FightProgressChange, FightProgressError, FightProgressValueChange},
         gauge::{GaugeChange, GaugeCommandError},
         hp::HpChanges,
         shield::{ShieldChanges, ShieldCommandError},
@@ -70,6 +70,7 @@ pub(crate) enum RuleOutcome {
     Contract(ContractChange),
     Field(FieldChange),
     FightProgress(FightProgressChange),
+    FightProgressValue(FightProgressValueChange),
     FieldTransfer(Box<FieldTransferChanges>),
     FocusAllEntityBuff(Box<FocusAllEntityBuffChanges>),
     Shell(Box<ShellChanges>),
@@ -279,6 +280,7 @@ impl RuleOutcome {
             Self::Contract(change) => vec![BattleChange::Contract(change.clone())],
             Self::Field(change) => vec![BattleChange::Field(*change)],
             Self::FightProgress(change) => vec![BattleChange::FightProgress(*change)],
+            Self::FightProgressValue(change) => vec![BattleChange::FightProgressValue(*change)],
             Self::FieldTransfer(changes) => changes
                 .buffs
                 .iter()
@@ -737,6 +739,9 @@ pub(crate) fn execute_rule_op_with(
         RuleOp::Command(BattleCommand::FightProgress(command)) => Ok(RuleOutcome::FightProgress(
             managers.fight_progress.initialize(command)?,
         )),
+        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(
+            RuleOutcome::FightProgressValue(managers.fight_progress.change_value(command)?),
+        ),
         RuleOp::Command(BattleCommand::FieldTransfer(command)) => {
             let changes = crate::engine::mechanic::field_transfer::execute(managers, command)?;
             for buff in &changes.buffs {

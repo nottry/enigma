@@ -40,9 +40,28 @@ pub struct FightProgressChange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FightProgressValueCommand {
+    pub origin: CommandOrigin,
+    pub progress_id: i32,
+    pub delta: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FightProgressValueChange {
+    pub origin: CommandOrigin,
+    pub before: FightProgressState,
+    pub after: FightProgressState,
+    pub delta: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FightProgressError {
     InvalidDefinition,
     AlreadyInitialized(i32),
+    MissingProgress(i32),
+    AmbiguousProgress(i32),
+    InvalidStoredProgress(i32),
+    ValueOverflow(i32),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -99,6 +118,60 @@ impl FightProgressManager {
             value: record.value?,
             show_id: record.show_id?,
             skill_id: record.skill_id?,
+        })
+    }
+
+    pub fn change_value(
+        &mut self,
+        command: FightProgressValueCommand,
+    ) -> Result<FightProgressValueChange, FightProgressError> {
+        let mut matches = self
+            .records
+            .iter()
+            .enumerate()
+            .filter(|(_, record)| record.id == Some(command.progress_id));
+        let index = matches
+            .next()
+            .map(|(index, _)| index)
+            .ok_or(FightProgressError::MissingProgress(command.progress_id))?;
+        if matches.next().is_some() {
+            return Err(FightProgressError::AmbiguousProgress(command.progress_id));
+        }
+        let record = &mut self.records[index];
+        let before = FightProgressState {
+            id: record.id.ok_or(FightProgressError::InvalidStoredProgress(
+                command.progress_id,
+            ))?,
+            max: record.max.ok_or(FightProgressError::InvalidStoredProgress(
+                command.progress_id,
+            ))?,
+            value: record
+                .value
+                .ok_or(FightProgressError::InvalidStoredProgress(
+                    command.progress_id,
+                ))?,
+            show_id: record
+                .show_id
+                .ok_or(FightProgressError::InvalidStoredProgress(
+                    command.progress_id,
+                ))?,
+            skill_id: record
+                .skill_id
+                .ok_or(FightProgressError::InvalidStoredProgress(
+                    command.progress_id,
+                ))?,
+        };
+        let value = before
+            .value
+            .checked_add(command.delta)
+            .ok_or(FightProgressError::ValueOverflow(command.progress_id))?;
+        let after = FightProgressState { value, ..before };
+        record.value = Some(after.value);
+        Ok(FightProgressValueChange {
+            origin: command.origin,
+            before,
+            after,
+            delta: command.delta,
         })
     }
 
@@ -172,5 +245,76 @@ mod tests {
         manager.sync_fight(&mut fight);
 
         assert_eq!(fight.progress_list, records);
+    }
+
+    #[test]
+    fn value_change_commits_the_signed_delta() {
+        let origin = CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(100016, "ProgressChangeNew"),
+        };
+        let mut manager = FightProgressManager::default();
+        manager
+            .initialize(FightProgressCommand {
+                origin,
+                initial: 100,
+                max: 100,
+                show_id: 10,
+                progress_id: 8,
+                skill_id: 119381117,
+            })
+            .unwrap();
+
+        let change = manager
+            .change_value(FightProgressValueCommand {
+                origin,
+                progress_id: 8,
+                delta: -100,
+            })
+            .unwrap();
+
+        assert_eq!(change.before.value, 100);
+        assert_eq!(change.after.value, 0);
+        assert_eq!(change.delta, -100);
+        assert_eq!(manager.get(8).unwrap().value, 0);
+    }
+
+    #[test]
+    fn value_change_rejects_ambiguous_progress_identity() {
+        let origin = CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(100016, "ProgressChangeNew"),
+        };
+        let mut manager = FightProgressManager::default();
+        manager.seed(&Fight {
+            progress_list: vec![
+                FightProgressState {
+                    id: 8,
+                    max: 100,
+                    value: 10,
+                    show_id: 10,
+                    skill_id: 119381117,
+                }
+                .into(),
+                FightProgressState {
+                    id: 8,
+                    max: 100,
+                    value: 20,
+                    show_id: 10,
+                    skill_id: 119381117,
+                }
+                .into(),
+            ],
+            ..Default::default()
+        });
+
+        assert!(matches!(
+            manager.change_value(FightProgressValueCommand {
+                origin,
+                progress_id: 8,
+                delta: 5,
+            }),
+            Err(FightProgressError::AmbiguousProgress(8))
+        ));
     }
 }

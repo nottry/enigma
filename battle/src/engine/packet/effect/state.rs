@@ -31,6 +31,22 @@ impl EffectPacket {
         ]
     }
 
+    pub fn fight_progress_changed(
+        change: crate::engine::manager::fight_progress::FightProgressValueChange,
+    ) -> ActEffect {
+        ActEffect {
+            target_id: Some(i64::from(change.after.id)),
+            effect_type: Some(EffectType::Progresschange as i32),
+            effect_num: Some(change.delta),
+            config_effect: Some(0),
+            buff_act_id: Some(change.after.id),
+            reserve_id: Some(0),
+            team_type: Some(0),
+            effect_num1: Some(0),
+            ..Default::default()
+        }
+    }
+
     pub fn career_change(target_uid: i64, career: i32, config_effect: i32) -> ActEffect {
         ActEffect {
             target_id: Some(target_uid),

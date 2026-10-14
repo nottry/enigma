@@ -381,6 +381,9 @@ fn project_change(
         BattleChange::FightProgress(change) => {
             EffectPacket::fight_progress_initialized(change.state).to_vec()
         }
+        BattleChange::FightProgressValue(change) => {
+            vec![EffectPacket::fight_progress_changed(*change)]
+        }
         BattleChange::BuffActTrigger(trigger) => {
             vec![EffectPacket::buff_act_trigger(*trigger)]
         }

@@ -706,6 +706,7 @@ behavior_definitions! {
     [60249] "AddMaxRound" => super::general::AddMaxRoundHandler, AddMaxRound, Immediate, destination;
     [60016] "AddIndicator" => super::general::AddIndicatorHandler, AddIndicator, Immediate, destination;
     [100015] "ProgressInitNew" => super::fight_progress::InitializeHandler, ProgressInitNew, Immediate, destination;
+    [100016] "ProgressChangeNew" => super::fight_progress::ChangeHandler, ProgressChangeNew, Immediate, destination;
     [60268] "ChangeScene" => super::scene::Handler, ChangeScene, Immediate, destination;
     [60058] "CareerRatioFix" => super::career::Handler, CareerRatioFix, Immediate, modifier;
     [50013] "ChangeCareer" => super::career::Handler, ChangeCareer, Immediate, destination;

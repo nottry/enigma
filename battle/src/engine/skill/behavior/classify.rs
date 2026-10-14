@@ -165,6 +165,7 @@ pub enum BehaviorKind {
     AddMaxRound,
     AddIndicator,
     ProgressInitNew,
+    ProgressChangeNew,
     ChangeScene,
     CareerRatioFix,
     ChangeCareer,

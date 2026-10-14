@@ -1,5 +1,5 @@
 use crate::engine::{
-    manager::fight_progress::FightProgressCommand,
+    manager::fight_progress::{FightProgressCommand, FightProgressValueCommand},
     skill::{
         behavior::{BehaviorOpContext, registry::BehaviorHandler},
         effect::ParsedBehavior,
@@ -33,6 +33,28 @@ impl BehaviorHandler for InitializeHandler {
                     show_id: behavior.args[2],
                     progress_id: behavior.args[3],
                     skill_id: context.active_skill_id,
+                },
+            ))]
+        })
+    }
+}
+
+pub(super) struct ChangeHandler;
+
+impl BehaviorHandler for ChangeHandler {
+    const VALIDATES_ARGUMENTS: bool = true;
+
+    fn supports(behavior: &ParsedBehavior) -> bool {
+        matches!(behavior.args.as_slice(), [1, delta, progress_id] if *delta != 0 && *progress_id > 0)
+    }
+
+    fn emit_ops(_: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Option<Vec<RuleOp>> {
+        Self::supports(behavior).then(|| {
+            vec![RuleOp::Command(BattleCommand::FightProgressValue(
+                FightProgressValueCommand {
+                    origin: super::command_origin(behavior).expect("registered behavior"),
+                    delta: behavior.args[1],
+                    progress_id: behavior.args[2],
                 },
             ))]
         })
