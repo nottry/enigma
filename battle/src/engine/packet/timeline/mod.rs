@@ -180,8 +180,15 @@ fn project_frame(
         FrameOwner::ConduitStopped {
             source_uid,
             device_index,
+            skill_position,
         } => Ok(Some(normalize_framed_step(
-            EffectPacket::conduit_fight_step(*source_uid, 0, *device_index, 1, effects),
+            EffectPacket::conduit_fight_step(
+                *source_uid,
+                0,
+                *device_index,
+                *skill_position,
+                effects,
+            ),
         ))),
         FrameOwner::BuffAct {
             owner_uid,

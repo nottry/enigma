@@ -585,7 +585,7 @@ fn conduit_repeats_a_paid_skill_until_its_energy_is_spent() {
         .unwrap();
     let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
 
-    run_conduit_phase(
+    let result = run_conduit_phase(
         managers.catalog(),
         &fight,
         &mut managers,
@@ -603,6 +603,37 @@ fn conduit_repeats_a_paid_skill_until_its_energy_is_spent() {
     assert_eq!(managers.conduit.power(1, 1), 0);
     assert_eq!(managers.conduit.consumed(1, 1), 6);
     assert_eq!(managers.conduit.uses(10), 3);
+    let running = crate::engine::packet::timeline::project(&result.frames)
+        .unwrap()
+        .into_iter()
+        .filter_map(|step| {
+            step.act_effect
+                .iter()
+                .find(|effect| {
+                    effect.effect_type
+                        == Some(sonettobuf::effect_type_enum::EffectType::Devicerunning as i32)
+                })
+                .map(|effect| {
+                    (
+                        step.from_id,
+                        step.card_index,
+                        step.support_hero_id,
+                        effect.effect_num,
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        running,
+        [
+            (Some(10), Some(1), Some(1), Some(1)),
+            (Some(10), Some(1), Some(2), Some(1)),
+            (Some(10), Some(1), Some(1), Some(0)),
+            (Some(10), Some(1), Some(2), Some(1)),
+            (Some(10), Some(1), Some(1), Some(0)),
+            (Some(10), Some(1), Some(2), Some(0)),
+        ]
+    );
 }
 
 #[test]

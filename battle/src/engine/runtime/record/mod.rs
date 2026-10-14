@@ -30,6 +30,7 @@ pub enum FrameOwner {
     ConduitStopped {
         source_uid: i64,
         device_index: i32,
+        skill_position: i32,
     },
     BuffAct {
         owner_uid: i64,

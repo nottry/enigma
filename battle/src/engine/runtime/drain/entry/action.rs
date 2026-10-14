@@ -369,6 +369,7 @@ pub fn run_conduit_action(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_conduit_stop(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -377,6 +378,7 @@ pub fn run_conduit_stop(
     context: TargetContext,
     source_uid: i64,
     device_index: i32,
+    skill_position: i32,
 ) -> Result<DrainResult, DrainError> {
     let mut frames = Vec::new();
     let root = push_root(
@@ -384,6 +386,7 @@ pub fn run_conduit_stop(
         FrameOwner::ConduitStopped {
             source_uid,
             device_index,
+            skill_position,
         },
         FrameTrigger::Active,
     );

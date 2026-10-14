@@ -78,7 +78,6 @@ pub fn run_conduit_phase(
         .map(|(index, (source_uid, selected_group))| (source_uid, selected_group, index as i32 + 1))
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
-    let mut ran_devices = HashSet::new();
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
@@ -96,10 +95,6 @@ pub fn run_conduit_phase(
             );
             let mut ran = false;
             for (position, skill) in skills.into_iter().enumerate() {
-                if skill.cost_value <= 0 && used_free_skills.contains(&(source_uid, skill.skill_id))
-                {
-                    continue;
-                }
                 let cost_modifier = crate::engine::skill::buff_act::device_cost_reduce::modifier(
                     managers,
                     source_uid,
@@ -109,12 +104,6 @@ pub fn run_conduit_phase(
                     .as_ref()
                     .map(|(reduction, _)| *reduction)
                     .unwrap_or_default();
-                if !managers
-                    .conduit
-                    .can_begin_skill(source_uid, skill.skill_id, cost_reduction)
-                {
-                    continue;
-                }
                 let invocation: crate::engine::skill::action::SkillInvocation =
                     crate::engine::skill::action::SkillRequest {
                         source_uid,
@@ -122,14 +111,35 @@ pub fn run_conduit_phase(
                     }
                     .into();
                 let current_pool = pool.runtime_view(managers);
-                if drain::attack_has_no_target(
-                    &invocation,
-                    catalog,
-                    &current_pool,
-                    managers,
-                    determinism,
-                    context,
-                ) {
+                let unavailable = (skill.cost_value <= 0
+                    && used_free_skills.contains(&(source_uid, skill.skill_id)))
+                    || !managers.conduit.can_begin_skill(
+                        source_uid,
+                        skill.skill_id,
+                        cost_reduction,
+                    )
+                    || drain::attack_has_no_target(
+                        &invocation,
+                        catalog,
+                        &current_pool,
+                        managers,
+                        determinism,
+                        context,
+                    );
+                if unavailable {
+                    append(
+                        &mut result,
+                        drain::run_conduit_stop(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            context,
+                            source_uid,
+                            device_index,
+                            position as i32 + 1,
+                        )?,
+                    );
                     continue;
                 }
                 let frame_target_uid = (catalog.logic_target(skill.skill_id)
@@ -180,30 +190,10 @@ pub fn run_conduit_phase(
             }
             if ran {
                 pass_ran = true;
-                ran_devices.insert((source_uid, selected_group));
             }
         }
         if !pass_ran || crate::engine::round::outcome::battle_ended(fight, pool, managers) {
             break;
-        }
-    }
-    if !crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-        for (source_uid, selected_group, device_index) in devices {
-            if !ran_devices.contains(&(source_uid, selected_group)) {
-                continue;
-            }
-            append(
-                &mut result,
-                drain::run_conduit_stop(
-                    managers,
-                    pool,
-                    catalog,
-                    determinism,
-                    context,
-                    source_uid,
-                    device_index,
-                )?,
-            );
         }
     }
     Ok(result)
