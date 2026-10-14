@@ -1259,12 +1259,19 @@ fn drain_queue_with_deferred(
                 // This is the single durable commit point for non-skill RuleOps.
                 // The returned outcome describes committed changes and follow-ups.
                 let mut outcome = execute_rule_op_with(managers, &mut bus, determinism, command)?;
-                if let RuleOutcome::Entity(changes) = &outcome
-                    && matches!(
-                        changes.operation,
-                        crate::engine::manager::entity::EntityOperation::Transform { .. }
-                    )
-                {
+                let transformed = match &outcome {
+                    RuleOutcome::Entity(changes)
+                        if matches!(
+                            changes.operation,
+                            crate::engine::manager::entity::EntityOperation::Transform { .. }
+                        ) =>
+                    {
+                        Some(changes.as_ref())
+                    }
+                    RuleOutcome::MonsterChange(changes) => Some(&changes.entity),
+                    _ => None,
+                };
+                if let Some(changes) = transformed {
                     let current_pool = base_pool.runtime_view(managers);
                     let active_skills =
                         crate::engine::skill::subscriber::active_skills(&current_pool, managers);
