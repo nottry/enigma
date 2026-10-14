@@ -739,26 +739,41 @@ fn add_team_energy_is_parent_owned_only_during_setup() {
 
     assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }
 
 #[test]
-fn conduit_ex_point_is_parent_owned_only_during_setup() {
+fn conduit_ex_point_is_parent_owned_for_setup_and_final_settlement() {
     let definition = find_key(60292, "AddDeviceExPoint").unwrap();
 
-    assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner,
+        OutputOwner::SetupOrFinalSettlementParent
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition
+            .output_owner
+            .resolve(Some(EventKind::RoundEndFinalSettlement), false),
+        OutputOwner::Parent
+    );
+    assert_eq!(
+        definition
+            .output_owner
+            .resolve(Some(EventKind::SkillAction), false),
+        OutputOwner::Skill
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }

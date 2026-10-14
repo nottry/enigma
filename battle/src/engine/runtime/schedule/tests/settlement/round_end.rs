@@ -184,6 +184,16 @@ fn final_settlement_keeps_buff_and_skill_reactions_in_one_event_frame() {
         })
     }
 
+    fn contains_skill(step: &sonettobuf::FightStep, skill_id: i32) -> bool {
+        step.act_id == Some(skill_id)
+            || step.act_effect.iter().any(|effect| {
+                effect
+                    .fight_step
+                    .as_ref()
+                    .is_some_and(|child| contains_skill(child, skill_id))
+            })
+    }
+
     assert_eq!(steps.len(), 1);
     assert!(contains_effect(
         &steps[0],
@@ -191,6 +201,7 @@ fn final_settlement_keeps_buff_and_skill_reactions_in_one_event_frame() {
         10,
     ));
     assert!(contains_effect(&steps[0], 111, 10));
+    assert!(!contains_skill(&steps[0], 302501432));
 }
 
 #[test]

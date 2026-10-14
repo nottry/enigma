@@ -755,7 +755,10 @@ pub(in crate::engine::runtime) fn emit_ops(
                     let owner = (definition.output_owner_for)(&slot.behavior, &op, index)
                         .unwrap_or(definition.output_owner)
                         .resolve(
-                            matches!(trigger, SkillOpTrigger::Event(_)),
+                            match trigger {
+                                SkillOpTrigger::Event(event) => Some(event.kind()),
+                                _ => None,
+                            },
                             matches!(trigger, SkillOpTrigger::Setup { .. }),
                         );
                     SkillEmissionOp {

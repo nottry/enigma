@@ -1340,8 +1340,13 @@ fn drain_queue_with_deferred(
                 let fanout_output_owner = if entry_halo_fanout || current_skill.is_none() {
                     crate::engine::skill::behavior::registry::OutputOwner::Skill
                 } else {
-                    crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        .resolve(matches!(trigger, SkillOpTrigger::Event(_)), false)
+                    crate::engine::skill::behavior::registry::OutputOwner::CausingEvent.resolve(
+                        match trigger {
+                            SkillOpTrigger::Event(ref event) => Some(event.kind()),
+                            _ => None,
+                        },
+                        false,
+                    )
                 };
 
                 // Managers publish semantic events through the bus. Reactions are
@@ -1933,7 +1938,8 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        | crate::engine::skill::behavior::registry::OutputOwner::SetupParent => {
+                        | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
+                        | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
                             unreachable!("manager follow-up owner must be resolved")
                         }
                     };
@@ -2144,7 +2150,9 @@ fn output_frame_path(
     match owner {
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
-        OutputOwner::CausingEvent | OutputOwner::SetupParent => {
+        OutputOwner::CausingEvent
+        | OutputOwner::SetupParent
+        | OutputOwner::SetupOrFinalSettlementParent => {
             unreachable!("conditional output ownership must be resolved before draining")
         }
     }

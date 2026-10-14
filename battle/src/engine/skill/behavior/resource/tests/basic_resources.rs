@@ -484,11 +484,14 @@ fn exact_consume_buff_charge_rewards_emits_captured_active_sequence() {
         ]
     );
     assert_eq!(
-        OutputOwner::CausingEvent.resolve(false, false),
+        OutputOwner::CausingEvent.resolve(None, false),
         OutputOwner::Skill
     );
     assert_eq!(
-        OutputOwner::CausingEvent.resolve(true, false),
+        OutputOwner::CausingEvent.resolve(
+            Some(crate::engine::event::kind::EventKind::SkillAction),
+            false,
+        ),
         OutputOwner::Parent
     );
 }
