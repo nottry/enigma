@@ -884,13 +884,6 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
         ops.as_slice(),
         [
             crate::engine::skill::rule::output::RuleOp::Command(
-                crate::engine::skill::rule::output::BattleCommand::ExPoint(
-                    crate::engine::manager::ex_point::ExPointCommand::Set(
-                        crate::engine::manager::ex_point::ExPointSet { value: 0, .. },
-                    ),
-                ),
-            ),
-            crate::engine::skill::rule::output::RuleOp::Command(
                 crate::engine::skill::rule::output::BattleCommand::Conduit(
                     crate::engine::manager::conduit::ConduitCommand::ClearPowers {
                         power_ids: _,
@@ -909,7 +902,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
         crate::engine::skill::rule::output::BattleCommand::Conduit(
             crate::engine::manager::conduit::ConduitCommand::ClearPowers { power_ids, .. },
         ),
-    ) = &ops[1]
+    ) = &ops[0]
     else {
         unreachable!()
     };

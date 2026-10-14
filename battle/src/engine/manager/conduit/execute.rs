@@ -272,11 +272,16 @@ impl ConduitManager {
                 skill_id,
                 power_ids,
             } => {
+                let pending = self
+                    .pending_activations
+                    .get_mut(&(source_uid, skill_id))
+                    .ok_or(ConduitError::MissingActivation(skill_id))?;
                 let area = self
                     .areas
                     .get_mut(&team)
                     .ok_or(ConduitError::MissingArea(team))?;
                 let mut spent = 0i32;
+                let mut spent_by_power = Vec::with_capacity(power_ids.len());
                 for power_id in &power_ids {
                     let value = area
                         .powers
@@ -286,17 +291,21 @@ impl ConduitManager {
                         .unwrap_or_default()
                         .max(0);
                     spent = spent.saturating_add(value);
+                    spent_by_power.push((*power_id, value));
                     self.consumed_this_round
                         .entry((team, *power_id))
                         .and_modify(|consumed| *consumed = consumed.saturating_add(value))
                         .or_insert(value);
                 }
+                pending.event.power_id = 0;
+                pending.event.activation_cost = spent;
+                pending.event.spent = spent;
                 Ok(ConduitChange::PowersCleared {
                     origin,
                     source_uid,
                     team,
                     skill_id,
-                    power_ids,
+                    spent_by_power,
                     spent,
                 })
             }

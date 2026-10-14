@@ -255,6 +255,36 @@ fn unique_conduit_activation_has_no_cost_projection() {
 }
 
 #[test]
+fn consumed_conduit_powers_use_the_trigger_skill_change_wire() {
+    let effects = project_change_for_test(&BattleChange::Conduit(
+        crate::engine::manager::conduit::ConduitChange::PowersCleared {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                key: crate::engine::skill::rule::DefinitionKey::new(100031, "TwinsPowerUp"),
+            },
+            source_uid: 10,
+            team: 1,
+            skill_id: 31490151,
+            spent_by_power: vec![(0, 2), (1, 0), (2, 3)],
+            spent: 5,
+        },
+    ))
+    .unwrap();
+
+    assert_eq!(effects.len(), 2);
+    assert_eq!(
+        effects[0].effect_type,
+        Some(sonettobuf::effect_type_enum::EffectType::Devicepowerchange as i32)
+    );
+    assert_eq!(effects[0].effect_num, Some(-1));
+    assert_eq!(effects[0].target_id, Some(0));
+    assert_eq!(effects[0].config_effect, Some(0));
+    assert_eq!(effects[0].reserve_str.as_deref(), Some("0#-2"));
+    assert_eq!(effects[1].effect_num, Some(-1));
+    assert_eq!(effects[1].reserve_str.as_deref(), Some("2#-3"));
+}
+
+#[test]
 fn positive_cost_reduced_to_zero_suppresses_only_the_begin_marker() {
     let began = project_change_for_test(&BattleChange::Conduit(
         crate::engine::manager::conduit::ConduitChange::SkillBegan {

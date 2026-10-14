@@ -785,15 +785,10 @@ fn project_change(
             *after,
         )],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersCleared {
-            origin,
-            source_uid,
             team,
+            spent_by_power,
             ..
-        }) => vec![EffectPacket::conduit_powers_cleared(
-            *source_uid,
-            *team,
-            origin.key.opcode,
-        )],
+        }) => EffectPacket::conduit_powers_consumed(*team, spent_by_power),
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersReset {
             team,
         }) => vec![EffectPacket::conduit_powers_reset(*team)],

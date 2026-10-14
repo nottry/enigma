@@ -213,7 +213,7 @@ pub enum ConduitChange {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: Vec<i32>,
+        spent_by_power: Vec<(i32, i32)>,
         spent: i32,
     },
     PowersReset {
@@ -507,13 +507,6 @@ impl ConduitChange {
                 event.activation_cost,
                 event.spent,
             ),
-            Self::PowersCleared {
-                source_uid,
-                team,
-                skill_id,
-                spent,
-                ..
-            } => (*source_uid, *team, *skill_id, 0, *spent, *spent),
             _ => return Vec::new(),
         };
         (spent > 0)

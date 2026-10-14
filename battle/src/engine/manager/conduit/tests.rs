@@ -594,6 +594,12 @@ fn unique_skill_clears_configured_energy_pools_as_one_activation() {
             ..
         }
     ));
+    manager
+        .execute(ConduitCommand::CommitSkillCost {
+            source_uid: 10,
+            skill_id: 31490151,
+        })
+        .unwrap();
 
     let cleared = manager
         .execute(ConduitCommand::ClearPowers {
@@ -609,13 +615,70 @@ fn unique_skill_clears_configured_energy_pools_as_one_activation() {
     assert_eq!(manager.power(1, 2), 0);
     assert!(matches!(
         cleared,
-        ConduitChange::PowersCleared { spent: 13, .. }
+        ConduitChange::PowersCleared {
+            ref spent_by_power,
+            spent: 13,
+            ..
+        } if spent_by_power == &[(0, 1), (1, 5), (2, 7)]
     ));
+    assert!(cleared.events().is_empty());
+    let completed = manager
+        .execute(ConduitCommand::CompleteActivation {
+            source_uid: 10,
+            skill_id: 31490151,
+        })
+        .unwrap();
     assert!(matches!(
-        cleared.events().as_slice(),
+        completed.events().as_slice(),
         [crate::engine::event::payload::BattleEvent::ConduitActivated(event)]
             if event.spent == 13 && event.skill_id == 31490151
     ));
+}
+
+#[test]
+fn clear_powers_without_an_activation_preserves_resources() {
+    config::init(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../data/excel2json")
+            .to_str()
+            .unwrap(),
+    )
+    .ok();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = ConduitManager::seed(&fight);
+    manager
+        .execute(ConduitCommand::ChangePower(ConduitPowerChange {
+            origin: ORIGIN,
+            source_uid: 10,
+            team: 1,
+            power_id: 2,
+            delta: 5,
+            kind: ConduitPowerChangeKind::Standard,
+        }))
+        .unwrap();
+
+    assert_eq!(
+        manager.execute(ConduitCommand::ClearPowers {
+            origin: ORIGIN,
+            source_uid: 10,
+            team: 1,
+            skill_id: 31490151,
+            power_ids: vec![2],
+        }),
+        Err(ConduitError::MissingActivation(31490151))
+    );
+    assert_eq!(manager.power(1, 2), 5);
+    assert_eq!(manager.consumed(1, 2), 0);
 }
 
 #[test]
