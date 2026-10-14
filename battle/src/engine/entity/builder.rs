@@ -81,7 +81,13 @@ impl EntityBuilder {
             .unwrap_or_else(|| Attr::get(hero, &self.equips));
         let (sg1, sg2, configured_ex_skill) =
             Skill::loadout(game, hero, self.is_sub, destiny.as_ref());
-        let ex_point_type = Self::ex_point_spec(game, hero.hero_id, hero.rank).0;
+        let (ex_point_type, ex_point_max) = Self::ex_point_spec(
+            game,
+            hero.hero_id,
+            hero.rank,
+            hero.destiny_stone,
+            hero.destiny_rank,
+        );
         let device_owned = crate::catalog::configured_conduit_device_id(
             game,
             hero.hero_id,
@@ -153,6 +159,7 @@ impl EntityBuilder {
             destiny_stone: Some(hero.destiny_stone),
             destiny_rank: Some(hero.destiny_rank),
             custom_unit_id: Some(0),
+            ex_point_max: Some(ex_point_max),
             ..Default::default()
         }
     }
@@ -225,7 +232,13 @@ impl EntityBuilder {
         let attr = stats.base();
         let (skill_group1, skill_group2, configured_ex_skill) =
             Skill::active_skills(tables, trial.hero_id, rank, trial.ex_skill_lv);
-        let (ex_point_type, ex_point_max) = Self::ex_point_spec(tables, trial.hero_id, rank);
+        let (ex_point_type, ex_point_max) = Self::ex_point_spec(
+            tables,
+            trial.hero_id,
+            rank,
+            trial.facets_id,
+            trial.facetslevel,
+        );
         let device_owned = crate::catalog::configured_conduit_device_id(
             tables,
             trial.hero_id,
@@ -392,8 +405,15 @@ impl EntityBuilder {
         }
     }
 
-    fn ex_point_spec(game: &config::GameDB, hero_id: i32, rank: i32) -> (i32, i32) {
-        let spec = crate::catalog::configured_unique_skill_point(game, hero_id, rank);
+    fn ex_point_spec(
+        game: &config::GameDB,
+        hero_id: i32,
+        rank: i32,
+        destiny_stone: i32,
+        destiny_rank: i32,
+    ) -> (i32, i32) {
+        let spec = Destiny::unique_skill_point(game, destiny_stone, destiny_rank)
+            .or_else(|| crate::catalog::configured_unique_skill_point(game, hero_id, rank));
 
         let mut values = spec.into_iter().flat_map(|spec| spec.split('#'));
         (
@@ -644,5 +664,28 @@ mod tests {
         assert!(trial.skill_group1.is_empty());
         assert!(trial.skill_group2.is_empty());
         assert_eq!(trial.ex_skill, Some(0));
+    }
+
+    #[test]
+    fn selected_destiny_resource_replaces_character_resource() {
+        crate::test_support::init_config();
+
+        let entity = EntityBuilder::new(
+            HeroBuildInput {
+                hero_id: 3025,
+                rank: 4,
+                ex_skill_level: 3,
+                destiny_stone: 302502,
+                destiny_rank: 4,
+                ..Default::default()
+            },
+            1,
+            1,
+            false,
+        )
+        .build();
+
+        assert_eq!(entity.ex_point_type, Some(4));
+        assert_eq!(entity.ex_point_max, Some(100));
     }
 }
