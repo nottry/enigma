@@ -219,6 +219,7 @@ fn transform_projects_active_primary_attribute_buffs_without_rewriting_the_base(
 
     let attr = changes.entity.attr.unwrap();
     let base_attr = changes.entity.base_attr.unwrap();
+    assert_eq!(changes.entity.ex_point_max, Some(0));
     assert_eq!(attr.defense, Some(800));
     assert_eq!(attr.mdefense, Some(589));
     assert_eq!(base_attr.defense, Some(1_000));

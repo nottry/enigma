@@ -937,6 +937,7 @@ impl BattleManagers {
             changes.operation,
             entity::EntityOperation::SummonCombatant { .. }
                 | entity::EntityOperation::SummonSpecial { .. }
+                | entity::EntityOperation::Transform { .. }
         ) {
             changes.entity.ex_point_max = catalog.entity_ex_point_max(
                 changes.entity.ex_point_max,
