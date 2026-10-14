@@ -658,7 +658,7 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
                     target_uid: context.target_uid,
                     selector: BuffSelector::IdOrType(*buff_id),
                     amount: *amount,
-                    depleted: DepletedBuff::Remove,
+                    depleted: DepletedBuff::RemoveWithZeroLayer,
                 }))),
                 RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
                     source_uid: context.target_uid,

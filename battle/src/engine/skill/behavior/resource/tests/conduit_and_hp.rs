@@ -458,10 +458,11 @@ fn team_action_restarts_a_device_only_after_its_skill_stops() {
             ops.as_slice(),
             [
                 RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
+                    origin: _,
                     target_uid: 10,
                     selector: BuffSelector::IdOrType(31450142),
                     amount: 4,
-                    ..
+                    depleted: DepletedBuff::RemoveWithZeroLayer,
                 }))),
                 RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
                     source_uid: 10,
