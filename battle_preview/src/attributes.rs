@@ -349,7 +349,7 @@ fn validated_equipment_loadout(
     let mut equip_uids = HashSet::with_capacity(entity.equips.len());
     for equip in &entity.equips {
         let uid = equip.equip_uid.filter(|uid| *uid > 0).ok_or(())?;
-        if !equip_uids.insert(uid) {
+        if equip.break_lv.is_some_and(|level| level < 0) || !equip_uids.insert(uid) {
             return Err(());
         }
     }
@@ -362,7 +362,7 @@ fn validated_equipment_loadout(
         uid: selected_equip_uid,
         equip_id: primary_equip_id,
         level: primary_level,
-        break_level: 0,
+        break_level: primary.break_lv.unwrap_or_default(),
         refine_level: primary.refine_lv.unwrap_or_default(),
     };
 
@@ -384,7 +384,7 @@ fn validated_equipment_loadout(
                 uid,
                 equip_id,
                 level,
-                break_level: 0,
+                break_level: equip.break_lv.unwrap_or_default(),
                 refine_level: equip.refine_lv.unwrap_or_default(),
             })
         })
@@ -914,6 +914,21 @@ mod tests {
         hero.default_equip_uid = Some(-1);
 
         assert!(validated_equipment_loadout(entity, &hero, None).is_err());
+    }
+
+    #[test]
+    fn captured_equipment_breakthrough_is_preserved() {
+        crate::init_test_config();
+        let uid = 42;
+        let mut fight = fight(uid);
+        let entity = &mut fight.attacker.as_mut().unwrap().entitys[0];
+        entity.equips[0].break_lv = Some(3);
+        entity.equips[1].break_lv = Some(2);
+
+        let equips = validated_equipment_loadout(entity, &hero(uid), None).unwrap();
+
+        assert_eq!(equips[0].break_level, 3);
+        assert_eq!(equips[1].break_level, 2);
     }
 
     #[test]
