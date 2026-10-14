@@ -69,7 +69,9 @@ pub struct AppPackageInfo {
     pub app_signature: String,
     pub sdk_version: String,
     pub channel_version: String,
+    #[serde(default)]
     pub ad_fid: String,
+    #[serde(default)]
     pub gclid: String,
     pub data_app_id: String,
 }
@@ -91,6 +93,7 @@ pub struct AccountLoginMailReq {
 pub struct AccountBindListReq {
     pub device_info: DeviceInfo,
     pub app_package_info: AppPackageInfo,
+    #[serde(default)]
     pub reactivate: bool,
     pub token: String,
     pub user_id: u64,
@@ -102,6 +105,7 @@ pub struct AccountBindListReq {
 pub struct AccountAutoLoginReq {
     pub device_info: DeviceInfo,
     pub app_package_info: AppPackageInfo,
+    #[serde(default)]
     pub reactivate: bool,
     pub token: String,
     pub user_id: u64,
