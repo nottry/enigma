@@ -43,6 +43,8 @@ pub(in crate::engine::runtime) struct SkillExecution {
     pub(super) effect_started: bool,
     // Extra-action opening effects settle once after SkillEffectStarted subscribers.
     pub(super) opening_effects_emitted: bool,
+    // An exact immediate-settlement rule defeated this action's source.
+    immediate_source_death: bool,
 }
 
 impl SkillExecution {
@@ -113,6 +115,7 @@ impl SkillExecution {
             resume_target: 0,
             effect_started: false,
             opening_effects_emitted: false,
+            immediate_source_death: false,
         }
     }
 
@@ -145,6 +148,7 @@ impl SkillExecution {
             resume_target: 0,
             effect_started: false,
             opening_effects_emitted: false,
+            immediate_source_death: false,
         }
     }
 
@@ -191,6 +195,14 @@ impl SkillExecution {
 
     pub(in crate::engine::runtime) fn record_kills(&mut self, count: i32) {
         self.context.action_kill_count += count.max(0);
+    }
+
+    pub(in crate::engine::runtime) fn record_immediate_source_death(&mut self) {
+        self.immediate_source_death = true;
+    }
+
+    pub(super) fn immediate_source_death(&self) -> bool {
+        self.immediate_source_death
     }
 
     pub(in crate::engine::runtime) fn record_guard_breaks(&mut self, count: i32) {

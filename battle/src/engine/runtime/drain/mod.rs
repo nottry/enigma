@@ -1850,6 +1850,22 @@ fn drain_queue_with_deferred(
                     .into_iter()
                     .filter(|death| managers.hp.is_current_death(*death))
                     .collect::<Vec<_>>();
+                if settles_death_immediately
+                    && let Some(source_uid) = current_skill.map(|skill| skill.0)
+                    && settled_deaths
+                        .iter()
+                        .any(|death| death.transition().target_uid == source_uid)
+                    && let Some(execution) = queue
+                        .iter_mut()
+                        .find(|queued| {
+                            matches!(queued.trigger, SkillOpTrigger::Active)
+                                && queued.frame_path.as_ref() == Some(&frame_path)
+                                && matches!(queued.op, RuleOp::Skill(_))
+                        })
+                        .and_then(|queued| queued.skill_execution.as_mut())
+                {
+                    execution.record_immediate_source_death();
+                }
                 let mut terminal_death = settled_deaths.first().map(|death| death.transition());
                 let mut cleanup_deaths = Vec::new();
                 let mut non_action_deaths = Vec::new();
