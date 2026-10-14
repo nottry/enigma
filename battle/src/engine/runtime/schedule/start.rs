@@ -164,6 +164,19 @@ pub fn run_before_ai_round_start(
             )?,
         );
     }
+    let action_phase_reactions = drain::run_grouped_owner_event(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        BattleEvent::Kind(EventKind::DefenderActionPhaseStart),
+        &setup_owner_uids,
+        drain::ReactionLane::Skills,
+    )?;
+    if !action_phase_reactions.outcomes.is_empty() {
+        append(&mut result, action_phase_reactions);
+    }
     Ok(result)
 }
 

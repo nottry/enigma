@@ -680,7 +680,7 @@ condition_definitions! {
     [589] "PowerIncrChange" => resource::power_increase, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
     [749301] "PowerRatio" => resource::power_ratio, event_trigger(EventKind::SmallRoundEnd, None);
     [749209] "PowerRatio" => resource::power_ratio, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
-    [1010301] "ProgressValue" => resource::fight_progress_value, event_trigger(EventKind::SmallRoundEnd, None);
+    [1010301] "ProgressValue" => resource::fight_progress_value, event_trigger(EventKind::DefenderActionPhaseStart, None);
     [1010012] "ProgressValue" => resource::fight_progress_value, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [710301] "PerHandCardHasSkillId" => card::hand_skill_presence, event_trigger(EventKind::SmallRoundEnd, None);
     [622304] "RoundUseSkillLevel" => card::round_used_minimum_rank, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));

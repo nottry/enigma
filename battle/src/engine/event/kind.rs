@@ -42,6 +42,7 @@ pub enum EventKind {
     BeAttackedDefense,
     AllyAction,
     ImpromptuResolved,
+    DefenderActionPhaseStart,
     SmallRoundEnd,
     RoundEnd,
     ExPointOverflow,

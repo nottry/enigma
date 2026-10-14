@@ -363,7 +363,7 @@ fn team_status_type_groups_keep_divisor_cap_and_categories() {
 }
 
 #[test]
-fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
+fn defender_action_phase_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
     assert_eq!(
         parse(
             1010301,
@@ -379,7 +379,7 @@ fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
     assert_eq!(
         find_key(1010301, "ProgressValue").map(|definition| definition.role),
         Some(ConditionRole::Trigger {
-            event: EventKind::SmallRoundEnd,
+            event: EventKind::DefenderActionPhaseStart,
             phase: None,
         })
     );
