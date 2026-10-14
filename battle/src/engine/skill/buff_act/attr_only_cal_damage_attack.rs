@@ -211,6 +211,7 @@ mod tests {
                 false,
                 false,
                 true,
+                &[],
             ),
             200
         );
@@ -281,7 +282,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let managers = BattleManagers::seeded(&fight);
+        let mut managers = BattleManagers::seeded(&fight);
         let morale = feature(vec![113, AttrId::DmgBonus as i32, 200, 1]);
         assert!(applies_to_skill(&morale, true));
         let incantation = ActiveBuffFeature {
@@ -292,10 +293,12 @@ mod tests {
         assert!(!applies_to_skill(&incantation, true));
         assert!(applies_to_skill(&incantation, false));
         assert!(super::super::attack_consumption_rule_ops(&managers, 1, true).is_empty());
-        assert_eq!(
-            super::super::attack_consumption_rule_ops(&managers, 1, false).len(),
-            1
-        );
+        let ops = super::super::attack_consumption_rule_ops(&managers, 1, false);
+        let [(_, RuleOp::Command(BattleCommand::Buff(command)))] = ops.as_slice() else {
+            panic!("expected one buff consumption command");
+        };
+        managers.execute_buff(command.clone()).unwrap();
+        assert!(managers.buff.snapshot(1, 3).is_none());
     }
 
     #[test]

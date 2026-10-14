@@ -19,6 +19,7 @@ fn field_level_activates_added_field_conditions_but_progress_does_not() {
     let mut level_context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut level_context,
         &field_event(crate::engine::manager::field::FieldChangeKind::Level),
     );
@@ -28,6 +29,7 @@ fn field_level_activates_added_field_conditions_but_progress_does_not() {
     let mut progress_context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut progress_context,
         &field_event(crate::engine::manager::field::FieldChangeKind::Progress),
     );
@@ -123,10 +125,132 @@ fn active_skill_rate_modifier_reads_the_authoritative_field_state() {
 }
 
 #[test]
+fn active_modifier_inheriting_its_condition_target_counts_each_target_separately() {
+    crate::test_support::init_config();
+    let burn = |uid, layer| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(4150001),
+        from_uid: Some(10),
+        layer: Some(layer),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(1_000),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(-1),
+                    current_hp: Some(10_000),
+                    buffs: vec![burn(1, 2)],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(-2),
+                    current_hp: Some(10_000),
+                    buffs: vec![burn(2, 5)],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::new(10001, "SkillRateUp", vec![100]),
+        TargetRequest {
+            code: 202,
+            raw: Vec::new(),
+        },
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 61203,
+        type_name: "PerBuffIdCount".into(),
+        kind: ParsedConditionKind::BuffIdCount {
+            buff_ids: vec![4150001],
+            compare: crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
+            threshold: 1,
+        },
+        raw_args: vec!["4150001".into()],
+    }];
+    slot.condition_target = TargetRequest::self_only();
+    slot.target_from_condition = true;
+    slot.compiled_route = crate::engine::skill::rule::route::ConditionRoute::compile_for_behavior(
+        &slot.conditions,
+        &slot.behavior.spec,
+    );
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![slot],
+    });
+    catalog.insert_damage_rate(100, 500);
+    catalog.insert_logic_target(100, 202);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    invocation.target = SkillTarget::Explicit(-1);
+    let mut execution = SkillExecution::new(TargetContext::default());
+
+    emit_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
+
+    assert!(execution.modifiers.rates.is_empty());
+    for (target_uid, expected_count) in [(-1, 2), (-2, 5)] {
+        let mut modifiers = execution.modifiers.clone();
+        crate::engine::skill::behavior::rate::emit_active_target_attack_attributes(
+            &mut modifiers,
+            10,
+            100,
+            100,
+            crate::engine::skill::behavior::rate::RateRuntime {
+                effects: &catalog,
+                managers: &managers,
+                pool: &pool,
+                context: TargetContext {
+                    hit_source_uid: 10,
+                    hit_target_uid: target_uid,
+                    runtime_target_uid: target_uid,
+                    ..Default::default()
+                },
+            },
+            &mut RoundDeterminism::default(),
+        );
+        assert_eq!(modifiers.rates.len(), expected_count);
+        assert!(
+            modifiers
+                .rates
+                .iter()
+                .all(|modifier| modifier.target_uid == target_uid)
+        );
+    }
+}
+
+#[test]
 fn buff_feature_event_preserves_the_exact_act_identity() {
     let mut context = TargetContext::default();
     apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut context,
         &BattleEvent::BuffFeatureTriggered(
             crate::engine::event::payload::BuffFeatureTriggeredEvent {

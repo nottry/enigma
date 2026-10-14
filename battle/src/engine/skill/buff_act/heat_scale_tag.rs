@@ -1,11 +1,17 @@
 use crate::engine::{
     event::payload::BattleEvent,
-    manager::{BattleManagers, buff::ActiveBuffFeature},
+    manager::{
+        BattleManagers,
+        buff::{ActiveBuffFeature, BuffCommand, BuffSetState},
+    },
     mechanic::lingering_glow,
     skill::{
         buff_act::{BuffActRuleOp, registry::BuffActKind},
         effect::SkillEffectCatalog,
-        rule::{SetupStage, output::RuleOp},
+        rule::{
+            SetupStage,
+            output::{BattleCommand, RuleOp},
+        },
         subscriber::BuffActSubscriber,
     },
 };
@@ -33,13 +39,20 @@ pub fn setup_rule_ops(
             .map(|enable| enable.output)
             .collect(),
         ),
-        SetupStage::BuffGate | SetupStage::RoundStart => {
+        SetupStage::OpeningBuffGate => {
             Some(lingering_glow::round_start_attribute_rule_ops_for_team(
                 managers,
                 catalog,
                 feature.team_type,
             ))
         }
+        SetupStage::RoundTransitionStart => Some(
+            lingering_glow::round_transition_attribute_rule_ops_for_team(
+                managers,
+                catalog,
+                feature.team_type,
+            ),
+        ),
         _ => Some(Vec::new()),
     }
 }
@@ -55,7 +68,10 @@ pub fn rule_ops(
         return Some(Vec::new());
     }
     if let BattleEvent::GaugeChanged(change) = event {
-        if change.key != lingering_glow::key(subscriber.team_type) || change.applied_delta <= 0 {
+        let gained_progress = change.progress_raw_delta > 0
+            || (change.kind == crate::engine::manager::gauge::GaugeChangeKind::Accumulated
+                && change.applied_delta > 0);
+        if change.key != lingering_glow::key(subscriber.team_type) || !gained_progress {
             return Some(Vec::new());
         }
         let features = managers.buff.active_features(&managers.hp);
@@ -64,16 +80,46 @@ pub fn rule_ops(
         else {
             return Some(Vec::new());
         };
-        return Some(vec![BuffActRuleOp::causing(RuleOp::BuffActInfoMarker(
-            crate::engine::manager::buff::BuffActInfoMarkerResult {
-                target_uid: counter.owner_uid,
-                buff_uid: counter.buff_uid,
-                act_id: counter.act_id,
-                params: vec![counter.current],
-                str_param: Some(String::new()),
-                team_type: 0,
-            },
-        ))]);
+        let Some(origin) = managers
+            .catalog()
+            .buff_act_origin(counter.act_id, BuffActKind::HeatScaleUseSkill)
+        else {
+            return Some(Vec::new());
+        };
+        let Some(mut buff) = managers.buff.snapshot(counter.owner_uid, counter.buff_uid) else {
+            return Some(Vec::new());
+        };
+        let Some(info) = buff
+            .act_info
+            .iter_mut()
+            .find(|info| info.act_id == Some(counter.act_id))
+        else {
+            return Some(Vec::new());
+        };
+        info.param = vec![counter.current];
+        info.str_param = Some(String::new());
+        return Some(vec![
+            BuffActRuleOp::causing(RuleOp::Command(BattleCommand::Buff(
+                BuffCommand::SetInternalState(BuffSetState {
+                    origin,
+                    target_uid: counter.owner_uid,
+                    buff_uid: counter.buff_uid,
+                    ex_info: None,
+                    params: None,
+                    act_info: Some(buff.act_info),
+                }),
+            ))),
+            BuffActRuleOp::causing(RuleOp::BuffActInfoMarker(
+                crate::engine::manager::buff::BuffActInfoMarkerResult {
+                    target_uid: counter.owner_uid,
+                    buff_uid: counter.buff_uid,
+                    act_id: counter.act_id,
+                    params: vec![counter.current],
+                    str_param: Some(String::new()),
+                    team_type: 0,
+                },
+            )),
+        ]);
     }
     let change = match event {
         BattleEvent::BuffAdded(change) | BattleEvent::BuffChanged(change)
@@ -90,10 +136,7 @@ pub fn rule_ops(
     let Some(target_team) = managers.buff.team_type(change.target_uid) else {
         return Some(Vec::new());
     };
-    let alive_enemies = managers.entity.alive_combatants(target_team, &managers.hp);
-    let Some(alive_enemy_index) = alive_enemies
-        .iter()
-        .position(|uid| *uid == change.target_uid)
+    let Some(alive_enemy_count) = enemy_count_for_gain(managers, target_team, change.target_uid)
     else {
         return Some(Vec::new());
     };
@@ -106,8 +149,7 @@ pub fn rule_ops(
             target_uid: change.target_uid,
             buff_uid: change.buff_uid,
             added_layers,
-            alive_enemy_index,
-            alive_enemy_count: alive_enemies.len(),
+            alive_enemy_count,
         },
     )
     .and_then(|input| match input.output {
@@ -121,4 +163,158 @@ pub fn rule_ops(
     .map(BuffActRuleOp::causing)
     .collect();
     Some(ops)
+}
+
+fn enemy_count_for_gain(
+    managers: &BattleManagers,
+    team_type: i32,
+    target_uid: i64,
+) -> Option<usize> {
+    if !managers.entity.is_main_combatant(target_uid) {
+        return None;
+    }
+    let count = managers
+        .entity
+        .alive_combatants(team_type, &managers.hp)
+        .len();
+    (count > 0).then_some(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use sonettobuf::{BuffActInfo, BuffInfo, Fight, FightEntityInfo, FightTeam};
+
+    use super::*;
+    use crate::engine::{
+        event::kind::EventKind,
+        manager::gauge::{GaugeCommand, GaugeOperation},
+        skill::buff_act,
+    };
+
+    #[test]
+    fn gauge_change_persists_the_visible_accumulation_counter() {
+        crate::test_support::init_config();
+        let mut managers = BattleManagers::seeded(&Fight {
+            version: Some(7),
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    buffs: vec![
+                        BuffInfo {
+                            buff_id: Some(31340003),
+                            uid: Some(20),
+                            from_uid: Some(10),
+                            ..Default::default()
+                        },
+                        BuffInfo {
+                            buff_id: Some(31340005),
+                            uid: Some(21),
+                            from_uid: Some(10),
+                            act_info: vec![BuffActInfo {
+                                act_id: Some(1050),
+                                param: vec![0],
+                                str_param: Some(String::new()),
+                            }],
+                            ..Default::default()
+                        },
+                    ],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let tag = managers
+            .buff
+            .active_features(&managers.hp)
+            .into_iter()
+            .find(|feature| buff_act::is_kind(feature, BuffActKind::HeatScaleTag))
+            .unwrap();
+        let origin = buff_act::feature_command_origin(&tag).unwrap();
+        let subscriber = buff_act::subscriber_from_feature(tag, EventKind::GaugeChanged).unwrap();
+        managers
+            .execute_gauge(GaugeCommand::new(
+                origin,
+                lingering_glow::key(1),
+                GaugeOperation::Enable { max: Some(150) },
+            ))
+            .unwrap();
+        let change = managers
+            .execute_gauge(GaugeCommand::new(
+                origin,
+                lingering_glow::key(1),
+                GaugeOperation::AccumulateProgress { raw_amount: 40_000 },
+            ))
+            .unwrap();
+        let event = change.events().into_iter().next().unwrap();
+
+        let ops = rule_ops(&managers, &subscriber, &event).unwrap();
+
+        assert!(matches!(
+            &ops[0].op,
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::SetInternalState(
+                BuffSetState { act_info: Some(info), .. }
+            ))) if info[0].param == [40]
+        ));
+        assert!(matches!(
+            &ops[1].op,
+            RuleOp::BuffActInfoMarker(marker) if marker.act_id == 1050 && marker.params == [40]
+        ));
+        let RuleOp::Command(BattleCommand::Buff(command)) = &ops[0].op else {
+            unreachable!();
+        };
+        managers.execute_buff(command.clone()).unwrap();
+        assert_eq!(
+            managers.buff.snapshot(10, 21).unwrap().act_info[0].param,
+            [40]
+        );
+    }
+
+    #[test]
+    fn defeated_main_target_uses_the_current_alive_enemy_count() {
+        crate::test_support::init_config();
+        let managers = BattleManagers::seeded(&Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    team_type: Some(1),
+                    position: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![
+                    FightEntityInfo {
+                        uid: Some(-1),
+                        team_type: Some(2),
+                        position: Some(1),
+                        current_hp: Some(0),
+                        ..Default::default()
+                    },
+                    FightEntityInfo {
+                        uid: Some(-2),
+                        team_type: Some(2),
+                        position: Some(2),
+                        current_hp: Some(0),
+                        ..Default::default()
+                    },
+                    FightEntityInfo {
+                        uid: Some(-3),
+                        team_type: Some(2),
+                        position: Some(3),
+                        current_hp: Some(100),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        assert_eq!(enemy_count_for_gain(&managers, 2, -1), Some(1));
+    }
 }

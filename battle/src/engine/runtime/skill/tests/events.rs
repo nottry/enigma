@@ -186,24 +186,114 @@ fn nearby_attack_crit_route_still_triggers_for_an_extra_action() {
 }
 
 #[test]
+fn configured_round_end_buff_count_consumes_once_per_layer() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                passive_skill: vec![90120051],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers.buff.add(&managers.hp, 10, 10, 90002, 2);
+    managers.buff.add(&managers.hp, 10, 10, 90001, 3);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let event = BattleEvent::Kind(EventKind::RoundEnd);
+    let dispatched = crate::engine::event::dispatcher::dispatch_event(
+        &pool,
+        &managers,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &event,
+    )
+    .unwrap();
+    let [(subscriber, RuleOp::Skill(invocation))] = dispatched.skills.as_slice() else {
+        panic!("configured round-end passive should dispatch once");
+    };
+
+    assert_eq!(subscriber.owner_uid, 10);
+    assert_eq!(subscriber.skill_id, 90120051);
+    assert_eq!(
+        invocation.condition_key,
+        Some(DefinitionKey::new(61302, "PerBuffIdCount"))
+    );
+
+    let commands = emit_all_ops(
+        invocation.clone(),
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &SkillOpTrigger::Event(event),
+    )
+    .unwrap()
+    .into_iter()
+    .filter_map(|op| match op {
+        RuleOp::Command(BattleCommand::Buff(command)) => Some(command),
+        _ => None,
+    })
+    .collect::<Vec<_>>();
+
+    assert_eq!(commands.len(), 2);
+    for command in commands {
+        assert!(matches!(
+            &command,
+            BuffCommand::Consume(crate::engine::manager::buff::BuffConsume {
+                target_uid: 10,
+                selector: crate::engine::manager::buff::BuffSelector::IdOrType(90001),
+                amount: 1,
+                ..
+            })
+        ));
+        managers.execute_buff(command).unwrap();
+    }
+    assert_eq!(managers.buff.buff_id_amount(10, 90001), 1);
+}
+
+#[test]
 fn ally_action_context_preserves_assassination_identity() {
     let mut context = TargetContext::default();
     let event = BattleEvent::AllyAction(crate::engine::skill::action::ActionEvent {
         source_uid: 10,
         skill_id: 100,
+        skill_type: 2,
         assassinate: true,
         ..Default::default()
     });
 
     super::super::invoke::apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
         &mut context,
         &event,
     );
 
     assert_eq!(context.active_skill_source_uid, 10);
     assert_eq!(context.active_skill_id, 100);
+    assert_eq!(context.damage_target_count_kind, 2);
     assert!(context.active_skill_assassinate);
+}
+
+#[test]
+fn skill_action_context_preserves_damage_target_count_kind() {
+    let mut context = TargetContext::default();
+
+    super::super::invoke::apply_event_context(
+        &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::default(),
+        &mut context,
+        &skill_action_event(0, 0),
+    );
+
+    assert_eq!(context.damage_target_count_kind, 1);
 }
 
 #[test]
@@ -230,6 +320,7 @@ fn hit_context_uses_the_explicit_skill_catalog_rank() {
 
     super::super::invoke::apply_event_context(
         &BattleManagers::seeded(&Fight::default()),
+        &SkillEffectCatalog::from_game_db(config::configs::get()),
         &mut context,
         &event,
     );
@@ -241,6 +332,7 @@ fn hit_context_uses_the_explicit_skill_catalog_rank() {
     assert_eq!(context.hit_career_restraint, Some(true));
     assert!(context.active_skill_is_attack);
     assert_eq!(context.active_skill_mode, SkillExecutionMode::Active);
+    assert_eq!(context.damage_target_count_kind, 1);
 }
 
 #[test]

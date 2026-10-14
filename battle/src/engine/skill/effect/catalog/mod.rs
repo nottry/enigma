@@ -109,7 +109,7 @@ impl SkillEffectCatalog {
             .or_else(|| self.effects.get(&skill_id))
     }
 
-    pub fn random_skill_references(&self, skill_id: i32) -> Vec<i32> {
+    pub fn random_skill_choice_references(&self, skill_id: i32) -> Vec<i32> {
         let Some(effect) = self.get(skill_id) else {
             return Vec::new();
         };
@@ -120,14 +120,50 @@ impl SkillEffectCatalog {
                 let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
                 matches!(
                     definition.kind,
-                    BehaviorKind::RandomUseSkill
-                        | BehaviorKind::CrystalReuse
-                        | BehaviorKind::RemoveBuffUseSkill
+                    BehaviorKind::RandomUseSkill | BehaviorKind::RemoveBuffUseSkill
                 )
                 .then(|| (definition.references)(&slot.behavior).skills)
             })
             .flatten()
             .collect()
+    }
+
+    pub fn crystal_reuse_references(&self, skill_id: i32) -> Vec<i32> {
+        let Some(effect) = self.get(skill_id) else {
+            return Vec::new();
+        };
+        effect
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
+                (definition.kind == BehaviorKind::CrystalReuse
+                    && definition
+                        .supports
+                        .is_none_or(|supports| supports(&slot.behavior)))
+                .then(|| (definition.references)(&slot.behavior).skills)
+            })
+            .flatten()
+            .collect()
+    }
+
+    pub fn direct_skill_target_code_for_child(
+        &self,
+        skill_id: i32,
+        child_skill_id: i32,
+    ) -> Option<i32> {
+        let mut target_codes = self.get(skill_id)?.slots.iter().filter_map(|slot| {
+            let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
+            (definition.kind == BehaviorKind::DirectUseSkill
+                && (definition.references)(&slot.behavior)
+                    .skills
+                    .contains(&child_skill_id))
+            .then_some(slot.target.code)
+        });
+        let target_code = target_codes.next()?;
+        target_codes
+            .all(|candidate| candidate == target_code)
+            .then_some(target_code)
     }
 
     pub fn random_condition_keys(&self) -> Vec<(i32, i32)> {
@@ -208,6 +244,15 @@ impl SkillEffectCatalog {
                 crate::engine::skill::behavior::registry::find(&slot.behavior)
                     .is_some_and(|definition| definition.kind == BehaviorKind::Assassinate)
             })
+        })
+    }
+
+    pub fn is_interval(&self, skill_id: i32) -> bool {
+        self.get(skill_id).is_some_and(|effect| {
+            effect
+                .slots
+                .iter()
+                .any(|slot| slot.behavior.spec.kind == BehaviorKind::StopConduitSkill)
         })
     }
 

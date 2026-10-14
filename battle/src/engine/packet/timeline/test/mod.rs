@@ -32,6 +32,7 @@ mod entities;
 mod field_and_wave;
 mod frames;
 mod gauges;
+mod progress;
 mod shield;
 mod temporary_cards;
 mod upgrade;

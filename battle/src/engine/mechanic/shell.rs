@@ -265,7 +265,7 @@ fn retrieve(
         }))?,
         managers.execute_buff(BuffCommand::Grant(BuffGrant {
             origin,
-            source_uid,
+            source_uid: target_uid,
             target_uid: source_uid,
             buff_id: stock_buff_id,
             amount: Some(amount),
@@ -327,7 +327,7 @@ fn accumulate_and_use_skill(
                 .into();
             invocation.target = crate::engine::skill::action::SkillTarget::Explicit(target_uid);
             // Unmendable Cracks follows the triggering action's ally-action reactions.
-            invocation.start = crate::engine::skill::action::SkillStart::AfterCurrentAction;
+            invocation.start = crate::engine::skill::action::SkillStart::AfterCurrentActionReaction;
             invocation.release_progress = Some(rule);
             invocation
         })
@@ -574,6 +574,58 @@ mod tests {
         assert_eq!(changes.events[0].amount, 2);
         assert_eq!(changes.events[1].target_uid, -1);
         assert_eq!(changes.events[1].amount, 3);
+    }
+
+    #[test]
+    fn retrieval_regrants_stock_from_the_carrier() {
+        crate::test_support::init_config();
+        let fight = Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(100),
+                    team_type: Some(1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(-1),
+                    current_hp: Some(100),
+                    team_type: Some(2),
+                    buffs: vec![BuffInfo {
+                        uid: Some(52),
+                        buff_id: Some(31090112),
+                        from_uid: Some(10),
+                        layer: Some(3),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut managers = BattleManagers::seeded(&fight);
+
+        execute(
+            &mut managers,
+            ShellCommand::Retrieve {
+                origin: ORIGIN,
+                source_uid: 10,
+                target_uid: -1,
+                stock_buff_id: 31090111,
+                amount: 1,
+            },
+        )
+        .unwrap();
+
+        let stock_uid = managers.buff.buff_id_uid(10, 31090111).unwrap();
+        assert_eq!(
+            managers.buff.snapshot(10, stock_uid).unwrap().from_uid,
+            Some(-1)
+        );
     }
 
     #[test]

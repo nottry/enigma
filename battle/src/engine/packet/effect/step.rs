@@ -89,7 +89,7 @@ impl EffectPacket {
     pub fn conduit_fight_step(
         source_uid: i64,
         target_uid: i64,
-        group: i32,
+        card_index: i32,
         skill_position: i32,
         effects: Vec<ActEffect>,
     ) -> ActEffect {
@@ -98,7 +98,7 @@ impl EffectPacket {
             source_uid,
             target_uid,
             0,
-            group,
+            card_index,
             effects,
         );
         if let Some(step) = effect.fight_step.as_mut() {

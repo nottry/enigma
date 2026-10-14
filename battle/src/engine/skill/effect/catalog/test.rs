@@ -47,6 +47,15 @@ fn fight_catalog_excludes_unrelated_heroes() {
 }
 
 #[test]
+fn interval_skills_are_identified_by_their_stop_behavior() {
+    init_config();
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [31450111, 31450121], []);
+
+    assert!(catalog.is_interval(31450111));
+    assert!(!catalog.is_interval(31450121));
+}
+
+#[test]
 fn fight_catalog_includes_assist_boss_active_skills() {
     init_config();
     let fight = Fight {
@@ -384,6 +393,23 @@ fn deck_top_rank_behavior_keeps_exact_config_identity() {
 }
 
 #[test]
+fn consume_buff_reset_device_requires_an_ally_action_route() {
+    init_config();
+    let catalog = SkillEffectCatalog::from_game_db(config::configs::get());
+
+    let everecho = &catalog.get(31450141).unwrap().slots[2];
+    let event_free = &catalog.get(115380001).unwrap().slots[0];
+
+    assert!(crate::engine::skill::behavior::is_slot_supported(everecho));
+    assert!(crate::engine::skill::behavior::is_supported(
+        &event_free.behavior
+    ));
+    assert!(!crate::engine::skill::behavior::is_slot_supported(
+        event_free
+    ));
+}
+
+#[test]
 fn get_resolves_skill_id_alias_to_effect_id() {
     let mut catalog = SkillEffectCatalog::default();
     catalog.insert(ParsedSkillEffect {
@@ -589,12 +615,15 @@ fn active_skill_filters_share_the_exact_skill_action_driver() {
 
     let subscriptions = catalog.compiled_subscriptions(435011).unwrap();
     assert!(
-        subscriptions.contains(&SubscriptionKey::at_phase_and_publication(
-            crate::engine::event::kind::EventKind::SkillAction,
-            crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag"),
-            Some(crate::engine::skill::action::SkillPhase::HitPassives),
-            crate::engine::event::subscription::PublicationPhase::BeforePublish,
-        ))
+        subscriptions.contains(
+            &SubscriptionKey::at_phase_and_publication(
+                crate::engine::event::kind::EventKind::SkillAction,
+                crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag"),
+                Some(crate::engine::skill::action::SkillPhase::HitPassives),
+                crate::engine::event::subscription::PublicationPhase::BeforePublish,
+            )
+            .with_timing(crate::engine::event::subscription::ReactionTiming::AfterSkill)
+        )
     );
     assert!(!subscriptions.iter().any(|subscription| {
         subscription.event == crate::engine::event::kind::EventKind::SkillAction
@@ -653,6 +682,7 @@ fn target_count_and_effect_tag_share_the_effect_tag_driver() {
         subscription.definition
             == crate::engine::skill::rule::DefinitionKey::new(34210, "UseSkillEffectTag")
             && subscription.phase == Some(crate::engine::skill::action::SkillPhase::HitPassives)
+            && subscription.timing == crate::engine::event::subscription::ReactionTiming::AfterSkill
     }));
     assert!(
         !subscriptions

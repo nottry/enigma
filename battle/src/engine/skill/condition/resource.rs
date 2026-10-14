@@ -116,6 +116,18 @@ pub fn power_ratio(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKi
     })
 }
 
+pub fn fight_progress_value(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+    let [progress_id, compare_code, threshold] = parse_fixed(args)?;
+    if !matches!(compare_code, 1..=3) {
+        return None;
+    }
+    Some(ParsedConditionKind::FightProgressValue {
+        progress_id,
+        compare_code,
+        threshold,
+    })
+}
+
 pub fn power_increase(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
     let [power_id, compare_code, threshold] = parse_fixed(args)?;
     Some(ParsedConditionKind::PowerIncrChange {

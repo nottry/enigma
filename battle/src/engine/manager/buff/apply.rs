@@ -4,6 +4,13 @@ use super::grant_plan::{
 use super::*;
 use crate::engine::skill::buff_act::registry::BuffActKind;
 
+#[derive(Clone, Copy)]
+struct BuffInsertion {
+    uid_owner: i64,
+    uid_plan: uid_policy::UidAllocationPlan,
+    effective: bool,
+}
+
 impl BuffManager {
     #[cfg(test)]
     pub(crate) fn add(
@@ -111,9 +118,13 @@ impl BuffManager {
         route: BuffRoute,
         definition: &BuffDefinition,
         args: BuffAddArgs,
-        uid_owner: i64,
-        uid_plan: uid_policy::UidAllocationPlan,
+        insertion: BuffInsertion,
     ) -> Option<BuffApplyResult> {
+        let BuffInsertion {
+            uid_owner,
+            uid_plan,
+            effective,
+        } = insertion;
         let layer = self.grant_layer(route, definition, args);
         let BuffRoute {
             source_uid,
@@ -170,36 +181,47 @@ impl BuffManager {
             team_type,
             type_id: definition.effective_type_id(),
             definition: Some(definition.clone()),
+            fanout_emitter_uid: None,
+            effective,
             buff: buff.clone(),
         });
-        self.record_added(
-            target_uid,
-            buff_id,
-            count_or_layer_from(&buff, Some(definition)),
-        );
-        let markers = definition
-            .wire_markers(crate::engine::skill::buff_act::wire::WirePhase::Add)
-            .into_iter()
-            .map(|effect_type| BuffMarkerResult {
+        if effective {
+            self.record_added(
                 target_uid,
-                effect_type,
-                effect_num: definition.marker_effect_num(
-                    self.catalog().game_data(),
+                buff_id,
+                count_or_layer_from(&buff, Some(definition)),
+            );
+        }
+        let (pre_markers, pre_effects, markers) = if effective {
+            let pre_markers = pre_markers
+                .into_iter()
+                .filter(|marker| definition.projects_initial_wire_state(marker.act_id))
+                .collect();
+            let markers = definition
+                .wire_markers(crate::engine::skill::buff_act::wire::WirePhase::Add)
+                .into_iter()
+                .map(|effect_type| BuffMarkerResult {
+                    target_uid,
                     effect_type,
-                    buff.act_common_params.as_deref(),
-                ),
-                buff_act_id: 0,
-            })
-            .collect();
+                    effect_num: definition.marker_effect_num(
+                        self.catalog().game_data(),
+                        effect_type,
+                        buff.act_common_params.as_deref(),
+                    ),
+                    buff_act_id: 0,
+                })
+                .collect();
+            (pre_markers, pre_effects, markers)
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
 
         Some(BuffApplyResult {
             source_uid,
             target_uid,
+            effective,
             buff,
-            pre_markers: pre_markers
-                .into_iter()
-                .filter(|marker| definition.projects_initial_wire_state(marker.act_id))
-                .collect(),
+            pre_markers,
             pre_effects,
             markers,
             fanout: Vec::new(),
@@ -216,8 +238,17 @@ impl BuffManager {
         uid: uid_policy::UidAllocationPlan,
         fanout: &[PlannedFanout],
     ) -> Option<BuffApplyResult> {
-        let mut applied =
-            self.add_one_with_uid(hp, route, definition, args, route.target_uid, uid)?;
+        let mut applied = self.add_one_with_uid(
+            hp,
+            route,
+            definition,
+            args,
+            BuffInsertion {
+                uid_owner: route.target_uid,
+                uid_plan: uid,
+                effective: true,
+            },
+        )?;
         applied.fanout = self.commit_fanout(hp, fanout);
         Some(applied)
     }
@@ -659,15 +690,40 @@ impl BuffManager {
         spec: &FanoutSpec,
         uid: uid_policy::UidAllocationPlan,
     ) -> Option<BuffApplyResult> {
+        let effective = !self.buffs.iter().any(|active| {
+            active.effective
+                && active.owner_uid == spec.route.target_uid
+                && active.buff.buff_id == Some(spec.route.buff_id)
+                && active.buff.from_uid == Some(spec.route.source_uid)
+        });
         let grant_values = self.plan_grant_values(&spec.definition, spec.route.source_uid);
+        let initial_act_info = spec
+            .definition
+            .initial_planned_act_info(spec.source_attack, &grant_values);
         let mut child = self.add_one_with_uid(
             hp,
             spec.route,
             &spec.definition,
             spec.args,
-            spec.route.source_uid,
-            uid,
+            BuffInsertion {
+                uid_owner: spec.route.source_uid,
+                uid_plan: uid,
+                effective,
+            },
         )?;
+        if let Some(active) = self.buffs.iter_mut().find(|active| {
+            active.owner_uid == child.target_uid && active.buff.uid == child.buff.uid
+        }) {
+            active.fanout_emitter_uid = Some(spec.emitter_uid);
+        }
+        if let Some(initial_act_info) = initial_act_info {
+            child.buff.act_info.extend(initial_act_info);
+            if let Some(active) = self.buffs.iter_mut().find(|active| {
+                active.owner_uid == child.target_uid && active.buff.uid == child.buff.uid
+            }) {
+                active.buff.act_info = child.buff.act_info.clone();
+            }
+        }
         if let Some(buff_uid) = child.buff.uid {
             self.commit_grant_values(buff_uid, &grant_values);
         }
@@ -677,34 +733,36 @@ impl BuffManager {
         }) {
             active.buff.duration = Some(spec.duration);
         }
-        child.markers = halo::fanout_markers(self.catalog(), spec.route.buff_id)
-            .into_iter()
-            .map(|marker| BuffMarkerResult {
-                target_uid: spec.route.target_uid,
-                effect_type: marker.effect_type as i32,
-                effect_num: spec.definition.marker_effect_num(
-                    self.catalog().game_data(),
-                    marker.effect_type as i32,
-                    child.buff.act_common_params.as_deref(),
-                ),
-                buff_act_id: 0,
-            })
-            .collect();
-        child.markers.extend(
-            spec.definition
-                .fanout_wire_markers(crate::engine::skill::buff_act::wire::WirePhase::Add)
+        if effective {
+            child.markers = halo::fanout_markers(self.catalog(), spec.route.buff_id)
                 .into_iter()
-                .map(|effect_type| BuffMarkerResult {
+                .map(|marker| BuffMarkerResult {
                     target_uid: spec.route.target_uid,
-                    effect_type,
+                    effect_type: marker.effect_type as i32,
                     effect_num: spec.definition.marker_effect_num(
                         self.catalog().game_data(),
-                        effect_type,
+                        marker.effect_type as i32,
                         child.buff.act_common_params.as_deref(),
                     ),
                     buff_act_id: 0,
-                }),
-        );
+                })
+                .collect();
+            child.markers.extend(
+                spec.definition
+                    .fanout_wire_markers(crate::engine::skill::buff_act::wire::WirePhase::Add)
+                    .into_iter()
+                    .map(|effect_type| BuffMarkerResult {
+                        target_uid: spec.route.target_uid,
+                        effect_type,
+                        effect_num: spec.definition.marker_effect_num(
+                            self.catalog().game_data(),
+                            effect_type,
+                            child.buff.act_common_params.as_deref(),
+                        ),
+                        buff_act_id: 0,
+                    }),
+            );
+        }
         child.derived_by = Some(spec.rule);
         Some(child)
     }
@@ -764,7 +822,7 @@ impl BuffManager {
             } else {
                 groups.push(BuffFanoutResult {
                     rule: plan.spec.rule,
-                    emitter_uid: plan.spec.route.source_uid,
+                    emitter_uid: plan.spec.emitter_uid,
                     carrier_buff_uid: plan.carrier_buff_uid,
                     carrier_buff_id: plan.carrier_buff_id,
                     added: Vec::new(),

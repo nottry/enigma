@@ -18,6 +18,7 @@ pub enum FireCountMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TargetEmissionMode {
     Each,
+    EachSettled,
     Once,
     // Configures the casting owner itself, whatever the configured target resolves to.
     Owner,
@@ -94,6 +95,7 @@ pub struct BehaviorDefinition {
     pub references: fn(&ParsedBehavior) -> RuleReferences,
     pub card_play_role: CardPlayRole,
     pub condition_route_override: Option<ConditionRouteOverride>,
+    pub required_event: Option<EventKind>,
     pub supports: Option<fn(&ParsedBehavior) -> bool>,
 }
 
@@ -191,6 +193,7 @@ pub const fn definition<H: BehaviorHandler>(
         references: H::references,
         card_play_role: CardPlayRole::Action,
         condition_route_override: None,
+        required_event: None,
         supports: if H::VALIDATES_ARGUMENTS {
             Some(H::supports)
         } else {
@@ -364,6 +367,31 @@ pub const fn destination_definition<H: BehaviorHandler>(
     }
 }
 
+pub const fn ally_action_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        required_event: Some(EventKind::AllyAction),
+        ..destination_definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
+pub const fn settled_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        destination: true,
+        target_emission_mode: TargetEmissionMode::EachSettled,
+        ..definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
 pub const fn modifier_definition<H: BehaviorHandler>(
     opcode: i32,
     type_name: &'static str,
@@ -474,6 +502,12 @@ macro_rules! behavior_definitions {
     (@definition destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
+    (@definition ally_action_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::ally_action_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
+    (@definition settled_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::settled_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
     (@definition queue_preparation, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::queue_preparation_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
@@ -552,8 +586,9 @@ behavior_definitions! {
     [60305] "ConsumeBuffMeiLeiEr" => super::resource::Handler, ConsumeBuffIntoChargeAndRewards, Immediate, destination, super::resource::supports_consume_buff_into_charge_and_rewards;
     [60291] "AddDevicePower" => super::resource::Handler, AddConduitPower, Immediate, destination, super::resource::supports_conduit_power;
     [60292] "AddDeviceExPoint" => super::resource::Handler, AddConduitExPoint, Immediate, setup_parent_destination, super::resource::supports_ex_point_gain;
-    [60293] "SetDeviceSkillIndex" => super::resource::Handler, SetConduitSkillGroup, Immediate, destination, super::resource::supports_conduit_skill_group;
+    [60293] "SetDeviceSkillIndex" => super::resource::Handler, SetConduitSkillGroup, Immediate, destination, @route(ConditionRouteOverride::Trigger { key: DefinitionKey::new(19210, "HasBuffId"), event: EventKind::SkillAction, phase: Some(SkillPhase::AfterHit) }), super::resource::supports_conduit_skill_group;
     [60294] "StopDeviceSkill" => super::resource::Handler, StopConduitSkill, Immediate, destination, arguments::none;
+    [60308] "ConsumeBuffResetDevice" => super::resource::Handler, ConsumeBuffResetDevice, Immediate, ally_action_destination, super::resource::supports_consume_buff_reset_device;
     [60297] "AddDeviceCounter" => super::resource::Handler, AddConduitCounter, Immediate, destination, super::resource::supports_conduit_counter;
     [100034] "StopDeviceSkill" => super::resource::Handler, StopConduitSkill, Immediate, destination, arguments::none;
     [60231] "RaspberryAddCount" => super::resource::Handler, RaspberryAddCount, Immediate, destination, super::resource::supports_raspberry_add_count;
@@ -670,8 +705,11 @@ behavior_definitions! {
     [60198] "ClientEffect" => super::general::Handler, ClientEffect, Immediate, destination, arguments::at_least_one;
     [60249] "AddMaxRound" => super::general::AddMaxRoundHandler, AddMaxRound, Immediate, destination;
     [60016] "AddIndicator" => super::general::AddIndicatorHandler, AddIndicator, Immediate, destination;
+    [100015] "ProgressInitNew" => super::fight_progress::InitializeHandler, ProgressInitNew, Immediate, destination;
+    [100016] "ProgressChangeNew" => super::fight_progress::ChangeHandler, ProgressChangeNew, Immediate, destination;
     [60268] "ChangeScene" => super::scene::Handler, ChangeScene, Immediate, destination;
     [60058] "CareerRatioFix" => super::career::Handler, CareerRatioFix, Immediate, modifier;
+    [50013] "ChangeCareer" => super::career::Handler, ChangeCareer, Immediate, destination;
     [100036] "SkillChangeAttackCareer" => super::career::Handler, ChangeAttackCareer, Immediate, modifier;
     [60299] "SetCareerRestraint" => super::career::Handler, SetCareerRestraint, Immediate, modifier, arguments::none;
     [40003] "AddAct" => super::action_point::Handler, AddAct, Immediate, round_modifier_only;
@@ -708,7 +746,7 @@ behavior_definitions! {
     [60271] "SetExtraType" => super::general::SetExtraTypeHandler, SetExtraType, Immediate, destination, super::general::supports_extra_type;
     [10006] "Damage" => crate::engine::damage::handler::Handler, Damage, Immediate, destination, crate::engine::damage::handler::supports_attribute_damage;
     [10008] "Damage2" => crate::engine::damage::handler::Handler, Damage2, Immediate, plain;
-    [30014] "OriginDamage" => crate::engine::damage::handler::Handler, OriginDamage, Immediate, destination, crate::engine::damage::handler::supports_origin_damage;
+    [30014] "OriginDamage" => crate::engine::damage::handler::Handler, OriginDamage, Immediate, settled_destination, crate::engine::damage::handler::supports_origin_damage;
     [30015] "OriginDamageCanCrit" => crate::engine::damage::handler::Handler, OriginDamageCanCrit, Immediate, destination, crate::engine::damage::handler::supports_origin_damage;
     [60146] "OriginDamageByTeamAttr" => crate::engine::damage::handler::Handler, OriginDamageByTeamAttr, AfterDamage, plain, crate::engine::damage::handler::supports_team_attr_damage;
     [60127] "OriginDamageByAttrAndBuffGroupSize" => crate::engine::damage::handler::Handler, OriginDamageByAttrAndBuffGroupSize, AfterDamage, plain;
@@ -717,6 +755,7 @@ behavior_definitions! {
     [90001] "Heal" => crate::engine::damage::handler::Handler, Heal, AfterDamage, destination, crate::engine::damage::handler::supports_heal;
     [20016] "HealCantCrit" => crate::engine::damage::handler::Handler, HealCantCrit, AfterDamage, destination, crate::engine::damage::handler::supports_attr_heal;
     [60232] "HealByTwoAttr" => crate::engine::damage::handler::Handler, HealByTwoAttr, AfterDamage, destination, crate::engine::damage::handler::supports_two_attr_heal;
+    [60309] "FakeHpToHeal" => super::fake_hp::Handler, FakeHpToHeal, AfterDamage, destination;
     [20010] "Bloodlust" => crate::engine::damage::handler::Handler, Bloodlust, AfterDamage, destination, crate::engine::damage::handler::supports_bloodlust;
     [30005] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
     [30006] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;

@@ -179,6 +179,15 @@ fn parses_opcode_specific_entity_count_conditions() {
             count: 2,
         }
     );
+
+    let conditions = parse_conditions(config::configs::get(), "74210#1#103370112#1！");
+    assert_eq!(
+        conditions[0].kind,
+        ParsedConditionKind::Not(Box::new(ParsedConditionKind::AliveAlliedModelCount {
+            model_id: 103370112,
+            minimum: 1,
+        }))
+    );
 }
 
 #[test]

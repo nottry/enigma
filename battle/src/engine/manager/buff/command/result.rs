@@ -10,6 +10,7 @@ pub struct BuffChanges {
     pub pre_add_markers_before_remove: bool,
     pub refresh_wire: Vec<BuffRefreshWire>,
     pub state_snapshot_wire: Vec<BuffStateSnapshotWire>,
+    pub refresh_initial_state_markers: Vec<BuffActInfoMarkerResult>,
     pub shield_removed: Vec<BuffShieldRemoveResult>,
     pub act_info_markers: Vec<BuffActInfoMarkerResult>,
     duration_expired: bool,
@@ -166,6 +167,7 @@ impl BuffChanges {
             pre_add_markers_before_remove,
             refresh_wire,
             state_snapshot_wire: Vec::new(),
+            refresh_initial_state_markers: Vec::new(),
             shield_removed: Vec::new(),
             act_info_markers: Vec::new(),
             duration_expired: false,
@@ -193,6 +195,14 @@ impl BuffChanges {
 
     pub(super) fn with_act_info_marker(mut self, marker: BuffActInfoMarkerResult) -> Self {
         self.act_info_markers.push(marker);
+        self
+    }
+
+    pub(super) fn with_refresh_initial_state_markers(
+        mut self,
+        markers: Vec<BuffActInfoMarkerResult>,
+    ) -> Self {
+        self.refresh_initial_state_markers = markers;
         self
     }
 

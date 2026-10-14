@@ -136,6 +136,21 @@ mod tests {
         );
         assert!(!forces_critical(&features, 10, false));
         assert!(forces_critical(&features, 10, true));
+        assert_eq!(
+            super::super::calculated_attack_attribute_delta_for_skill(
+                configured,
+                AttrId::DmgBonus,
+                &managers.attribute,
+                &managers.buff,
+                &managers.hp,
+                false,
+                false,
+                true,
+                &[(31050186, 20)],
+            ),
+            0
+        );
+        assert!(forces_critical(&features, 10, true));
 
         let mut malformed = configured.clone();
         malformed.values = vec![860, 205, 999, 203];

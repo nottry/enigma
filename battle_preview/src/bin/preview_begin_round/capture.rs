@@ -10,7 +10,7 @@ pub(super) struct CapturedBattle {
     pub start_request: Option<PathBuf>,
     // The packet the build metadata is resolved against.
     pub metadata: PathBuf,
-    pub start_cloth: Vec<PathBuf>,
+    pub start_cloth: Vec<CapturedCloth>,
     pub rounds: Vec<CapturedRound>,
 }
 
@@ -19,7 +19,13 @@ pub(super) struct CapturedRound {
     pub index: i32,
     pub request: PathBuf,
     pub reply: PathBuf,
-    pub cloth: Vec<PathBuf>,
+    pub cloth: Vec<CapturedCloth>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct CapturedCloth {
+    pub request: PathBuf,
+    pub reply: Option<PathBuf>,
 }
 
 impl CapturedBattle {
@@ -54,7 +60,7 @@ impl CapturedBattle {
                     index,
                     request: parent.join(request),
                     reply: parent.join(reply),
-                    cloth: super::cloth_input_paths(parent, index)?,
+                    cloth: cloth_inputs(parent, index)?,
                 })
             })
             .collect::<io::Result<Vec<_>>>()?;
@@ -62,7 +68,7 @@ impl CapturedBattle {
             start,
             start_request,
             metadata: round_path.to_path_buf(),
-            start_cloth: super::cloth_input_paths(parent, 0)?,
+            start_cloth: cloth_inputs(parent, 0)?,
             rounds,
         })
     }
@@ -116,7 +122,15 @@ fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
                     ..Default::default()
                 });
             }
-            "UseClothSkillRequest" if current.is_some() => cloth.push(file.clone()),
+            "UseClothSkillRequest" if current.is_some() => cloth.push(CapturedCloth {
+                request: file.clone(),
+                reply: None,
+            }),
+            "UseClothSkillReply" if current.is_some() => {
+                if let Some(input) = cloth.iter_mut().rev().find(|input| input.reply.is_none()) {
+                    input.reply = Some(file.clone());
+                }
+            }
             "BeginRoundRequest" if current.is_some() => request = Some(file.clone()),
             "BeginRoundReply" => {
                 if let (Some(battle), Some(request)) = (current.as_mut(), request.take()) {
@@ -137,6 +151,22 @@ fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
     }
     battles.extend(current);
     battles
+}
+
+fn cloth_inputs(parent: &Path, round_index: i32) -> io::Result<Vec<CapturedCloth>> {
+    super::cloth_input_paths(parent, round_index).map(|requests| {
+        requests
+            .into_iter()
+            .map(|request| {
+                let reply = request.file_name().and_then(|name| {
+                    let name = name.to_string_lossy().replace("Request", "Reply");
+                    let path = request.with_file_name(name);
+                    path.exists().then_some(path)
+                });
+                CapturedCloth { request, reply }
+            })
+            .collect()
+    })
 }
 
 fn is_start_reply(command: &str) -> bool {
@@ -191,18 +221,45 @@ mod tests {
                     index: 1,
                     request: files[3].clone(),
                     reply: files[4].clone(),
-                    cloth: vec![files[2].clone()],
+                    cloth: vec![CapturedCloth {
+                        request: files[2].clone(),
+                        reply: None,
+                    }],
                 },
                 CapturedRound {
                     index: 2,
                     request: files[6].clone(),
                     reply: files[7].clone(),
-                    cloth: vec![files[5].clone()],
+                    cloth: vec![CapturedCloth {
+                        request: files[5].clone(),
+                        reply: None,
+                    }],
                 },
             ]
         );
         assert_eq!(battles[1].start, files[10]);
         assert_eq!(battles[1].start_request, None);
         assert_eq!(battles[1].rounds.len(), 1);
+    }
+
+    #[test]
+    fn session_timeline_pairs_a_cloth_reply_with_its_request() {
+        let files = [
+            "20260927_080404_757_000410_StartDungeonReply.json",
+            "20260927_080409_543_000415_UseClothSkillRequest.json",
+            "20260927_080409_600_000416_UseClothSkillReply.json",
+            "20260927_080411_302_000420_BeginRoundRequest.json",
+            "20260927_080411_371_000421_BeginRoundReply.json",
+        ]
+        .map(PathBuf::from);
+
+        let battles = split_session(&files);
+
+        assert_eq!(battles[0].rounds[0].cloth.len(), 1);
+        assert_eq!(battles[0].rounds[0].cloth[0].request, files[1]);
+        assert_eq!(
+            battles[0].rounds[0].cloth[0].reply.as_ref(),
+            Some(&files[2])
+        );
     }
 }

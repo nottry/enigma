@@ -839,6 +839,13 @@ fn condition_kind_matches(
                     *threshold_permille,
                 )
         }),
+        ParsedConditionKind::FightProgressValue {
+            progress_id,
+            compare_code,
+            threshold,
+        } => managers
+            .and_then(|managers| managers.fight_progress.get(*progress_id))
+            .is_some_and(|progress| compare_resource(progress.value, *compare_code, *threshold)),
         ParsedConditionKind::ConduitExPoint {
             compare_code,
             threshold,
@@ -1042,14 +1049,13 @@ fn condition_kind_matches(
                 source_uid
             })
             .is_some_and(|source| {
-                source.ex_skill != 0
-                    && managers.is_some_and(|managers| {
-                        crate::engine::mechanic::card::CardMechanic.is_ultimate_skill(
-                            managers,
-                            context.active_skill_id,
-                            source,
-                        )
-                    })
+                managers.is_some_and(|managers| {
+                    crate::engine::mechanic::card::CardMechanic.is_ultimate_skill(
+                        managers,
+                        context.active_skill_id,
+                        source,
+                    )
+                })
             }),
         ParsedConditionKind::TargetUseExSkill => {
             context.active_skill_source_uid != 0
@@ -1092,7 +1098,12 @@ fn condition_kind_matches(
             context.active_skill_effect_tag != 0 && tags.contains(&context.active_skill_effect_tag)
         }
         ParsedConditionKind::DamageTargetCountKind(kind) => {
+            context.active_skill_is_attack && context.damage_target_count_kind == *kind
+        }
+        ParsedConditionKind::ReceivedDamageTargetCountKind(kind) => {
             context.damage_target_count_kind == *kind
+                && context.hit_target_uid != 0
+                && condition_targets.contains(&context.hit_target_uid)
         }
         ParsedConditionKind::SourceDamageType(damage_type) => pool
             .entity(source_uid)
@@ -1160,6 +1171,13 @@ fn condition_kind_matches(
             compare,
             count,
         } => entity_count_matches(*scope, *compare, *count, source_uid, managers, pool),
+        ParsedConditionKind::AliveAlliedModelCount { model_id, minimum } => {
+            pool.main_allies(source_uid)
+                .iter()
+                .filter(|entity| entity.model_id == *model_id)
+                .count() as i32
+                >= *minimum
+        }
         ParsedConditionKind::SummonedCount {
             summoned_id,
             required_level,

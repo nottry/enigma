@@ -360,6 +360,8 @@ fn value_bearing_type_seven_evicts_the_oldest_same_type_instance() {
         team_type: 1,
         type_id: definition.effective_type_id(),
         definition: Some(definition),
+        fanout_emitter_uid: None,
+        effective: true,
         buff: BuffInfo {
             buff_id: Some(6200599),
             uid: Some(1),
@@ -483,6 +485,42 @@ fn refreshing_a_stacked_timed_attribute_merges_the_held_instance() {
     assert_eq!(refreshed.refreshed[0].after.uid, Some(40));
     assert_eq!(refreshed.refreshed[0].after.layer, Some(12));
     assert_eq!(refreshed.refreshed[0].after.duration, Some(3));
+    assert_eq!(manager.active_for(10).count(), 1);
+}
+
+#[test]
+fn refreshing_a_timed_layer_merges_and_renews_the_held_instance() {
+    init_config();
+    let hp = HpManager::default();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(31450111),
+                    duration: Some(1),
+                    uid: Some(40),
+                    from_uid: Some(20),
+                    layer: Some(1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    let refreshed =
+        manager.add_replacing_excluded_with_layer_specified(&hp, 20, 10, 31450111, 0, false);
+
+    assert!(refreshed.added.is_none());
+    assert_eq!(refreshed.refreshed.len(), 1);
+    assert_eq!(refreshed.refreshed[0].after.uid, Some(40));
+    assert_eq!(refreshed.refreshed[0].after.layer, Some(2));
+    assert_eq!(refreshed.refreshed[0].after.duration, Some(2));
     assert_eq!(manager.active_for(10).count(), 1);
 }
 

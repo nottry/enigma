@@ -14,7 +14,13 @@ pub enum PublicationPhase {
 pub enum ReactionTiming {
     #[default]
     Immediate,
+    AfterSettlement,
     AfterSkill,
+    AfterHitSkills,
+    BeforeAfterHitObservers,
+    AfterHitObservers,
+    AfterSharedHit,
+    AfterAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

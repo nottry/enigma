@@ -481,11 +481,12 @@ impl BehaviorHandler for Handler {
                 if *skill_id <= 0 || configured_chance <= 0 {
                     return Some(Vec::new());
                 }
-                let candidates = [*skill_id];
-                let captured = context.determinism.take_random_skill(&candidates).is_some();
-                let scripted = context.determinism.has_scripted_random_skill(&candidates);
-                if !captured && (scripted || !context.determinism.roll_permille(configured_chance))
-                {
+                if !context.determinism.roll_crystal_reuse(
+                    context.source_uid,
+                    context.active_skill_id,
+                    *skill_id,
+                    configured_chance,
+                ) {
                     return Some(Vec::new());
                 }
                 let mut invocation: crate::engine::skill::action::SkillInvocation =

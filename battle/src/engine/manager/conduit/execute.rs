@@ -57,7 +57,13 @@ impl ConduitManager {
                     return Err(ConduitError::StoppedSkill(skill_id));
                 }
                 let spent = skill.cost_after_reduction(cost_reduction);
-                let available = self.power(team, skill.cost_type);
+                let specific_available = self.power(team, skill.cost_type);
+                let generic_available = if skill.cost_type > 0 && skill.cost_type != 999 {
+                    self.power(team, 0)
+                } else {
+                    0
+                };
+                let available = specific_available.saturating_add(generic_available);
                 if skill.cost_type != 999 && available < spent {
                     return Err(ConduitError::InsufficientPower {
                         power_id: skill.cost_type,
@@ -65,23 +71,23 @@ impl ConduitManager {
                         required: spent,
                     });
                 }
+                let specific_spent = spent.min(specific_available);
+                let generic_spent = spent.saturating_sub(specific_spent);
                 if skill.cost_type != 999 {
                     let area = self
                         .areas
                         .get_mut(&team)
                         .ok_or(ConduitError::MissingArea(team))?;
-                    let power = area
-                        .powers
-                        .iter_mut()
-                        .find(|power| power.id == skill.cost_type);
-                    if let Some(power) = power {
-                        power.value -= spent;
-                    } else if spent > 0 {
-                        return Err(ConduitError::InsufficientPower {
-                            power_id: skill.cost_type,
-                            available: 0,
-                            required: spent,
-                        });
+                    for (power_id, amount) in
+                        [(skill.cost_type, specific_spent), (0, generic_spent)]
+                    {
+                        if amount > 0 {
+                            area.powers
+                                .iter_mut()
+                                .find(|power| power.id == power_id)
+                                .expect("the planned Conduit power is available")
+                                .value -= amount;
+                        }
                     }
                 }
                 self.pending_activations.insert(
@@ -105,6 +111,7 @@ impl ConduitManager {
                     power_id: skill.cost_type,
                     activation_cost: skill.cost_value,
                     spent,
+                    generic_spent,
                 })
             }
             ConduitCommand::CommitSkillCost {
@@ -270,17 +277,17 @@ impl ConduitManager {
                     .get_mut(&team)
                     .ok_or(ConduitError::MissingArea(team))?;
                 let mut spent = 0i32;
-                for power_id in power_ids {
+                for power_id in &power_ids {
                     let value = area
                         .powers
                         .iter_mut()
-                        .find(|power| power.id == power_id)
+                        .find(|power| power.id == *power_id)
                         .map(|power| std::mem::take(&mut power.value))
                         .unwrap_or_default()
                         .max(0);
                     spent = spent.saturating_add(value);
                     self.consumed_this_round
-                        .entry((team, power_id))
+                        .entry((team, *power_id))
                         .and_modify(|consumed| *consumed = consumed.saturating_add(value))
                         .or_insert(value);
                 }

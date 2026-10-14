@@ -1,7 +1,9 @@
 use sonettobuf::{ActEffect, FightStep, MagicCircleInfo};
 
 use crate::engine::{
-    fight::versions::{AbsorbHurtMapLayout, HurtInfoWireLayout, RedealWireLayout},
+    fight::versions::{
+        AbsorbHurtMapLayout, ChangeRoundWireLayout, HurtInfoWireLayout, RedealWireLayout,
+    },
     manager::{
         card::{CARD_PLAY_ORIGIN, CardChangeKind},
         eureka::EurekaChanges,
@@ -55,12 +57,16 @@ pub(crate) fn project_for_version_with_absorb_map_layout(
         .ok_or(ProjectionError::FightVersion(fight_version))?;
     let redeal_layout = crate::engine::fight::versions::redeal_wire_layout(fight_version)
         .ok_or(ProjectionError::FightVersion(fight_version))?;
+    let change_round_layout =
+        crate::engine::fight::versions::change_round_wire_layout(fight_version)
+            .ok_or(ProjectionError::FightVersion(fight_version))?;
     project_frames(
         frames,
         crate::engine::fight::versions::writes_reduce_hp(fight_version),
         hurt_info_layout,
         absorb_map_layout,
         redeal_layout,
+        change_round_layout,
     )
 }
 
@@ -75,6 +81,7 @@ fn project_with_reduce_hp(
         HurtInfoWireLayout::Version6,
         AbsorbHurtMapLayout::default(),
         RedealWireLayout::Version6,
+        ChangeRoundWireLayout::Incremental,
     )
 }
 
@@ -84,6 +91,7 @@ fn project_frames(
     hurt_info_layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
     redeal_layout: RedealWireLayout,
+    change_round_layout: ChangeRoundWireLayout,
 ) -> Result<Vec<FightStep>, ProjectionError> {
     let frames = frames
         .iter()
@@ -94,6 +102,7 @@ fn project_frames(
                 hurt_info_layout,
                 absorb_map_layout,
                 redeal_layout,
+                change_round_layout,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -106,6 +115,7 @@ fn project_frame(
     hurt_info_layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
     redeal_layout: RedealWireLayout,
+    change_round_layout: ChangeRoundWireLayout,
 ) -> Result<Option<FightStep>, ProjectionError> {
     let effects = project_frame_items(
         &frame.items,
@@ -113,6 +123,7 @@ fn project_frame(
         hurt_info_layout,
         absorb_map_layout,
         redeal_layout,
+        change_round_layout,
     )?;
     if effects.is_empty()
         && !frame
@@ -140,33 +151,37 @@ fn project_frame(
         FrameOwner::ConduitSkill {
             source_uid,
             skill_id,
-            card_index,
+            device_index,
             target_uid,
         } => Ok(Some(normalize_framed_step(
             EffectPacket::conduit_skill_fight_step(
                 *skill_id,
                 *source_uid,
                 target_uid.unwrap_or_default(),
-                *card_index,
+                *device_index,
                 effects,
             ),
         ))),
         FrameOwner::ConduitAction {
             source_uid,
-            group,
+            selected_group: _,
+            device_index,
             skill_position,
             target_uid,
         } => Ok(Some(normalize_framed_step(
             EffectPacket::conduit_fight_step(
                 *source_uid,
                 target_uid.unwrap_or_default(),
-                *group,
+                *device_index,
                 *skill_position,
                 effects,
             ),
         ))),
-        FrameOwner::ConduitStopped { source_uid, group } => Ok(Some(normalize_framed_step(
-            EffectPacket::conduit_fight_step(*source_uid, 0, *group, 1, effects),
+        FrameOwner::ConduitStopped {
+            source_uid,
+            device_index,
+        } => Ok(Some(normalize_framed_step(
+            EffectPacket::conduit_fight_step(*source_uid, 0, *device_index, 1, effects),
         ))),
         FrameOwner::BuffAct {
             owner_uid,
@@ -205,6 +220,7 @@ fn project_frame_items(
     hurt_info_layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
     redeal_layout: RedealWireLayout,
+    change_round_layout: ChangeRoundWireLayout,
 ) -> Result<Vec<ActEffect>, ProjectionError> {
     let mut effects = Vec::new();
     for item in items {
@@ -222,8 +238,11 @@ fn project_frame_items(
                 hurt_info_layout,
                 absorb_map_layout,
                 redeal_layout,
+                change_round_layout,
             )?),
-            FrameItem::Cue(cue) => effects.extend(project_cue(cue, redeal_layout)),
+            FrameItem::Cue(cue) => {
+                effects.extend(project_cue(cue, redeal_layout, change_round_layout))
+            }
         }
     }
     Ok(effects)
@@ -235,6 +254,7 @@ fn project_child(
     hurt_info_layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
     redeal_layout: RedealWireLayout,
+    change_round_layout: ChangeRoundWireLayout,
 ) -> Result<Option<ActEffect>, ProjectionError> {
     Ok(project_frame(
         frame,
@@ -242,6 +262,7 @@ fn project_child(
         hurt_info_layout,
         absorb_map_layout,
         redeal_layout,
+        change_round_layout,
     )?
     .map(EffectPacket::from_fight_step))
 }
@@ -357,6 +378,12 @@ fn project_change(
         BattleChange::Contract(crate::engine::manager::contract::ContractChange::Cleared {
             ..
         }) => Vec::new(),
+        BattleChange::FightProgress(change) => {
+            EffectPacket::fight_progress_initialized(change.state).to_vec()
+        }
+        BattleChange::FightProgressValue(change) => {
+            vec![EffectPacket::fight_progress_changed(*change)]
+        }
         BattleChange::BuffActTrigger(trigger) => {
             vec![EffectPacket::buff_act_trigger(*trigger)]
         }
@@ -432,6 +459,7 @@ fn project_change(
                     });
                 apply_absorbed_shield_wire(
                     &mut effect,
+                    changes.fake_hp_consumed,
                     changes.team_shared_shield_absorbed,
                     changes.shield_absorbed,
                     hurt_info_layout,
@@ -448,6 +476,7 @@ fn project_change(
                 );
                 apply_absorbed_shield_wire(
                     &mut effect,
+                    changes.fake_hp_consumed,
                     changes.team_shared_shield_absorbed,
                     changes.shield_absorbed,
                     hurt_info_layout,
@@ -482,7 +511,7 @@ fn project_change(
                 }
             }
             if let Some(death) = changes.death {
-                effects.push(EffectPacket::dead(death.target_uid));
+                effects.push(EffectPacket::dead(death.transition().target_uid));
             }
             effects
         }
@@ -678,9 +707,15 @@ fn project_change(
             power_id,
             activation_cost,
             spent,
+            generic_spent,
             ..
         }) if *power_id != 999 && (*spent > 0 || *activation_cost == 0) => {
-            vec![EffectPacket::conduit_skill_began(*team, *power_id, *spent)]
+            vec![EffectPacket::conduit_skill_began(
+                *team,
+                *power_id,
+                spent.saturating_sub(*generic_spent),
+                *generic_spent,
+            )]
         }
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::SkillBegan {
             ..
@@ -1202,6 +1237,13 @@ fn project_change(
                     changes.origin.key.opcode,
                 )]
             }
+            crate::engine::manager::entity::EntityOperation::ChangeCareer { career } => {
+                vec![EffectPacket::career_change(
+                    changes.target_uid,
+                    career,
+                    changes.origin.key.opcode,
+                )]
+            }
         },
         BattleChange::ToughnessRecovered(change) => {
             vec![EffectPacket::toughness_recover(*change)]
@@ -1254,18 +1296,24 @@ fn project_change(
 
 fn apply_absorbed_shield_wire(
     effect: &mut ActEffect,
+    fake_hp: Option<crate::engine::manager::hp::FakeHpConsumption>,
     team_shared: Option<crate::engine::manager::hp::TeamSharedShieldAbsorption>,
     shield: Option<crate::engine::manager::hp::ShieldChange>,
     layout: HurtInfoWireLayout,
     absorb_map_layout: AbsorbHurtMapLayout,
 ) {
-    if layout != HurtInfoWireLayout::Version7 || (team_shared.is_none() && shield.is_none()) {
+    if layout != HurtInfoWireLayout::Version7
+        || (fake_hp.is_none() && team_shared.is_none() && shield.is_none())
+    {
         return;
     }
     let Some(hurt) = &mut effect.hurt_info else {
         return;
     };
     let team_shared = team_shared
+        .map(|change| format!("{}#{}", change.buff_uid, change.consumed))
+        .unwrap_or_default();
+    let fake_hp = fake_hp
         .map(|change| format!("{}#{}", change.buff_uid, change.consumed))
         .unwrap_or_default();
     let shield = shield
@@ -1276,7 +1324,7 @@ fn apply_absorbed_shield_wire(
             r#"{{"reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
         ),
         AbsorbHurtMapLayout::ThreeMaps => format!(
-            r#"{{"consumeFakeHpBuffMap":"","reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
+            r#"{{"consumeFakeHpBuffMap":"{fake_hp}","reduceTeamShareShieldBuffMap":"{team_shared}","reduceShieldBuffMap":"{shield}"}}"#
         ),
     });
 }
@@ -1311,7 +1359,11 @@ fn magic_circle_snapshot(
     )
 }
 
-fn project_cue(cue: &RoundCue, redeal_layout: RedealWireLayout) -> Vec<ActEffect> {
+fn project_cue(
+    cue: &RoundCue,
+    redeal_layout: RedealWireLayout,
+    change_round_layout: ChangeRoundWireLayout,
+) -> Vec<ActEffect> {
     match cue {
         RoundCue::CastStep => Vec::new(),
         RoundCue::EnterFightDeal => vec![CardPacket::enter_fight_deal()],
@@ -1349,7 +1401,12 @@ fn project_cue(cue: &RoundCue, redeal_layout: RedealWireLayout) -> Vec<ActEffect
         RoundCue::SmallRoundEnd { team_type } => {
             vec![EffectPacket::small_round_end(*team_type)]
         }
-        RoundCue::ChangeRound { round } => vec![EffectPacket::change_round(*round)],
+        RoundCue::ChangeRound { round } => {
+            vec![EffectPacket::change_round(match change_round_layout {
+                ChangeRoundWireLayout::Incremental => 0,
+                ChangeRoundWireLayout::CurrentRound => *round,
+            })]
+        }
         RoundCue::ExtraRoundGranted => vec![EffectPacket::fight_param_change(18, 1)],
         RoundCue::ClientConduitSelectionConfirmed {
             source_uid,

@@ -19,6 +19,7 @@ fn grant(target_uid: i64, buff_id: i32) -> BuffCommand {
 fn remove_id_or_type_resolves_a_configured_type_id() {
     crate::test_support::init_config();
     let fight = Fight {
+        version: Some(7),
         attacker: Some(FightTeam {
             entitys: vec![FightEntityInfo {
                 uid: Some(10),
@@ -194,6 +195,49 @@ fn duration_advance_does_not_echo_a_layered_buffs_previous_snapshot() {
 }
 
 #[test]
+fn duration_expiry_preserves_the_typed_buffs_previous_count() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(30810116),
+                    duration: Some(1),
+                    count: Some(1),
+                    from_uid: Some(10),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    manager.seed(&fight);
+
+    let changes = manager
+        .execute(
+            &HpManager::default(),
+            BuffCommand::AdvanceDuration(
+                BuffDurationAdvance::new(
+                    crate::engine::skill::buff_act::effect_time::ROUND_START_CARD_STAGES[0],
+                    vec![10],
+                    None,
+                )
+                .unwrap(),
+            ),
+        )
+        .unwrap();
+
+    assert_eq!(changes.change.removed[0].buff.duration, Some(0));
+    assert_eq!(changes.change.removed[0].buff.count, Some(1));
+}
+
+#[test]
 fn duration_advance_preserves_owner_order_across_refresh_and_expiry() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -259,7 +303,7 @@ fn replacement_uses_the_exact_configured_output_without_inferring_a_family_varia
                 uid: Some(10),
                 current_hp: Some(100),
                 buffs: vec![BuffInfo {
-                    uid: Some(1),
+                    uid: Some(1387),
                     buff_id: Some(30810305),
                     ..Default::default()
                 }],
@@ -294,7 +338,10 @@ fn replacement_uses_the_exact_configured_output_without_inferring_a_family_varia
     let changes = manager.commit(&hp, plan);
     assert_eq!(changes.origin, origin);
     assert_eq!(changes.change.removed[0].buff.buff_id, Some(30810305));
-    assert_eq!(changes.change.added.unwrap().buff.buff_id, Some(30810102));
+    let added = changes.change.added.unwrap().buff;
+    assert_eq!(added.buff_id, Some(30810102));
+    assert_eq!(added.uid, Some(1388));
+    assert_eq!(added.layer, Some(0));
     assert!(!manager.has_buff_id(10, 30810305));
 }
 

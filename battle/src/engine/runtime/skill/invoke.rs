@@ -87,6 +87,7 @@ pub(super) fn resource_fire_count(
 
 pub(super) fn apply_event_context(
     managers: &crate::engine::manager::BattleManagers,
+    effects: &crate::engine::skill::effect::SkillEffectCatalog,
     context: &mut TargetContext,
     event: &BattleEvent,
 ) {
@@ -125,12 +126,18 @@ pub(super) fn apply_event_context(
         }
         BattleEvent::DamageShared {
             target_uid,
+            participant_uids,
             share_count,
             damage_from,
             ..
         } => {
             context.runtime_target_uid = *target_uid;
-            context.damage_shared_uid = *target_uid;
+            context.damage_shared_uid =
+                if participant_uids.contains(&context.active_skill_source_uid) {
+                    context.active_skill_source_uid
+                } else {
+                    0
+                };
             context.damage_shared_count = *share_count;
             context.hit_damage_from = Some(*damage_from);
         }
@@ -154,6 +161,9 @@ pub(super) fn apply_event_context(
             context.active_skill_id = hit.skill_id;
             context.active_skill_source_uid = hit.source_uid;
             context.active_skill_rank = catalog.skill_rank(hit.skill_id);
+            context.logic_target = effects.logic_target(hit.skill_id);
+            context.damage_target_count_kind =
+                catalog.damage_target_count_kind(context.logic_target);
             context.active_skill_is_attack = catalog.skill_is_attack(hit.skill_id);
             context.active_skill_mode = if managers.conduit.owns_skill(hit.source_uid, hit.skill_id)
             {
@@ -236,6 +246,7 @@ pub(super) fn apply_event_context(
             context.active_skill_is_attack = action.is_attack;
             context.active_skill_rank = action.rank;
             context.active_skill_type = action.skill_type;
+            context.damage_target_count_kind = action.skill_type;
             context.active_skill_effect_tag = action.effect_tag;
             context.active_skill_assassinate = action.assassinate;
             context.active_skill_mode = action.mode;
@@ -259,6 +270,7 @@ pub(super) fn apply_event_context(
             context.active_skill_is_attack = action.is_attack;
             context.active_skill_rank = action.rank;
             context.active_skill_type = action.skill_type;
+            context.damage_target_count_kind = action.skill_type;
             context.active_skill_effect_tag = action.effect_tag;
             context.additional_moxie = action.additional_moxie;
             context.active_skill_mode = action.mode;

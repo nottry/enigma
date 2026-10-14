@@ -115,18 +115,19 @@ fn plan(
         ShieldScope::Entity => {
             let buff = match carrier_uid {
                 Some(buff_uid) => {
-                    let current_duration = managers
-                        .buff
-                        .snapshot(command.target_uid, buff_uid)
-                        .and_then(|buff| buff.duration)
-                        .ok_or(ShieldCommandError::Buff(
-                            BuffCommandError::InvalidDurationChange,
-                        ))?;
+                    let carrier = managers.buff.snapshot(command.target_uid, buff_uid).ok_or(
+                        ShieldCommandError::Buff(BuffCommandError::InvalidDurationChange),
+                    )?;
+                    let current_duration = carrier.duration.ok_or(ShieldCommandError::Buff(
+                        BuffCommandError::InvalidDurationChange,
+                    ))?;
                     let configured_duration = BuffPolicy::try_for_buff_id(command.buff_id)
                         .map_err(BuffCommandError::InvalidPolicy)?
                         .lifetime
                         .duration;
-                    (current_duration > 0 && configured_duration > 0)
+                    (carrier.buff_id == Some(command.buff_id)
+                        && current_duration > 0
+                        && configured_duration > 0)
                         .then(|| {
                             managers.plan_buff(BuffCommand::RefreshDuration(BuffRefreshDuration {
                                 origin: command.origin,
@@ -655,10 +656,11 @@ mod tests {
         stronger.multiplier_bonus = None;
         let second = execute(&mut managers, stronger).unwrap();
 
-        let refreshed = &second.buff.as_ref().unwrap().change.refreshed;
-        assert_eq!(refreshed.len(), 1);
-        assert_eq!(refreshed[0].after.uid, Some(carrier_uid));
-        assert_eq!(refreshed[0].after.buff_id, Some(31170002));
+        assert!(second.buff.is_none());
+        assert_eq!(
+            managers.buff.buff_family_carrier_uid(1, stronger.buff_id),
+            Some(carrier_uid)
+        );
         assert_eq!(second.hp.unwrap().shield_granted.unwrap().added, 2_700);
         assert_eq!(managers.hp.shield(1), 4_200);
         assert_eq!(

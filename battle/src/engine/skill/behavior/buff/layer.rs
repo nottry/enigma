@@ -154,7 +154,7 @@ pub(super) fn consume_buff_layer_and_team_grant_ops(
             target_uid: owner_uid,
             selector: BuffSelector::IdOrType(*source_buff_id),
             amount,
-            depleted: DepletedBuff::Remove,
+            depleted: DepletedBuff::RemoveWithZeroLayer,
         },
     )))];
     ops.extend(context.pool.allies(context.source_uid).iter().map(|ally| {

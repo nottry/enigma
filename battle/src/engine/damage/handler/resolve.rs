@@ -41,6 +41,7 @@ pub struct DamageRequest<'a> {
     pub is_crit: bool,
     pub extra_skill_kind: i32,
     pub performs_extra_action: bool,
+    pub unpaid_extra_action_cost_fields: &'a [(i32, i64)],
 }
 
 #[derive(Clone, Copy)]
@@ -97,6 +98,7 @@ pub fn resolve_attack_command_with_precision(
             is_crit: plan.is_crit,
             extra_skill_kind: plan.extra_skill_kind,
             performs_extra_action: plan.performs_extra_action,
+            unpaid_extra_action_cost_fields: &plan.unpaid_extra_action_cost_fields,
         },
         runtime,
     )?;
@@ -602,6 +604,7 @@ fn direct_damage_trace(
         is_crit,
         extra_skill_kind,
         performs_extra_action,
+        unpaid_extra_action_cost_fields,
         ..
     } = request;
     let DamageRuntime {
@@ -815,21 +818,13 @@ fn direct_damage_trace(
                     is_ultimate,
                     extra_action,
                     performs_extra_action,
+                    unpaid_extra_action_cost_fields,
                 )
             })
             .sum::<i32>()
     };
-    let flat_attack = source_active_features
-        .iter()
-        .filter(|feature| feature.owner_uid == source.uid)
-        .map(|feature| {
-            crate::engine::skill::buff_act::injury_bank::snapshotted_attribute_delta(
-                feature,
-                AttrId::Attack,
-                buffs,
-            )
-        })
-        .sum::<i32>();
+    let flat_attack =
+        crate::engine::manager::snapshotted_attribute_delta(buffs, hp, source.uid, AttrId::Attack);
     let base_attack = attributes.base(source.uid, AttrId::Attack);
     let attack_rate = 1000
         + attributes.get(source.uid, AttrId::Attack)
@@ -1083,6 +1078,7 @@ fn direct_damage_trace(
                         is_ultimate,
                         extra_action,
                         performs_extra_action,
+                        unpaid_extra_action_cost_fields,
                     );
                 (delta != 0).then_some((feature.buff_id, feature.act_type.as_str(), delta))
             })

@@ -140,6 +140,36 @@ fn critical_multiplier_preserves_conversion_remainder_until_settlement() {
 }
 
 #[test]
+fn critical_damage_uses_the_capture_proven_minimum_multiplier() {
+    let trace = pipeline::calculate_with_trace_for_version(
+        DamageFormulaInput {
+            kind: DamageKind::Reality,
+            attack: 2_210,
+            defense: 1_200,
+            defense_multiplier: 1_000,
+            penetration: 0,
+            minimum: 221,
+            base_rate: 300,
+            added_rate: 0,
+            career: 1_300,
+            regular: 1_675,
+            attack_local: 1_000,
+            might: 150,
+            action: 1_000,
+            genesis: 1_000,
+            final_rate: 1_000,
+            poison_multiplier: None,
+            crit_multiplier: 82,
+            is_crit: true,
+        },
+        7,
+    );
+
+    assert_eq!(trace.critical.multiplier, 1_100);
+    assert_eq!(trace.amount, 108);
+}
+
+#[test]
 fn poison_has_its_capture_proven_floor_before_critical() {
     let mut input = DamageFormulaInput::genesis(554, 1_000, 1_150);
     input.poison_multiplier = Some(1_469);

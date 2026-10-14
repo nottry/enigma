@@ -1,5 +1,8 @@
 use crate::engine::{
-    event::{kind::EventKind, subscription::PublicationPhase},
+    event::{
+        kind::EventKind,
+        subscription::{PublicationPhase, ReactionTiming},
+    },
     skill::{
         effect::SkillEffectCatalog,
         rule::{DefinitionKey, RuleReferences, SetupStage, output::RuleOp},
@@ -45,6 +48,8 @@ pub type AttackReplacementHandler = fn(
     &ActiveBuffFeature,
     &crate::engine::manager::hp::HpManager,
 ) -> Option<super::AttackReplacement>;
+pub type HpLossStateHandler =
+    fn(&BattleManagers, &ActiveBuffFeature, i32) -> Option<Vec<super::HpLossStateUpdate>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuffActParseError {
@@ -120,6 +125,7 @@ pub enum BuffActKind {
     AssassinateCreateAdditionalDamage,
     AttrByHeatScale,
     AttrFromEntity,
+    AttrFromEntityNoLayer,
     AttrOnlyCalDamageAttack,
     AttrOnlyCalDamageAttackBigSkill,
     AttrOnlyCalDamageBeAttacked,
@@ -209,6 +215,7 @@ pub enum BuffActKind {
     ExPointMaxAdd,
     SpExPointMaxAdd,
     ExPointOverflowBank,
+    DeviceExPointOverflowBank,
     FixAttrBySubBuffLayer,
     FixAttrByTeammateInjuryCountNotReset,
     FixAttrTeamEnergy,
@@ -240,6 +247,7 @@ pub enum BuffActKind {
     LayerMasterHalo,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
+    LostHpToFakeHp,
     LifeAttackFixRate,
     MonitorContinueChannel,
     BuffOwnedCharge,
@@ -365,24 +373,6 @@ pub enum RuntimeActorScope {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RuntimeSettlementPhase {
-    #[default]
-    Before,
-    After,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum RuntimeExecutionTiming {
-    #[default]
-    Immediate,
-    AfterAction,
-    // "After being attacked": runs with the hit's skill reactions, after them.
-    AfterHitSkills,
-    // The target-owned hit response closes before the attacker's AfterHit observers.
-    BeforeAfterHitObservers,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum RuntimeEventMultiplicity {
     #[default]
     EveryEvent,
@@ -408,8 +398,7 @@ pub struct BuffActRuntimeDefinition {
     pub frame_source: RuntimeFrameSource,
     pub team_scope: RuntimeTeamScope,
     pub actor_scope: RuntimeActorScope,
-    pub settlement_phase: RuntimeSettlementPhase,
-    pub execution_timing: RuntimeExecutionTiming,
+    pub reaction_timing: ReactionTiming,
     pub event_multiplicity: RuntimeEventMultiplicity,
     pub reserves_trigger_child_uid: bool,
     pub owns_duration: bool,
@@ -437,7 +426,26 @@ pub struct BuffActTransactionDefinition {
 pub struct BuffActStateDefinition {
     pub read_timing: StatReadTiming,
     pub attack_replacement: Option<AttackReplacementHandler>,
+    pub hp_loss: Option<HpLossStateHandler>,
     pub consumer: bool,
+    pub initial: Option<BuffActInitialStateRule>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuffActInitialStateRule {
+    CrystalSelection,
+    ConduitCardSelection,
+    ButterflyAllowedSkillKinds,
+    ZeroInteger,
+    HeatScale,
+    CurrentHpPermille,
+    SourceAttackThreshold,
+    SourceAttackAttribute,
+    FirstArgument,
+    SecondArgument,
+    StringCounter,
+    GrantValue,
+    LostHpToFakeHp,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -462,6 +470,7 @@ pub enum BuffActDestination {
     Transaction,
     Setup,
     AttackReplacement,
+    HpLossState,
     StateConsumer,
     LinkedSkill,
 }
@@ -505,6 +514,8 @@ impl BuffActDefinition {
             Some(BuffActDestination::Setup)
         } else if self.state.attack_replacement.is_some() {
             Some(BuffActDestination::AttackReplacement)
+        } else if self.state.hp_loss.is_some() {
+            Some(BuffActDestination::HpLossState)
         } else if self.state.consumer {
             Some(BuffActDestination::StateConsumer)
         } else {
@@ -532,7 +543,6 @@ macro_rules! buff_act_definitions {
             $(, source: $source:ident)?
             $(, team: $team:ident)?
             $(, actor: $actor:ident)?
-            $(, settlement: $settlement:ident)?
             $(, timing: $timing:ident)?
             $(, multiplicity: $multiplicity:ident)?
             $(, trigger_child_uid: $trigger_child_uid:expr)?
@@ -548,7 +558,9 @@ macro_rules! buff_act_definitions {
             $(, parser: $parser:expr)?
             $(, references: $references:expr)?
             $(, attack_replacement: $attack_replacement:expr)?
+            $(, hp_loss_state: $hp_loss_state:expr)?
             $(, state_consumer: $state_consumer:expr)?
+            $(, initial_state: $initial_state:ident)?
             $(, completion_gap: $completion_gap:literal)?
             $(, wire: ($wire:expr))?
         );*
@@ -569,8 +581,7 @@ macro_rules! buff_act_definitions {
                     frame_source: buff_act_definitions!(@source $($source)?),
                     team_scope: buff_act_definitions!(@team $($team)?),
                     actor_scope: buff_act_definitions!(@actor $($actor)?),
-                    settlement_phase: buff_act_definitions!(@settlement $($settlement)?),
-                    execution_timing: buff_act_definitions!(@timing $($timing)?),
+                    reaction_timing: buff_act_definitions!(@timing $($timing)?),
                     event_multiplicity: buff_act_definitions!(@multiplicity $($multiplicity)?),
                     reserves_trigger_child_uid: buff_act_definitions!(@trigger_child_uid $($trigger_child_uid)?),
                     owns_duration: buff_act_definitions!(@owns_duration $($owns_duration)?),
@@ -592,7 +603,9 @@ macro_rules! buff_act_definitions {
                 state: BuffActStateDefinition {
                     read_timing: buff_act_definitions!(@stat_read $($stat_read)?),
                     attack_replacement: buff_act_definitions!(@attack_replacement $($attack_replacement)?),
+                    hp_loss: buff_act_definitions!(@hp_loss_state $($hp_loss_state)?),
                     consumer: buff_act_definitions!(@state_consumer $($state_consumer)?),
+                    initial: buff_act_definitions!(@initial_state $($initial_state)?),
                 },
                 supports: buff_act_definitions!(@supports $($supports)?),
                 raw_supports: buff_act_definitions!(@raw_supports $($raw_supports)?),
@@ -622,10 +635,8 @@ macro_rules! buff_act_definitions {
     (@team) => { RuntimeTeamScope::Same };
     (@actor $actor:ident) => { RuntimeActorScope::$actor };
     (@actor) => { RuntimeActorScope::Owner };
-    (@settlement $settlement:ident) => { RuntimeSettlementPhase::$settlement };
-    (@settlement) => { RuntimeSettlementPhase::Before };
-    (@timing $timing:ident) => { RuntimeExecutionTiming::$timing };
-    (@timing) => { RuntimeExecutionTiming::Immediate };
+    (@timing $timing:ident) => { ReactionTiming::$timing };
+    (@timing) => { ReactionTiming::Immediate };
     (@multiplicity $multiplicity:ident) => { RuntimeEventMultiplicity::$multiplicity };
     (@multiplicity) => { RuntimeEventMultiplicity::EveryEvent };
     (@trigger_child_uid $value:expr) => { $value };
@@ -664,8 +675,12 @@ macro_rules! buff_act_definitions {
     (@completion_gap) => { None };
     (@attack_replacement $handler:expr) => { Some($handler) };
     (@attack_replacement) => { None };
+    (@hp_loss_state $handler:expr) => { Some($handler) };
+    (@hp_loss_state) => { None };
     (@state_consumer $value:expr) => { $value };
     (@state_consumer) => { false };
+    (@initial_state $rule:ident) => { Some(BuffActInitialStateRule::$rule) };
+    (@initial_state) => { None };
     (@wire $wire:expr) => { Some($wire) };
     (@wire) => { None };
 }
@@ -800,7 +815,8 @@ buff_act_definitions! {
         supports: |args| matches!(args, [value] if *value != 0), state_consumer: true, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(520, "RealHarmFix"), &[EffectType::Realharmfix as i32]));
     (522, "RealHarmSkillEffectFix") => RealHarmSkillEffectFix, effect_time_subscription: false, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(522, "RealHarmSkillEffectFix"), &[EffectType::Realharmskilleffectfix as i32]));
     (601, "Injury") => Injury, effect_time_subscription: false,
-        supports: |args| matches!(args, [value] if *value != 0), state_consumer: true;
+        supports: |args| matches!(args, [value] if *value != 0), state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(601, "Injury"), &[EffectType::Injury as i32]));
     (703, "ExPointMaxAdd") => ExPointMaxAdd,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
         frame: CausingFrame,
@@ -890,10 +906,8 @@ buff_act_definitions! {
         state_consumer: true,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(728, "ChangeRemoveBuffUseSkillParam"), &[]));
     (748, "UseDamageSkillAddToTarget") => UseDamageSkillAddToTarget,
-        events: [EventKind::SkillCast],
-        publications: [
-            EventKind::SkillAction => BeforePublish
-        ],
+        effect_time_subscription: false,
+        events: [EventKind::SkillCast, EventKind::SkillEffectStarted],
         scoped_runtime: |context| super::use_damage_skill_add_to_target::rule_ops(context.managers, context.catalog, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(748, "UseDamageSkillAddToTarget"), &[EffectType::None as i32]));
     (757, "UseSkillLoseHpNotFixed") => UseSkillLoseHpNotFixed,
@@ -1005,16 +1019,30 @@ buff_act_definitions! {
     (1104, "ButterflyRecordSkill") => ButterflyRecordSkill,
         runtime: |context| super::butterfly_record_skill::rule_ops(context.managers, context.pool, context.subscriber, context.event?),
         supports: |args| matches!(args, [count, enchant_id, allowed @ ..]
-            if *count > 0 && *enchant_id > 0 && !allowed.is_empty()), wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1104, "ButterflyRecordSkill"), &[EffectType::None as i32]).with_initial_state(super::wire::InitialStateRule::ButterflyAllowedSkillKinds));
+            if *count > 0 && *enchant_id > 0 && !allowed.is_empty()), initial_state: ButterflyAllowedSkillKinds,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1104, "ButterflyRecordSkill"), &[EffectType::None as i32]));
     (1111, "ToughnessOverflowRecord") => ToughnessOverflowRecord,
         effect_time_subscription: false, transactions: [EventKind::HpLost],
         transaction: super::toughness::transaction_rule_ops,
         supports: |args| args.is_empty(),
         wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1111, "ToughnessOverflowRecord"), &[EffectType::None as i32]));
     (806, "ExPointOverflowBank") => ExPointOverflowBank,
-        events: [EventKind::ExPointChanged],
+        events: [EventKind::ExPointChanged, EventKind::PostActionRefill],
         scoped_runtime: |context| super::ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(806, "ExPointOverflowBank"), &[EffectType::Expointoverflowbank as i32]));
+    (1149, "DeviceExPointOverflowBank") => DeviceExPointOverflowBank,
+        events: [EventKind::ExPointChanged, EventKind::PostActionRefill],
+        scoped_runtime: |context| super::device_ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
+        supports: |args| matches!(args, [capacity] if *capacity > 0),
+        initial_state: ZeroInteger,
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1149, "DeviceExPointOverflowBank"), &[EffectType::None as i32])
+            .without_initial_state_marker());
+    (1150, "LostHpToFakeHp") => LostHpToFakeHp, effect_time_subscription: false,
+        supports: super::lost_hp_to_fake_hp::supports,
+        hp_loss_state: super::lost_hp_to_fake_hp::hp_loss_state_update,
+        initial_state: LostHpToFakeHp,
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1150, "LostHpToFakeHp"), &[EffectType::None as i32])
+            .without_initial_state_marker());
     (1008, "BanLostLife") => BanLostLife,
         supports: |args| matches!(args, [150] | [160]),
         state_consumer: true,
@@ -1064,6 +1092,15 @@ buff_act_definitions! {
         },
         supports: |_| true, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(815, "AddSpTempCard"), &[EffectType::None as i32]));
     (820, "AttrFromEntity") => AttrFromEntity, effect_time_subscription: false, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(820, "AttrFromEntity"), &[EffectType::Attr as i32]));
+    (1152, "AttrFromEntityNoLayer") => AttrFromEntityNoLayer, effect_time_subscription: false,
+        supports: super::attr_from_entity_no_layer::supports, state_consumer: true,
+        initial_state: SourceAttackAttribute,
+        wire: (super::wire::BuffActWireDefinition::new(
+            DefinitionKey::new(1152, "AttrFromEntityNoLayer"),
+            &[EffectType::Attr as i32],
+            &[EffectType::Attr as i32],
+            &[],
+        ).with_initial_state_refresh_projection());
     (822, "LayerMasterHalo") => LayerMasterHalo, state_consumer: true, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(822, "LayerMasterHalo"), &[EffectType::Layermasterhalo as i32]));
     (825, "ConsumeBuffContinueChannel") => ConsumeBuffContinueChannel, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(825, "ConsumeBuffContinueChannel"), &[EffectType::None as i32]));
     (827, "Bullet") => Bullet,
@@ -1112,7 +1149,7 @@ buff_act_definitions! {
         events: [EventKind::ShellDeployed, EventKind::ShellRetrieved], frame: CausingFrame,
         runtime: |context| super::shell::rule_ops(context.managers, context.pool, context.determinism, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(869, "ShellProcess"), &[EffectType::None as i32]));
-    (870, "Shell") => Shell, event: EventKind::BeAttacked, events: [EventKind::DamageShared], frame: CausingFrame, timing: AfterHitSkills,
+    (870, "Shell") => Shell, event: EventKind::BeAttacked, events: [EventKind::DamageShared], frame: CausingFrame, timing: AfterHitObservers,
         runtime: |context| super::shell::rule_ops(context.managers, context.pool, context.determinism, context.subscriber, context.event?),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(870, "Shell"), &[EffectType::None as i32]));
     (871, "ShellDebuff") => ShellDebuff, event: EventKind::BeAttacked, frame: CausingFrame, timing: BeforeAfterHitObservers,
@@ -1263,7 +1300,7 @@ buff_act_definitions! {
         scoped_runtime: |context| super::nuo_di_ka_cast_channel::scoped_rule_ops(context.managers, context.catalog, context.subscriber, context.event?),
         supports: super::nuo_di_ka_cast_channel::supports, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1006, "NuoDiKaCastChannel"), &[EffectType::None as i32]).with_pre_add(super::wire::WireEffect { effect_type: EffectType::Nuodikarandomattacknum as i32, effect_num: 0, effect_num1: 1 }));
     (1023, "LostHpAddExtraBloodPoolValue") => LostHpAddExtraBloodPoolValue,
-        settlement: After,
+        timing: AfterSettlement,
         runtime: |context| Some(super::lost_hp_add_extra_blood_pool_value::rule_ops(context.managers, context.subscriber)),
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1023, "LostHpAddExtraBloodPoolValue"), &[EffectType::None as i32]));
     (1024, "MonitorContinueChannel") => MonitorContinueChannel,
@@ -1279,7 +1316,8 @@ buff_act_definitions! {
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1027, "AddBuffByChargingTimes"), &[EffectType::None as i32]));
     (1028, "RealDamageKill") => RealDamageKill, event: super::real_damage_kill::EVENT,
         runtime: |context| super::real_damage_kill::rule_ops(context.managers, context.pool, context.subscriber),
-        supports: super::real_damage_kill::supports, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1028, "RealDamageKill"), &[]).with_initial_state(super::wire::InitialStateRule::SourceAttackThreshold));
+        supports: super::real_damage_kill::supports, initial_state: SourceAttackThreshold,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1028, "RealDamageKill"), &[]));
     (1029, "AddAttrByOtherBuffLayer") => AddAttrByOtherBuffLayer,
         effect_time_subscription: false,
         supports: super::add_attr_by_other_buff_layer::supports, state_consumer: true,
@@ -1306,8 +1344,9 @@ buff_act_definitions! {
         runtime: |context| super::consume_buff_add_buff_continue_channel::rule_ops(context.managers, context.subscriber, context.event?),
         supports: super::consume_buff_add_buff_continue_channel::supports,
         references: references_for_feature,
+        initial_state: StringCounter,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1031, "ConsumeBuffAddBuffContinueChannel"), &[])
-            .with_embedded_initial_state(super::wire::InitialStateRule::StringCounter));
+            .without_initial_state_marker());
     (1032, "FixElectricUpgrade") => FixElectricUpgrade,
         effect_time_subscription: false,
         supports: super::fix_electric_upgrade::supports, state_consumer: true,
@@ -1344,22 +1383,25 @@ buff_act_definitions! {
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1048, "Radiance"), &[EffectType::Radiance as i32]));
     (1049, "CrystalNotifySelect") => CrystalNotifySelect, effect_time_subscription: false,
         supports: |args| matches!(args, [total, per_crystal, ..]
-            if *total > 0 && *per_crystal > 0), state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1049, "CrystalNotifySelect"), &[EffectType::None as i32]).with_initial_state(super::wire::InitialStateRule::CrystalSelection));
+            if *total > 0 && *per_crystal > 0), state_consumer: true, initial_state: CrystalSelection,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1049, "CrystalNotifySelect"), &[EffectType::None as i32]));
     (10030, "TwinsNotifySelect") => ConduitCardSelection, effect_time_subscription: false,
-        supports: super::conduit_select::supports, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(10030, "TwinsNotifySelect"), &[]).with_initial_state(super::wire::InitialStateRule::ConduitCardSelection));
+        supports: super::conduit_select::supports, state_consumer: true, initial_state: ConduitCardSelection,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(10030, "TwinsNotifySelect"), &[]));
     (1050, "HeatScaleUseSkill") => HeatScaleUseSkill,
         scoped_runtime: |context| Some(super::heat_scale_use_skill::rule_ops(context.managers, context.catalog, context.subscriber)),
-        supports: |_| true, references: references_for_feature, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1050, "HeatScaleUseSkill"), &[EffectType::None as i32]).with_initial_state(super::wire::InitialStateRule::HeatScale));
+        supports: |_| true, references: references_for_feature, initial_state: HeatScale,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1050, "HeatScaleUseSkill"), &[EffectType::None as i32]));
     (1051, "CrystalAddBuff") => CrystalAddBuff,
-        event: EventKind::SkillAction, phase: AfterDamage, settlement: After,
+        event: EventKind::SkillAction, phase: AfterDamage, timing: AfterSettlement,
         scoped_runtime: |context| super::crystal_add_buff::scoped_rule_ops(context.managers, context.subscriber, context.event?),
         supports: |args| matches!(args, [buff_id, blue, purple, green_two, green_three, ..]
             if *buff_id > 0 && [blue, purple, green_two, green_three].iter().all(|value| **value >= 0)), wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1051, "CrystalAddBuff"), &[EffectType::None as i32]));
     (1052, "HeatScaleTag") => HeatScaleTag,
         effect_time_subscription: false,
         events: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::GaugeChanged],
-        setup: [BattleStart(0), BuffGate(0), RoundStart(3)], mechanic_setup: [BuffGate(0)],
-        root_mechanic_setup: [RoundStart(3)],
+        setup: [BattleStart(0), OpeningBuffGate(0), RoundTransitionStart(3)], mechanic_setup: [OpeningBuffGate(0)],
+        root_mechanic_setup: [RoundTransitionStart(3)],
         independent_setup: [BattleStart(0, 1)],
         publications: [EventKind::GaugeChanged => BeforePublish],
         frame: CausingFrame,
@@ -1391,14 +1433,16 @@ buff_act_definitions! {
         effect_time_subscription: false,
         setup: [RoundStart(2)],
         setup_handler: |context| super::team_immunity_times::setup_rule_ops(context.managers, &context.subscriber.feature, context.subscriber.stage),
-        supports: super::team_immunity_times::supports, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1126, "TeamImmunityTimes"), &[EffectType::None as i32]).with_initial_state(super::wire::InitialStateRule::SecondArgument));
+        supports: super::team_immunity_times::supports, initial_state: SecondArgument,
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1126, "TeamImmunityTimes"), &[EffectType::None as i32]));
     (1102, "ToughnessRecover") => ToughnessRecover,
         runtime: |context| super::toughness::recover_rule_ops(context.subscriber),
         supports: |args| matches!(args, [config_effect] if *config_effect >= 0),
         wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1102, "ToughnessRecover"), &[EffectType::None as i32]));
     (1127, "TeamExElectricTransConsumeValueAttr") => TeamExElectricTransConsumeValueAttr,
         effect_time_subscription: false, stat_read: OnGrant,
-        supports: super::electric_transform::supports_team_attribute, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1127, "TeamExElectricTransConsumeValueAttr"), &[]).with_initial_state(super::wire::InitialStateRule::GrantValue));
+        supports: super::electric_transform::supports_team_attribute, state_consumer: true, initial_state: GrantValue,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1127, "TeamExElectricTransConsumeValueAttr"), &[]));
     (1128, "RecordTeamExElectricTransConsumeValue") => RecordTeamExElectricTransConsumeValue,
         effect_time_subscription: false,
         supports: super::electric_transform::supports_record, state_consumer: true, wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1128, "RecordTeamExElectricTransConsumeValue"), &[EffectType::None as i32]));
@@ -1413,9 +1457,8 @@ buff_act_definitions! {
         supports: |args| matches!(args, [trigger, limit, linked_skill]
             if *trigger > 0 && *limit >= *trigger && *linked_skill > 0),
         references: references_for_feature,
-        state_consumer: true,
-        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1139, "MeiLeiErCharge"), &[])
-            .with_initial_state(super::wire::InitialStateRule::ZeroInteger));
+        state_consumer: true, initial_state: ZeroInteger,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1139, "MeiLeiErCharge"), &[]));
     (1138, "ReplaceEntitySkillGroup") => ReplaceEntitySkillGroup,
         transactions: [EventKind::BuffAdded, EventKind::BuffRemoved],
         publication: BeforePublish, frame: CausingFrame,
@@ -1755,9 +1798,9 @@ pub fn runtime_actor_scope(act_id: i32, act_type: &str) -> RuntimeActorScope {
         .unwrap_or_default()
 }
 
-pub fn runtime_settlement_phase(act_id: i32, act_type: &str) -> RuntimeSettlementPhase {
+pub fn reaction_timing(act_id: i32, act_type: &str) -> ReactionTiming {
     find(act_id, act_type)
-        .map(|definition| definition.runtime.settlement_phase)
+        .map(|definition| definition.runtime.reaction_timing)
         .unwrap_or_default()
 }
 

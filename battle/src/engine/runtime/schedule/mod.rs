@@ -5,7 +5,7 @@ use crate::engine::{
     event::{kind::EventKind, payload::BattleEvent},
     manager::{
         BattleManagers,
-        buff::{BuffCommand, BuffDurationAdvance, BuffMasterHaloFanout},
+        buff::{BuffCommand, BuffDurationAdvance},
         card::{
             CARD_ENERGY_CLEAR_ORIGIN, CARD_PLAY_ORIGIN, CardCommand, CardInvalidatePlayed,
             CardRefillOne, CardRefreshAiQueue, CardSetup,
@@ -67,7 +67,10 @@ const ROUND_START_BEFORE_DURATION_SETUP: &[(SetupStage, i32)] = &[
     (SetupStage::RoundStartCondition, 102),
 ];
 
-const ROUND_START_SETTLEMENT_SETUP: &[(SetupStage, i32)] = &[(SetupStage::RoundStart, 3)];
+const ROUND_START_SETTLEMENT_SETUP: &[(SetupStage, i32)] = &[
+    (SetupStage::RoundStart, 3),
+    (SetupStage::RoundTransitionStart, 3),
+];
 
 const ROUND_START_THRESHOLD_SETUP: &[(SetupStage, i32)] = &[(SetupStage::RoundStart, 4)];
 
@@ -78,8 +81,6 @@ const HAND_LIMIT_CLEANUP_ORIGIN: CommandOrigin = CommandOrigin {
 
 const ROUND_START_VERSION6_SYNC_SETUP: &[(SetupStage, i32)] =
     &[(SetupStage::RoundStart, 4), (SetupStage::BuffSync, 0)];
-
-const ROUND_START_VERSION7_SYNC_SETUP: &[(SetupStage, i32)] = &[(SetupStage::BuffSync, 0)];
 
 mod player;
 mod refill;
@@ -372,7 +373,10 @@ pub fn run_ai_actions(
             }
             .into();
         invocation.card_index = card_index;
-        if choice.target_uid != 0 {
+        if choice.target_uid != 0
+            && catalog.logic_target(choice.skill_id)
+                != crate::engine::skill::target::request::SOURCE_TARGET_CODE
+        {
             invocation.target =
                 crate::engine::skill::action::SkillTarget::Explicit(choice.target_uid);
         }
@@ -454,7 +458,7 @@ pub fn run_promotions(
             determinism,
             context,
             [RuleOp::Command(BattleCommand::Card(
-                CardCommand::RemoveAiOwner(crate::engine::manager::card::CardRemoveAiOwner {
+                CardCommand::remove_owner(crate::engine::manager::card::CardRemoveOwner {
                     origin,
                     owner_uid: promotion.defeated_uid,
                     team_type: promotion.team_type,
@@ -573,26 +577,6 @@ pub fn run_wave_entry_setup(
         }
     }
     Ok(result)
-}
-
-pub(super) fn run_wave_entry_master_halo_fanout(
-    managers: &mut BattleManagers,
-    pool: &TargetPool,
-    catalog: &SkillEffectCatalog,
-    determinism: &mut RoundDeterminism,
-    context: TargetContext,
-    entering_uids: &[i64],
-) -> Result<DrainResult, DrainError> {
-    drain::run_command_group(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        [RuleOp::Command(BattleCommand::Buff(
-            BuffCommand::FanoutMasterHalo(BuffMasterHaloFanout::new(entering_uids.to_vec())),
-        ))],
-    )
 }
 
 pub fn run_wave_entry(

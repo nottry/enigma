@@ -88,13 +88,13 @@ pub(crate) fn resolve_configured_targets(
     determinism: &RoundDeterminism,
     cards: &mut [CardInfo],
 ) -> Result<(), String> {
-    let pool =
-        TargetPool::from_fight_with_catalog(managers.catalog(), fight).runtime_view(managers);
+    let pool = TargetPool::from_fight_with_catalog(managers.catalog(), fight);
     for card in cards {
         let source_uid = card
             .uid
             .filter(|uid| *uid != 0)
             .ok_or_else(|| "generated AI card has no owner".to_owned())?;
+        let runtime_pool = pool.runtime_view_including(managers, Some(source_uid));
         let skill_id = card
             .skill_id
             .filter(|skill_id| *skill_id > 0)
@@ -118,7 +118,7 @@ pub(crate) fn resolve_configured_targets(
             },
             skill_id,
             source_uid,
-            &pool,
+            &runtime_pool,
             determinism,
             Some(managers),
             TargetContext {

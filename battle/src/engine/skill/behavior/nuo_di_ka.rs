@@ -135,10 +135,11 @@ fn emit_ops(
             context.determinism,
         );
         modifiers.merge(incoming_modifiers);
-        let extra_action = crate::engine::skill::condition::extra::skill_kind_from_is_extra(
+        let extra_action = crate::engine::skill::action::performs_extra_action(
+            target_context.active_card_index,
+            target_context.active_skill_mode,
             target_context.extra_skill_kind,
-        )
-        .is_some_and(|kind| kind.is_extra_action());
+        );
         for attr_id in [AttrId::CriticalDmg, AttrId::DmgBonus] {
             let delta = crate::engine::skill::buff_act::target_attack_attribute_delta(
                 context.managers,
@@ -185,11 +186,8 @@ fn emit_ops(
                     .owns_skill(context.source_uid, context.active_skill_id),
                 is_crit,
                 extra_skill_kind: context.target.extra_skill_kind,
-                performs_extra_action:
-                    crate::engine::skill::condition::extra::skill_kind_from_is_extra(
-                        context.target.extra_skill_kind,
-                    )
-                    .is_some_and(|kind| kind.is_extra_action()),
+                performs_extra_action: extra_action,
+                unpaid_extra_action_cost_fields: &modifiers.unpaid_extra_action_cost_fields,
             },
             runtime,
             replacement_buff_id,

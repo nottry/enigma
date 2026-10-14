@@ -37,6 +37,7 @@ pub enum EventKind {
     SkillCast,
     ActionQueueCommitted,
     PlayerActionsResolved,
+    PostActionRefill,
     BeAttacked,
     BeAttackedDefense,
     AllyAction,
@@ -49,5 +50,6 @@ pub enum EventKind {
     // After the final settlement's buff durations advance.
     RoundEndAfterFinalSettlement,
     RoundEndAfterSettlement,
+    RoundEndAfterOwnerSettlement,
     Riposte,
 }

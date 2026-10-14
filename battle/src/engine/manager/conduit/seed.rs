@@ -22,6 +22,16 @@ impl ConduitManager {
             let Some(fight_team) = fight_team else {
                 continue;
             };
+            if fight_team.device_area.is_some() {
+                manager.areas.insert(
+                    team,
+                    ConduitArea {
+                        team,
+                        devices: Vec::new(),
+                        powers: Vec::new(),
+                    },
+                );
+            }
             for entity in &fight_team.entitys {
                 manager.seed_entity(&configured, team, entity);
             }

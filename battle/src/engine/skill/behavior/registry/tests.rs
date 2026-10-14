@@ -569,6 +569,20 @@ fn generic_temporary_card_keeps_its_exact_identity_and_arguments() {
 }
 
 #[test]
+fn conduit_group_change_uses_its_buff_gate_as_an_after_hit_driver() {
+    let definition = find_key(60293, "SetDeviceSkillIndex").unwrap();
+
+    assert_eq!(
+        definition.condition_route_override,
+        Some(ConditionRouteOverride::Trigger {
+            key: DefinitionKey::new(19210, "HasBuffId"),
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::AfterHit),
+        })
+    );
+}
+
+#[test]
 fn channel_duration_reduction_keeps_its_exact_identity_and_phase() {
     let definition = find_key(60094, "ReduceCastChannelCount").unwrap();
     let supports = definition.supports.unwrap();
@@ -815,5 +829,19 @@ fn configured_skill_without_a_target_override_emits_once_per_slot() {
     assert_eq!(
         find(&behavior).unwrap().target_emission_mode,
         TargetEmissionMode::Once
+    );
+}
+
+#[test]
+fn add_buff_duration_uses_the_normal_per_target_owner() {
+    let behavior = ParsedBehavior::from_spec(
+        BehaviorSpec::new(60145, "AddBuffDuration"),
+        vec![5001, 3],
+        Vec::new(),
+    );
+
+    assert_eq!(
+        find(&behavior).unwrap().target_emission_mode,
+        TargetEmissionMode::Each
     );
 }

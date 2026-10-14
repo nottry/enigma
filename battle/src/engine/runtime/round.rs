@@ -194,6 +194,10 @@ impl BattleRuntime {
             current_round: self.round_state.cur_round,
             ..Default::default()
         };
+        let settlement_context = crate::engine::skill::target::TargetContext {
+            current_round: active_round,
+            ..context
+        };
         let commands = commands_from_opers(&request.opers);
         let fight_version = self.fight.version.unwrap_or_default();
         let absorb_hurt_map_layout = self.absorb_hurt_map_layout;
@@ -320,7 +324,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
         } else {
             schedule::run_attacker_round_end(
@@ -328,7 +332,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
         }
         .map_err(|error| format!("{error:?}"))?;
@@ -455,7 +459,7 @@ impl BattleRuntime {
                 &pool,
                 catalog,
                 &mut self.determinism,
-                context,
+                settlement_context,
             )
             .map_err(|error| format!("{error:?}"))?;
             fight_steps.extend(project_result(
@@ -610,19 +614,6 @@ impl BattleRuntime {
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
-            fight_steps.extend(project_result(
-                schedule::run_wave_entry_master_halo_fanout(
-                    &mut self.managers,
-                    &pool,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    &entering_uids,
-                )
-                .map_err(|error| format!("{error:?}"))?,
-                fight_version,
-                absorb_hurt_map_layout,
-            )?);
             self.wave_entry_condition_uids = entering_uids;
         }
         if !self.round_state.is_finish {
@@ -670,6 +661,7 @@ impl BattleRuntime {
             project_result(next_round, fight_version, absorb_hurt_map_layout)?;
 
         self.managers.sync_entities(&mut self.fight);
+        self.managers.sync_roster(&self.fight);
         if uses_action_phase_power_clear
             && self.round_state.is_finish
             && !terminal_during_next_round_preparation
@@ -762,7 +754,7 @@ pub(super) fn selected_enemy_target(
     })
 }
 
-fn apply_cloth_power(
+pub(super) fn apply_cloth_power(
     fight: &Fight,
     managers: &crate::engine::manager::BattleManagers,
     state: &mut RoundState,
@@ -771,17 +763,35 @@ fn apply_cloth_power(
     let Some(power) = managers.catalog().cloth_power(fight) else {
         return;
     };
+    let mut pending_cards = Vec::new();
     for outcome in &result.outcomes {
-        let executor::RuleOutcome::Card(changes) = outcome else {
-            continue;
-        };
-        state.power = cloth_power_after_card_change(
-            &power,
-            state.power,
-            changes.kind,
-            changes.played.is_some(),
-            eligible_composition_count(managers, &changes.composed_owners),
-        );
+        match outcome {
+            executor::RuleOutcome::Card(changes) => {
+                if changes.kind == crate::engine::manager::card::CardChangeKind::Played
+                    && let Some(played) = &changes.played
+                {
+                    pending_cards.push(played.card_index);
+                }
+                state.power = cloth_power_after_card_change(
+                    &power,
+                    state.power,
+                    changes.kind,
+                    eligible_composition_count(managers, &changes.composed_owners),
+                );
+            }
+            executor::RuleOutcome::SkillLifecycle(
+                crate::engine::skill::action::SkillLifecycle::ActionCompleted(action),
+            ) if action.card_index > 0 => {
+                if let Some(index) = pending_cards
+                    .iter()
+                    .position(|card_index| *card_index == action.card_index)
+                {
+                    pending_cards.remove(index);
+                    state.power = power.card_used(state.power);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -799,14 +809,10 @@ pub(super) fn cloth_power_after_card_change(
     power: &ClothPower,
     current: i32,
     kind: crate::engine::manager::card::CardChangeKind,
-    has_played: bool,
     composed_count: usize,
 ) -> i32 {
     match kind {
         crate::engine::manager::card::CardChangeKind::Moved => power.card_moved(current),
-        crate::engine::manager::card::CardChangeKind::Played if has_played => {
-            power.card_used(current)
-        }
         crate::engine::manager::card::CardChangeKind::Refilled
         | crate::engine::manager::card::CardChangeKind::Composed
             if composed_count > 0 =>

@@ -18,6 +18,9 @@ pub fn run_command_group(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::DeathSettlement(_)
+                | RuleOp::SubscriberGroupComplete
+                | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }
                 | RuleOp::BuffFeatureMarker { .. }
                 | RuleOp::EffectMarker { .. }
@@ -38,7 +41,7 @@ pub fn run_command_group(
                 frame_group: None,
                 independent_parent_group: None,
                 frame_owner: None,
-                subscriber_owner_uid: None,
+                subscriber: None,
                 caster_frame: None,
             }
         })
@@ -100,17 +103,19 @@ pub fn run_setup_schedule_for_owners_in_round_phase(
         schedule,
         Some(owner_uids),
         SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
     )
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn run_setup_schedule_in_opening_round_phase(
+pub fn run_setup_schedule_for_owners_in_round_phase_with_death_cleanup(
     managers: &mut BattleManagers,
     pool: &TargetPool,
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     schedule: &[(SetupStage, i32)],
+    owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
     run_setup_schedule_with_container(
         managers,
@@ -119,8 +124,9 @@ pub fn run_setup_schedule_in_opening_round_phase(
         determinism,
         context,
         schedule,
-        None,
-        SetupFrameContainer::OpeningRoundPhase,
+        Some(owner_uids),
+        SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
     )
 }
 
@@ -143,6 +149,99 @@ pub fn run_setup_schedule_for_owners_in_opening_round_phase(
         schedule,
         Some(owner_uids),
         SetupFrameContainer::OpeningRoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_skill_setup_schedule_in_opening_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    run_skill_setup_schedule_with_container(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        owner_uids,
+        SetupFrameContainer::OpeningRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_opening_settlement_skills_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    const SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::RoundStart, 1), (SetupStage::BuffGate, 0)];
+
+    let mut result = DrainResult::default();
+    for owner_uid in owner_uids {
+        let owner_result = run_skill_setup_schedule_with_container(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            SCHEDULE,
+            Some(std::slice::from_ref(owner_uid)),
+            SetupFrameContainer::OpeningRoundPhase,
+        )?;
+        result.outcomes.extend(owner_result.outcomes);
+        result.events.extend(owner_result.events);
+        result.frames.extend(owner_result.frames);
+    }
+
+    let remaining = run_skill_setup_stage_filtered(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        SetupStage::RoundStart,
+        1,
+        None,
+        owner_uids,
+        false,
+        SetupFrameContainer::OpeningRoundPhase,
+        DefenderCardCleanupOwner::DeathAction,
+    )?;
+    result.outcomes.extend(remaining.outcomes);
+    result.events.extend(remaining.events);
+    result.frames.extend(remaining.frames);
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_buff_act_setup_schedule_in_opening_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    run_buff_act_setup_schedule(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        owner_uids,
     )
 }
 
@@ -157,6 +256,163 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
     owner_uids: &[i64],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
+    for &(stage, priority) in schedule {
+        for owner_uid in owner_uids {
+            let owner_result = run_setup_schedule_with_container(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                &[(stage, priority)],
+                Some(std::slice::from_ref(owner_uid)),
+                SetupFrameContainer::RoundPhase,
+                DefenderCardCleanupOwner::ScheduledRoundPhase,
+            )?;
+            result.outcomes.extend(owner_result.outcomes);
+            result.events.extend(owner_result.events);
+            result.frames.extend(owner_result.frames);
+        }
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_opening_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_sync_setup_in_owner_order(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        owner_uids,
+        SetupFrameContainer::Standalone,
+        DefenderCardCleanupOwner::DeathAction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_sync_setup_in_owner_order(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        owner_uids,
+        SetupFrameContainer::RoundPhase,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_sync_setup_in_owner_order(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+    frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
+) -> Result<DrainResult, DrainError> {
+    const SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::BuffSync, 0), (SetupStage::RoundStartLate, 0)];
+
+    let mut result = DrainResult::default();
+    for owner_uid in owner_uids {
+        for &(stage, priority) in SCHEDULE {
+            let owner_result = run_skill_then_buff_act_setup_stage_filtered(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                stage,
+                priority,
+                Some(std::slice::from_ref(owner_uid)),
+                &[],
+                false,
+                frame_container,
+                cleanup_owner,
+            )?;
+            result.outcomes.extend(owner_result.outcomes);
+            result.events.extend(owner_result.events);
+            result.frames.extend(owner_result.frames);
+        }
+    }
+
+    for &(stage, priority) in SCHEDULE {
+        let remaining = run_skill_then_buff_act_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            (stage == SetupStage::RoundStartLate).then_some([].as_slice()),
+            owner_uids,
+            stage == SetupStage::RoundStartLate,
+            frame_container,
+            cleanup_owner,
+        )?;
+        result.outcomes.extend(remaining.outcomes);
+        result.events.extend(remaining.events);
+        result.frames.extend(remaining.frames);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_skill_setup_schedule(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+) -> Result<DrainResult, DrainError> {
+    run_skill_setup_schedule_with_container(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        None,
+        SetupFrameContainer::Standalone,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_version_seven_round_start_event_setup(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    const OWNER_SCHEDULE: &[(SetupStage, i32)] =
+        &[(SetupStage::RoundStart, 1), (SetupStage::BuffGate, 0)];
+    const TRANSITION_SCHEDULE: &[(SetupStage, i32)] = &[(SetupStage::RoundTransitionStart, 1)];
+
+    let mut result = DrainResult::default();
     for owner_uid in owner_uids {
         let owner_result = run_setup_schedule_with_container(
             managers,
@@ -164,15 +420,53 @@ pub fn run_setup_schedule_in_owner_order_round_phase(
             catalog,
             determinism,
             context,
-            schedule,
+            OWNER_SCHEDULE,
             Some(std::slice::from_ref(owner_uid)),
             SetupFrameContainer::RoundPhase,
+            DefenderCardCleanupOwner::ScheduledRoundPhase,
+        )?;
+        result.outcomes.extend(owner_result.outcomes);
+        result.events.extend(owner_result.events);
+        result.frames.extend(owner_result.frames);
+    }
+    for owner_uid in owner_uids {
+        let owner_result = run_setup_schedule_with_container(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            TRANSITION_SCHEDULE,
+            Some(std::slice::from_ref(owner_uid)),
+            SetupFrameContainer::RoundPhase,
+            DefenderCardCleanupOwner::ScheduledRoundPhase,
         )?;
         result.outcomes.extend(owner_result.outcomes);
         result.events.extend(owner_result.events);
         result.frames.extend(owner_result.frames);
     }
     Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_buff_act_setup_schedule_for_owners_in_round_phase(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: &[i64],
+) -> Result<DrainResult, DrainError> {
+    run_buff_act_setup_schedule(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        schedule,
+        Some(owner_uids),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -185,10 +479,11 @@ fn run_setup_schedule_with_container(
     schedule: &[(SetupStage, i32)],
     owner_uids: Option<&[i64]>,
     frame_container: SetupFrameContainer,
+    cleanup_owner: DefenderCardCleanupOwner,
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     for &(stage, priority) in schedule {
-        let stage_result = run_setup_stage_filtered(
+        let stage_result = run_skill_then_buff_act_setup_stage_filtered(
             managers,
             pool,
             catalog,
@@ -196,11 +491,75 @@ fn run_setup_schedule_with_container(
             context,
             stage,
             priority,
-            std::iter::empty(),
-            |_| Vec::new(),
             owner_uids,
+            &[],
             false,
             frame_container,
+            cleanup_owner,
+        )?;
+        result.outcomes.extend(stage_result.outcomes);
+        result.events.extend(stage_result.events);
+        result.frames.extend(stage_result.frames);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_skill_setup_schedule_with_container(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+    frame_container: SetupFrameContainer,
+) -> Result<DrainResult, DrainError> {
+    let mut result = DrainResult::default();
+    for &(stage, priority) in schedule {
+        let stage_result = run_skill_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            owner_uids,
+            &[],
+            false,
+            frame_container,
+            DefenderCardCleanupOwner::DeathAction,
+        )?;
+        result.outcomes.extend(stage_result.outcomes);
+        result.events.extend(stage_result.events);
+        result.frames.extend(stage_result.frames);
+    }
+    Ok(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_buff_act_setup_schedule(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    schedule: &[(SetupStage, i32)],
+    owner_uids: Option<&[i64]>,
+) -> Result<DrainResult, DrainError> {
+    let mut result = DrainResult::default();
+    for &(stage, priority) in schedule {
+        let stage_result = run_buff_act_setup_stage_filtered(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            stage,
+            priority,
+            owner_uids,
+            &[],
         )?;
         result.outcomes.extend(stage_result.outcomes);
         result.events.extend(stage_result.events);

@@ -107,12 +107,13 @@ pub fn for_skills(
 }
 
 pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<BuffActSubscriber> {
-    managers
+    let mut subscribers = managers
         .buff
         .active_features(&managers.hp)
         .into_iter()
         .filter_map(|feature| {
             let (&act_id, args) = feature.values.split_first()?;
+            let definition = buff_act::registry::find(act_id, &feature.act_type)?;
             if !buff_act::registry::subscribes_to_event(
                 act_id,
                 &feature.act_type,
@@ -138,10 +139,11 @@ pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<Buff
                 amount: feature.amount,
                 key: SubscriptionKey::at_phase_and_publication(
                     event,
-                    buff_act::registry::find(act_id, &feature.act_type)?.key,
+                    definition.key,
                     phase,
                     buff_act::registry::runtime_publication(act_id, &feature.act_type, event),
-                ),
+                )
+                .with_timing(definition.runtime.reaction_timing),
                 act_type: feature.act_type,
                 effect_time: feature.effect_time,
                 effect_condition: feature.effect_condition,
@@ -149,7 +151,13 @@ pub fn for_active_buffs(managers: &BattleManagers, event: EventKind) -> Vec<Buff
                 raw: feature.raw,
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let owners = managers
+        .entity
+        .registration_ordered_uids()
+        .collect::<Vec<_>>();
+    order_in_owner_order(&mut subscribers, &owners, |subscriber| subscriber.owner_uid);
+    subscribers
 }
 
 fn for_configured_buff_acts(
@@ -362,11 +370,15 @@ pub fn for_compiled_owner_events(
 
 fn retain_in_owner_order<T>(items: &mut Vec<T>, owner_uids: &[i64], owner: impl Fn(&T) -> i64) {
     items.retain(|item| owner_uids.contains(&owner(item)));
+    order_in_owner_order(items, owner_uids, owner);
+}
+
+fn order_in_owner_order<T>(items: &mut [T], owner_uids: &[i64], owner: impl Fn(&T) -> i64) {
     items.sort_by_key(|item| {
         owner_uids
             .iter()
             .position(|owner_uid| *owner_uid == owner(item))
-            .expect("retained owner is present")
+            .unwrap_or(usize::MAX)
     });
 }
 
@@ -573,7 +585,9 @@ fn additional_skill_owners(pool: &TargetPool, managers: &BattleManagers) -> Vec<
     managers
         .entity
         .passive_overrides()
-        .filter(|(owner_uid, _)| pool.entity(*owner_uid).is_none())
+        .filter(|(owner_uid, _)| {
+            pool.entity(*owner_uid).is_none() && managers.hp.current(*owner_uid) > 0
+        })
         .flat_map(|(owner_uid, passive_skills)| {
             passive_skills
                 .iter()

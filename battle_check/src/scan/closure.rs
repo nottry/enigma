@@ -94,6 +94,12 @@ fn scan_skill(
                 "UnownedBehavior path={slot_path} opcode={} type={}",
                 slot.behavior.spec.key.opcode, slot.behavior.spec.key.type_name
             ));
+        } else if !behavior::is_slot_supported(slot) {
+            report.gap(behavior_key.clone(), "unsupported behavior route");
+            report.error(format!(
+                "UnsupportedBehaviorRoute path={slot_path} opcode={} type={}",
+                slot.behavior.spec.key.opcode, slot.behavior.spec.key.type_name
+            ));
         } else if !behavior::has_destination(&slot.behavior) {
             report.gap(behavior_key.clone(), "missing command owner");
             let owner = behavior::registry::find(&slot.behavior)
@@ -616,6 +622,7 @@ pub(super) fn buff_act_capability(
         BuffActDestination::Transaction => "transaction",
         BuffActDestination::Setup => "setup",
         BuffActDestination::AttackReplacement => "damage-formula",
+        BuffActDestination::HpLossState => "hp-loss-state",
         BuffActDestination::StateConsumer => "state-consumer",
         BuffActDestination::LinkedSkill => "linked-skill",
     })

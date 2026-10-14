@@ -12,6 +12,39 @@ fn capability_gaps_are_not_ready() {
 }
 
 #[test]
+fn event_required_behavior_without_route_is_a_gap() {
+    crate::init_config().unwrap();
+    let db = config::get();
+    let mut catalog = SkillEffectCatalog::default();
+    let mut skills = VecDeque::from([Pending {
+        id: 115_380_001,
+        path: "test root".to_owned(),
+    }]);
+    let mut report = Report::default();
+
+    scan_closure(
+        db,
+        battle::catalog::BattleCatalog::new(db),
+        &mut catalog,
+        &mut skills,
+        &mut VecDeque::new(),
+        &mut report,
+    );
+
+    let key = CapabilityKey::new("behavior", 60_308, "ConsumeBuffResetDevice");
+    assert!(
+        report.gaps[&key].contains("unsupported behavior route"),
+        "gaps={:?}",
+        report.gaps
+    );
+    assert!(report.errors.iter().any(|error| {
+        error.contains("UnsupportedBehaviorRoute")
+            && error.contains("skill 115380001")
+            && error.contains("slot 1")
+    }));
+}
+
+#[test]
 fn reachable_timed_buff_reports_a_missing_duration_route() {
     crate::init_config().unwrap();
     let db = config::get();
@@ -486,6 +519,14 @@ fn semantic_destination_is_independent_from_wire_metadata() {
     assert_eq!(
         buff_act_capability(buff_act::registry::destination(10000, "EzioBigSkill", &[],)),
         Some("state-consumer")
+    );
+    assert_eq!(
+        buff_act_capability(buff_act::registry::destination(
+            1150,
+            "LostHpToFakeHp",
+            &[102, 4_000],
+        )),
+        Some("hp-loss-state")
     );
 }
 

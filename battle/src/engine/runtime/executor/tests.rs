@@ -5,6 +5,7 @@ use crate::engine::{
     event::kind::EventKind,
     manager::{
         buff::{BuffCommand, BuffGrant, BuffRemove, BuffRemoveSelector, CommandOrigin},
+        card::{CardAddCrystal, CardCommand},
         eureka::{EUREKA_RESOURCE_ID, EurekaChange, EurekaCommand},
         ex_point::{ExPointChange, ExPointCommand},
         hp::{DamageEffectKind, HpCommand, HpDamage, HpKill, HurtDamageFromType, HurtInfoData},
@@ -12,6 +13,65 @@ use crate::engine::{
     },
     skill::rule::{DefinitionKey, RuleDomain},
 };
+
+#[test]
+fn crystal_card_does_not_consume_buff_uids() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut events = EventBus::default();
+    let origin = CommandOrigin {
+        domain: RuleDomain::Behavior,
+        key: DefinitionKey::new(60245, "CrystalAddCard"),
+    };
+
+    execute_rule_op(
+        &mut managers,
+        &mut events,
+        RuleOp::Command(BattleCommand::Card(CardCommand::AddCrystal(
+            CardAddCrystal {
+                origin,
+                card: sonettobuf::CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(100),
+                    temp_card: Some(true),
+                    ..Default::default()
+                },
+                rank_group: vec![100, 101, 102],
+            },
+        ))),
+    )
+    .unwrap();
+    let RuleOutcome::Buff(changes) = execute_rule_op(
+        &mut managers,
+        &mut events,
+        RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(BuffGrant {
+            origin,
+            source_uid: 10,
+            target_uid: 10,
+            buff_id: 101,
+            amount: None,
+            occurrences: 1,
+            child_uid_reservations: 0,
+        }))),
+    )
+    .unwrap() else {
+        panic!("expected buff outcome");
+    };
+
+    assert_eq!(changes.change.added.unwrap().buff.uid, Some(1002));
+}
 
 #[test]
 fn exact_rule_command_reaches_the_buff_transaction() {
@@ -290,7 +350,7 @@ fn hp_batch_preserves_command_death_order() {
         outcome
             .take_deaths()
             .into_iter()
-            .map(|death| death.target_uid)
+            .map(|death| death.transition().target_uid)
             .collect::<Vec<_>>(),
         vec![-2, -1]
     );

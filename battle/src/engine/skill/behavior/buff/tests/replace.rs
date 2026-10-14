@@ -174,6 +174,7 @@ fn replace_buff_uses_the_configured_counter_threshold_and_manager_transaction() 
 
     managers.execute_buff(command.clone()).unwrap();
     assert_eq!(managers.buff.buff_id_amount(11, 30810101), 0);
+    assert_eq!(managers.buff.buff_id_amount(11, 30810108), 10);
     assert_eq!(managers.buff.buff_id_amount(11, 30810114), 1);
 
     let ops = super::super::super::rule_ops(
@@ -195,6 +196,88 @@ fn replace_buff_uses_the_configured_counter_threshold_and_manager_transaction() 
     .unwrap();
 
     assert!(ops.is_empty());
+}
+
+#[test]
+fn replacement_grant_applies_its_configured_type_exclusions() {
+    crate::test_support::init_config();
+    let behavior =
+        ParsedBehavior::new(50032, "ReplaceBuff", vec![30810108, 40, 30810312, 30810321]);
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(11),
+                current_hp: Some(100),
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(100),
+                        buff_id: Some(30810108),
+                        layer: Some(40),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(101),
+                        buff_id: Some(30810312),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(110),
+                        buff_id: Some(201),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut determinism = RoundDeterminism::default();
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+    let mut target = crate::engine::skill::target::TargetContext::default();
+    let ops = super::super::super::rule_ops(
+        BehaviorOpContext {
+            source_uid: 11,
+            source_team: 1,
+            target_uid: 11,
+            active_skill_id: 0,
+            transfer_count: 1,
+            event: None,
+            managers: &managers,
+            pool: &TargetPool::default(),
+            determinism: &mut determinism,
+            modifiers: &mut modifiers,
+            target: &mut target,
+        },
+        &behavior,
+    )
+    .unwrap();
+    let [RuleOp::Command(BattleCommand::Buff(command @ BuffCommand::Replace(_)))] = ops.as_slice()
+    else {
+        panic!("expected one buff replacement");
+    };
+
+    let changes = managers.execute_buff(command.clone()).unwrap();
+
+    assert_eq!(
+        changes
+            .change
+            .removed
+            .iter()
+            .filter_map(|removed| removed.buff.buff_id)
+            .collect::<Vec<_>>(),
+        vec![30810312, 30810108]
+    );
+    assert_eq!(
+        changes.change.added.as_ref().map(|added| &added.buff),
+        managers
+            .buff
+            .active_for(11)
+            .find(|buff| buff.buff_id == Some(30810321))
+    );
+    assert_eq!(changes.change.added.unwrap().buff.uid, Some(1002));
 }
 
 #[test]

@@ -41,6 +41,20 @@ pub(crate) enum RedealWireLayout {
     Version7,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ChangeRoundWireLayout {
+    Incremental,
+    CurrentRound,
+}
+
+pub(crate) const fn absorb_hurt_map_layout(version: i32) -> AbsorbHurtMapLayout {
+    if version == 6 {
+        AbsorbHurtMapLayout::TwoMaps
+    } else {
+        AbsorbHurtMapLayout::ThreeMaps
+    }
+}
+
 pub(crate) const fn hurt_info_wire_layout(version: i32) -> Option<HurtInfoWireLayout> {
     match version {
         6 => Some(HurtInfoWireLayout::Version6),
@@ -65,11 +79,20 @@ pub(crate) const fn redeal_wire_layout(version: i32) -> Option<RedealWireLayout>
     }
 }
 
+pub(crate) const fn change_round_wire_layout(version: i32) -> Option<ChangeRoundWireLayout> {
+    match version {
+        6 => Some(ChangeRoundWireLayout::Incremental),
+        7 => Some(ChangeRoundWireLayout::CurrentRound),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        HurtInfoWireLayout, RedealWireLayout, RoundStartSetupLayout, hurt_info_wire_layout,
-        redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
+        AbsorbHurtMapLayout, ChangeRoundWireLayout, HurtInfoWireLayout, RedealWireLayout,
+        RoundStartSetupLayout, absorb_hurt_map_layout, change_round_wire_layout,
+        hurt_info_wire_layout, redeal_wire_layout, round_start_setup_layout, writes_reduce_hp,
     };
 
     #[test]
@@ -103,5 +126,24 @@ mod tests {
         assert_eq!(redeal_wire_layout(6), Some(RedealWireLayout::Version6));
         assert_eq!(redeal_wire_layout(7), Some(RedealWireLayout::Version7));
         assert_eq!(redeal_wire_layout(8), None);
+    }
+
+    #[test]
+    fn change_round_wire_layout_is_selected_by_fight_version() {
+        assert_eq!(
+            change_round_wire_layout(6),
+            Some(ChangeRoundWireLayout::Incremental)
+        );
+        assert_eq!(
+            change_round_wire_layout(7),
+            Some(ChangeRoundWireLayout::CurrentRound)
+        );
+        assert_eq!(change_round_wire_layout(8), None);
+    }
+
+    #[test]
+    fn absorb_hurt_map_layout_follows_the_fight_version() {
+        assert_eq!(absorb_hurt_map_layout(6), AbsorbHurtMapLayout::TwoMaps);
+        assert_eq!(absorb_hurt_map_layout(7), AbsorbHurtMapLayout::ThreeMaps);
     }
 }

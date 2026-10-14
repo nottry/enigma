@@ -5,12 +5,27 @@ use std::{
 };
 
 use crate::engine::{
-    manager::hp::DeathTransition,
+    manager::hp::PendingDeath,
     runtime::record::{FrameOwner, FramePath},
-    skill::target::TargetContext,
+    skill::{rule::DefinitionKey, target::TargetContext},
 };
 
-use super::{DrainBudget, DrainError, QueuedOp};
+use super::{
+    DefenderCardCleanupOwner, DrainBudget, DrainError, QueuedOp, SubscriberDeathGroup,
+    assign_subscriber_death_groups,
+};
+
+type FrameGroup = Rc<RefCell<Option<FramePath>>>;
+type DeferredCast = (Option<FrameOwner>, QueuedOp);
+pub(super) type ActionReactionKey = (i64, i32, Option<usize>, DefinitionKey);
+
+#[derive(Default)]
+pub(super) struct ReactionCastState {
+    action_path: Option<FramePath>,
+    casts: Vec<DeferredCast>,
+}
+
+pub(super) type ReactionCastLink = Rc<RefCell<ReactionCastState>>;
 
 /// Owns bookkeeping shared by the root drain and every nested reaction drain.
 #[derive(Default)]
@@ -18,22 +33,30 @@ pub(super) struct DrainState {
     after_hit: HashMap<FramePath, Vec<QueuedOp>>,
     hit_passive_skills: HashMap<FramePath, Vec<QueuedOp>>,
     hit_skills: HashMap<FramePath, Vec<QueuedOp>>,
+    before_after_hit_observers: HashMap<FramePath, Vec<QueuedOp>>,
     after_hit_skills: HashMap<FramePath, Vec<QueuedOp>>,
     after_action: HashMap<FramePath, Vec<QueuedOp>>,
     // Casts held until their action completes, with the step that cast them.
-    after_action_casts: HashMap<FramePath, Vec<(Option<FrameOwner>, QueuedOp)>>,
+    after_action_casts: HashMap<FramePath, Vec<DeferredCast>>,
     // Casts released after a reaction action inherit that reaction's frame once it materializes.
-    after_reaction_casts: HashMap<usize, Vec<(Option<FrameOwner>, QueuedOp)>>,
+    after_reaction_casts: Vec<(FrameGroup, Vec<DeferredCast>)>,
+    action_reaction_links: Vec<(FrameGroup, ReactionCastLink)>,
+    reaction_child_links: HashMap<FramePath, ReactionCastLink>,
+    claimed_action_links: HashMap<FramePath, Vec<ReactionCastLink>>,
     // Actions that will publish ActionCompleted and have not yet done so.
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
+    action_reactions: HashMap<FramePath, HashSet<ActionReactionKey>>,
+    event_batch_reactions: HashMap<u64, HashSet<ActionReactionKey>>,
+    next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
-    deaths: HashMap<FramePath, Vec<DeathTransition>>,
+    deaths: HashMap<FramePath, Vec<PendingDeath>>,
     target_modifiers: HashMap<FramePath, i32>,
     budget: DrainBudget,
     context: TargetContext,
     depth: usize,
     death_settlement_depth: usize,
+    defender_card_cleanup_owner: DefenderCardCleanupOwner,
 }
 
 impl DrainState {
@@ -42,6 +65,18 @@ impl DrainState {
             context,
             ..Self::default()
         }
+    }
+
+    pub(super) fn with_defender_card_cleanup_owner(
+        mut self,
+        owner: DefenderCardCleanupOwner,
+    ) -> Self {
+        self.defender_card_cleanup_owner = owner;
+        self
+    }
+
+    pub(super) fn defender_card_cleanup_owner(&self) -> DefenderCardCleanupOwner {
+        self.defender_card_cleanup_owner
     }
 
     pub(super) fn context(&self) -> TargetContext {
@@ -95,6 +130,14 @@ impl DrainState {
         defer(&mut self.after_hit_skills, action_path, queued);
     }
 
+    pub(super) fn defer_before_after_hit_observers(
+        &mut self,
+        action_path: Option<&[usize]>,
+        queued: Vec<QueuedOp>,
+    ) {
+        defer(&mut self.before_after_hit_observers, action_path, queued);
+    }
+
     pub(super) fn defer_hit_skills(
         &mut self,
         action_path: Option<&[usize]>,
@@ -132,6 +175,13 @@ impl DrainState {
         action_path.and_then(|path| self.after_hit_skills.remove(path))
     }
 
+    pub(super) fn take_before_after_hit_observers(
+        &mut self,
+        action_path: Option<&FramePath>,
+    ) -> Option<Vec<QueuedOp>> {
+        action_path.and_then(|path| self.before_after_hit_observers.remove(path))
+    }
+
     pub(super) fn defer_after_action(
         &mut self,
         action_path: Option<&[usize]>,
@@ -162,29 +212,116 @@ impl DrainState {
     ) -> Vec<(Option<FrameOwner>, QueuedOp)> {
         self.open_actions.remove(action_path);
         self.completed_actions.insert(action_path.clone());
+        self.action_reactions.remove(action_path);
         self.after_action_casts
             .remove(action_path)
             .unwrap_or_default()
     }
 
+    pub(super) fn take_claimed_reaction_casts(
+        &mut self,
+        action_path: &FramePath,
+    ) -> Vec<DeferredCast> {
+        let mut casts = Vec::new();
+        for link in self
+            .claimed_action_links
+            .remove(action_path)
+            .unwrap_or_default()
+        {
+            casts.extend(
+                link.borrow_mut()
+                    .casts
+                    .drain(..)
+                    .map(|(caster, mut queued)| {
+                        queued.parent_path = Some(action_path.clone());
+                        (caster, queued)
+                    }),
+            );
+        }
+        casts
+    }
+
     pub(super) fn defer_after_reaction_casts(
         &mut self,
         group: &Rc<RefCell<Option<FramePath>>>,
-        casts: Vec<(Option<FrameOwner>, QueuedOp)>,
+        casts: Vec<DeferredCast>,
     ) {
-        self.after_reaction_casts
-            .entry(Rc::as_ptr(group) as usize)
-            .or_default()
-            .extend(casts);
+        if let Some((_, pending)) = self
+            .after_reaction_casts
+            .iter_mut()
+            .find(|(known, _)| Rc::ptr_eq(known, group))
+        {
+            pending.extend(casts);
+        } else {
+            self.after_reaction_casts.push((group.clone(), casts));
+        }
     }
 
     pub(super) fn take_after_reaction_casts(
         &mut self,
         group: &Rc<RefCell<Option<FramePath>>>,
-    ) -> Vec<(Option<FrameOwner>, QueuedOp)> {
-        self.after_reaction_casts
-            .remove(&(Rc::as_ptr(group) as usize))
-            .unwrap_or_default()
+    ) -> Vec<DeferredCast> {
+        let Some(index) = self
+            .after_reaction_casts
+            .iter()
+            .position(|(known, _)| Rc::ptr_eq(known, group))
+        else {
+            return Vec::new();
+        };
+        self.after_reaction_casts.swap_remove(index).1
+    }
+
+    pub(super) fn defer_action_reaction_link(
+        &mut self,
+        group: &FrameGroup,
+        link: &ReactionCastLink,
+    ) {
+        self.action_reaction_links
+            .push((group.clone(), link.clone()));
+    }
+
+    pub(super) fn action_reaction_link(&self, group: &FrameGroup) -> Option<ReactionCastLink> {
+        self.action_reaction_links
+            .iter()
+            .find(|(known, _)| Rc::ptr_eq(known, group))
+            .map(|(_, link)| link.clone())
+    }
+
+    pub(super) fn defer_reaction_child_link(&mut self, path: FramePath, link: &ReactionCastLink) {
+        self.reaction_child_links
+            .entry(path)
+            .or_insert_with(|| link.clone());
+    }
+
+    pub(super) fn reaction_child_link(&self, path: Option<&FramePath>) -> Option<ReactionCastLink> {
+        path.and_then(|path| self.reaction_child_links.get(path).cloned())
+    }
+
+    pub(super) fn reaction_cast_link(casts: Vec<DeferredCast>) -> ReactionCastLink {
+        Rc::new(RefCell::new(ReactionCastState {
+            action_path: None,
+            casts,
+        }))
+    }
+
+    pub(super) fn take_unclaimed_reaction_casts(link: &ReactionCastLink) -> Vec<DeferredCast> {
+        let mut state = link.borrow_mut();
+        if state.action_path.is_some() {
+            Vec::new()
+        } else {
+            std::mem::take(&mut state.casts)
+        }
+    }
+
+    pub(super) fn claim_action_link(&mut self, action_path: &FramePath, link: &ReactionCastLink) {
+        if link.borrow().action_path.is_some() {
+            return;
+        }
+        link.borrow_mut().action_path = Some(action_path.clone());
+        self.claimed_action_links
+            .entry(action_path.clone())
+            .or_default()
+            .push(link.clone());
     }
 
     pub(super) fn cancel_action(&mut self, action_path: &FramePath) -> Vec<QueuedOp> {
@@ -193,6 +330,16 @@ impl DrainState {
         self.injuries.remove(action_path);
         self.deaths.remove(action_path);
         self.target_modifiers.remove(action_path);
+        self.action_reactions.remove(action_path);
+        for link in self
+            .claimed_action_links
+            .remove(action_path)
+            .unwrap_or_default()
+        {
+            if link.borrow().action_path.as_ref() == Some(action_path) {
+                link.borrow_mut().action_path = None;
+            }
+        }
 
         let mut abandoned = self.after_hit.remove(action_path).unwrap_or_default();
         abandoned.extend(
@@ -201,6 +348,11 @@ impl DrainState {
                 .unwrap_or_default(),
         );
         abandoned.extend(self.hit_skills.remove(action_path).unwrap_or_default());
+        abandoned.extend(
+            self.before_after_hit_observers
+                .remove(action_path)
+                .unwrap_or_default(),
+        );
         abandoned.extend(
             self.after_hit_skills
                 .remove(action_path)
@@ -228,6 +380,28 @@ impl DrainState {
         self.open_actions.contains(action_path)
     }
 
+    pub(super) fn action_reactions(
+        &mut self,
+        action_path: &[usize],
+    ) -> &mut HashSet<ActionReactionKey> {
+        self.action_reactions
+            .entry(action_path.to_vec())
+            .or_default()
+    }
+
+    pub(super) fn next_event_batch_id(&mut self) -> u64 {
+        let id = self.next_event_batch_id;
+        self.next_event_batch_id += 1;
+        id
+    }
+
+    pub(super) fn event_batch_reactions(
+        &mut self,
+        batch_id: u64,
+    ) -> &mut HashSet<ActionReactionKey> {
+        self.event_batch_reactions.entry(batch_id).or_default()
+    }
+
     pub(super) fn add_target_modifier(&mut self, action_path: FramePath, amount: i32) {
         *self.target_modifiers.entry(action_path).or_default() += amount;
     }
@@ -252,13 +426,39 @@ impl DrainState {
     pub(super) fn record_deaths(
         &mut self,
         action_path: FramePath,
-        deaths: impl IntoIterator<Item = DeathTransition>,
+        deaths: impl IntoIterator<Item = PendingDeath>,
     ) {
         self.deaths.entry(action_path).or_default().extend(deaths);
     }
 
-    pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<DeathTransition>> {
+    pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<PendingDeath>> {
         self.deaths.remove(action_path)
+    }
+
+    pub(super) fn record_subscriber_deaths(
+        &mut self,
+        group: &Rc<RefCell<SubscriberDeathGroup>>,
+        parent_path: &FramePath,
+        deaths: impl IntoIterator<Item = PendingDeath>,
+    ) {
+        let mut group = group.borrow_mut();
+        for death in deaths {
+            let current = (death, parent_path.clone());
+            if let Some(existing) = group.deaths.iter_mut().find(|(recorded, _)| {
+                recorded.transition().target_uid == death.transition().target_uid
+            }) {
+                *existing = current;
+            } else {
+                group.deaths.push(current);
+            }
+        }
+    }
+
+    pub(super) fn take_subscriber_deaths(
+        &mut self,
+        group: &Rc<RefCell<SubscriberDeathGroup>>,
+    ) -> Vec<(PendingDeath, FramePath)> {
+        std::mem::take(&mut group.borrow_mut().deaths)
     }
 }
 
@@ -272,5 +472,6 @@ fn defer(
     };
     let existing = deferred.entry(action_path.to_vec()).or_default();
     queued.append(existing);
+    assign_subscriber_death_groups(&mut [&mut queued]);
     *existing = queued;
 }

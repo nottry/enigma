@@ -170,6 +170,15 @@ pub fn per_buff_id_count(_: i32, _: &str, raw_args: &[String]) -> Option<ParsedC
     })
 }
 
+pub fn each_buff_id_layer(_: i32, _: &str, raw_args: &[String]) -> Option<ParsedConditionKind> {
+    let buff_ids = parse_buff_ids(raw_args)?;
+    (buff_ids.len() == 1).then_some(ParsedConditionKind::BuffIdCount {
+        buff_ids,
+        compare: ConditionCompare::GreaterThanOrEqual,
+        threshold: 1,
+    })
+}
+
 pub fn team_added_count(_: i32, _: &str, raw_args: &[String]) -> Option<ParsedConditionKind> {
     Some(ParsedConditionKind::AccBuffAddedCount {
         buff_ids: parse_buff_ids(raw_args.get(..1)?)?,

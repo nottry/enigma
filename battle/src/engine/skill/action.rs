@@ -6,6 +6,7 @@ use crate::engine::skill::rule::{CommandOrigin, DefinitionKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SkillPhase {
+    SourceOpening,
     Immediate,
     Damage,
     AdditionalDamage,
@@ -39,11 +40,33 @@ impl SkillExecutionMode {
     }
 }
 
+pub(crate) fn performs_extra_action(
+    card_index: i32,
+    mode: SkillExecutionMode,
+    extra_skill_kind: i32,
+) -> bool {
+    crate::engine::skill::buff_act::additional_damage::uses_costed_lane(extra_skill_kind)
+        || (card_index == 0 && mode == SkillExecutionMode::Active)
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum SkillStart {
     #[default]
     Immediate,
+    /// Runs after the current action and its reactions as a child of that action.
     AfterCurrentAction,
+    /// Follows an action-producing reaction before falling back to the current action.
+    AfterCurrentActionReaction,
+}
+
+impl SkillStart {
+    pub(crate) fn waits_for_current_action(self) -> bool {
+        self != Self::Immediate
+    }
+
+    pub(crate) fn follows_action_reaction(self) -> bool {
+        self == Self::AfterCurrentActionReaction
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +123,7 @@ pub struct ActionEvent {
     pub additional_moxie: i32,
     pub extra_skill_kind: i32,
     pub mode: SkillExecutionMode,
+    pub is_interval: bool,
     pub assassinate: bool,
     pub damage_amount: i32,
     pub kill_count: i32,
@@ -134,6 +158,8 @@ pub struct SkillInvocation {
     pub additional_moxie: i32,
     pub condition_key: Option<DefinitionKey>,
     pub condition_slot: Option<usize>,
+    pub(crate) reaction_batch_id: Option<u64>,
+    pub(crate) reaction_action_path: Option<Vec<usize>>,
     pub phase: Option<SkillPhase>,
     pub target: SkillTarget,
     pub extra_skill_kind: Option<crate::engine::skill::condition::extra::ExtraSkillKind>,
@@ -158,6 +184,8 @@ impl From<SkillRequest> for SkillInvocation {
             additional_moxie: 0,
             condition_key: None,
             condition_slot: None,
+            reaction_batch_id: None,
+            reaction_action_path: None,
             phase: None,
             target: SkillTarget::Configured,
             extra_skill_kind: None,
@@ -189,6 +217,8 @@ mod invocation_tests {
             additional_moxie: 0,
             condition_key: Some(DefinitionKey::new(30, "TestCondition")),
             condition_slot: Some(2),
+            reaction_batch_id: None,
+            reaction_action_path: None,
             phase: Some(SkillPhase::AfterDamage),
             target: SkillTarget::Explicit(-1),
             extra_skill_kind: Some(ExtraSkillKind::FollowUp),
@@ -361,6 +391,7 @@ pub struct SkillModifiers {
     pub additional_attack_career: Option<i32>,
     pub force_career_restraint: bool,
     pub additional_damage: Vec<AdditionalDamageModifier>,
+    pub unpaid_extra_action_cost_fields: Vec<(i32, i64)>,
     pub post_immediate_target_buffs: Vec<PostImmediateTargetBuffModifier>,
     pub consume_team_injury_count_round: Option<DefinitionKey>,
 }
@@ -386,6 +417,11 @@ impl SkillModifiers {
             .or(other.additional_attack_career);
         self.force_career_restraint |= other.force_career_restraint;
         self.additional_damage.append(&mut other.additional_damage);
+        for field in other.unpaid_extra_action_cost_fields {
+            if !self.unpaid_extra_action_cost_fields.contains(&field) {
+                self.unpaid_extra_action_cost_fields.push(field);
+            }
+        }
         self.post_immediate_target_buffs
             .append(&mut other.post_immediate_target_buffs);
         self.consume_team_injury_count_round = self

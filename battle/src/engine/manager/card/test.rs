@@ -187,6 +187,11 @@ fn enemy_ai_selects_boss_ultimate_from_full_named_power() {
 
 #[test]
 fn generated_ai_targets_follow_configured_skill_side() {
+    use crate::engine::{
+        manager::hp::{HpCommand, HpKill},
+        skill::rule::{CommandOrigin, DefinitionKey, RuleDomain},
+    };
+
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![
@@ -220,7 +225,7 @@ fn generated_ai_targets_follow_configured_skill_side() {
         }),
         ..Default::default()
     };
-    let managers = crate::engine::manager::BattleManagers::seeded(&fight);
+    let mut managers = crate::engine::manager::BattleManagers::seeded(&fight);
     let mut catalog = crate::engine::skill::effect::SkillEffectCatalog::default();
     for skill_id in [301, 401] {
         catalog.insert(crate::engine::skill::effect::slot::ParsedSkillEffect {
@@ -290,6 +295,36 @@ fn generated_ai_targets_follow_configured_skill_side() {
     )
     .unwrap_err();
     assert!(error.contains("has no configured target"));
+
+    managers
+        .execute_hp(HpCommand::Kill(HpKill {
+            origin: CommandOrigin {
+                domain: RuleDomain::Lifecycle,
+                key: DefinitionKey::new(0, "TestOwnerDeath"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            config_effect: 1,
+        }))
+        .unwrap();
+    catalog.insert_logic_target(301, 103);
+    let mut cards = [CardInfo {
+        uid: Some(-1),
+        skill_id: Some(301),
+        target_uid: Some(10),
+        ..Default::default()
+    }];
+
+    ai::resolve_configured_targets(
+        &fight,
+        &managers,
+        &catalog,
+        &crate::engine::runtime::determinism::RoundDeterminism::default(),
+        &mut cards,
+    )
+    .unwrap();
+
+    assert_eq!(cards[0].target_uid, Some(-1));
 }
 
 #[test]
@@ -675,6 +710,40 @@ fn reset_preserves_the_attached_catalog() {
     manager.reset_with_draw_pile(vec![card(10, 100)], vec![card(11, 200)], 2);
 
     assert_eq!(manager.deck.attached_catalog(), Some(catalog));
+}
+
+#[test]
+fn redeal_eligibility_fails_closed_without_complete_catalog_identity() {
+    crate::test_support::init_config();
+    let catalog = crate::catalog::BattleCatalog::new(crate::test_support::game_data());
+    let normal = card(10, 100);
+    let missing_skill = CardInfo {
+        uid: Some(10),
+        ..Default::default()
+    };
+
+    assert!(!is_redealable(&normal, None));
+    assert!(!is_redealable(&missing_skill, Some(catalog)));
+    assert!(is_redealable(&normal, Some(catalog)));
+}
+
+#[test]
+fn observed_redeal_result_resolves_legal_base_rank_draws() {
+    crate::test_support::init_config();
+    let catalog = crate::catalog::BattleCatalog::new(crate::test_support::game_data());
+    let mut manager = CardManager::with_draw_pile(
+        vec![card(10, 31340112), card(20, 31270121)],
+        vec![card(20, 31270121), card(10, 31340111)],
+    );
+    manager.set_catalog(catalog);
+    manager.rank_up.insert((20, 31270121), 31270122);
+    manager.rank_up.insert((10, 31340111), 31340112);
+
+    let draws = manager
+        .observed_redeal_draws(&[card(20, 31270122), card(10, 31340111)])
+        .unwrap();
+
+    assert_eq!(draws, vec![card(20, 31270121), card(10, 31340111)]);
 }
 
 #[test]

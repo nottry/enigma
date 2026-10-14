@@ -89,6 +89,34 @@ fn transformed_entity_projects_the_committed_replacement() {
 }
 
 #[test]
+fn career_change_projects_committed_entity_state() {
+    let changes = EntityChanges {
+        origin: CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(50013, "ChangeCareer"),
+        },
+        source_uid: -1,
+        target_uid: -1,
+        entity: FightEntityInfo {
+            uid: Some(-1),
+            career: Some(3),
+            ..Default::default()
+        },
+        operation: EntityOperation::ChangeCareer { career: 3 },
+    };
+
+    let effects = project_change_for_test(&BattleChange::Entity(Box::new(changes))).unwrap();
+
+    assert_eq!(effects[0].target_id, Some(-1));
+    assert_eq!(
+        effects[0].effect_type,
+        Some(EffectType::Changecareer as i32)
+    );
+    assert_eq!(effects[0].effect_num, Some(3));
+    assert_eq!(effects[0].config_effect, Some(50013));
+}
+
+#[test]
 fn upgrade_offer_projects_without_loading_the_selected_entity() {
     let mut upgrades = UpgradeManager::default();
     let change = upgrades

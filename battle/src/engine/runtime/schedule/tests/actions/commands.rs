@@ -160,6 +160,7 @@ fn apple_ultimate_settles_death_before_its_after_damage_heal() {
             sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
             sonettobuf::effect_type_enum::EffectType::Damage as i32,
             sonettobuf::effect_type_enum::EffectType::Dead as i32,
+            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
             sonettobuf::effect_type_enum::EffectType::Heal as i32,
         ]
     );
@@ -233,6 +234,93 @@ fn decoded_card_commands_share_the_command_only_player_schedule() {
     assert_eq!(
         steps[1].act_effect[0].effect_type,
         Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
+    );
+}
+
+#[test]
+fn playing_a_card_does_not_compose_the_remaining_hand() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3028),
+                current_hp: Some(1_000),
+                skill_group1: vec![30280111, 30280112, 30280113],
+                skill_group2: vec![30280121, 30280122, 30280123],
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    attack: Some(200),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::Setup(CardSetup {
+            hand: [30280111, 30280121, 30280121, 30280111]
+                .into_iter()
+                .map(|skill_id| CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(skill_id),
+                    ..Default::default()
+                })
+                .collect(),
+            draw_pile: Vec::new(),
+            deck_num: 16,
+        }))
+        .unwrap();
+
+    run_player_commands(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::from_fight(config::configs::get(), &fight),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [
+            RoundCommand::PlayCard {
+                card_index: 0,
+                target_uid: Some(-1),
+                chosen_skill_id: None,
+                recorded_skill: None,
+            },
+            RoundCommand::PlayCard {
+                card_index: 2,
+                target_uid: Some(-1),
+                chosen_skill_id: None,
+                recorded_skill: None,
+            },
+        ],
+        1,
+        crate::engine::manager::emitter::UID,
+    )
+    .unwrap();
+
+    assert_eq!(
+        managers
+            .card
+            .hand()
+            .iter()
+            .filter_map(|card| card.skill_id)
+            .collect::<Vec<_>>(),
+        vec![30280121, 30280121]
     );
 }
 
@@ -342,6 +430,28 @@ fn named_boss_power_does_not_gain_card_moxie() {
     };
     let managers = BattleManagers::seeded(&fight);
 
+    assert_eq!(card_play_resource_delta(&managers, -1, true, false), None);
+}
+
+#[test]
+fn monster_without_an_ultimate_resource_does_not_gain_card_moxie() {
+    init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(116_330_100),
+                level: Some(85),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+
+    assert!(!managers.ex_point.gains_composition_ex_point(-1));
     assert_eq!(card_play_resource_delta(&managers, -1, true, false), None);
 }
 

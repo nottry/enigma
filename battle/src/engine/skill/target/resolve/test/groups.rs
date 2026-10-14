@@ -1,9 +1,43 @@
 use super::*;
 
 #[test]
+fn captured_target_comparison_preserves_order_and_cardinality() {
+    assert!(captured_targets_match(&[10, 11, 12], &[10, 11, 12]));
+    assert!(!captured_targets_match(&[10, 11, 12], &[12, 10, 11]));
+    assert!(!captured_targets_match(&[10, 11, 12], &[12, 10]));
+    assert!(!captured_targets_match(&[10, 10, 11], &[10, 11, 12]));
+}
+
+#[test]
 fn other_allies_anchor_their_shared_skill_frame_to_the_caster() {
     assert_eq!(frame_anchor_for_rule(102, 10), Some(10));
     assert_eq!(frame_anchor_for_rule(103, 10), None);
+}
+
+#[test]
+fn mass_targets_preserve_the_selected_skill_frame_target() {
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity_at(10, 1), entity_at(11, 2)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity_at(-1, 1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let attack = TargetContext {
+        active_skill_is_attack: true,
+        ..Default::default()
+    };
+
+    assert!(preserves_selected_frame_target(130, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(101, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(202, 10, -1, &pool, attack));
+    assert!(preserves_selected_frame_target(1, 10, 11, &pool, attack));
+    assert!(!preserves_selected_frame_target(1, 10, -1, &pool, attack));
 }
 
 #[test]
@@ -132,7 +166,7 @@ fn group_targets_keep_roster_order_for_attacks_and_reactions() {
 }
 
 #[test]
-fn multi_target_actions_keep_roster_order_independent_of_the_selected_target() {
+fn enemy_side_attacks_put_the_selected_primary_before_the_roster_order() {
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![entity_at(10, 1)],
@@ -162,7 +196,7 @@ fn multi_target_actions_keep_roster_order_independent_of_the_selected_target() {
                 ..Default::default()
             },
         ),
-        vec![-10, -11, -12]
+        vec![-11, -10, -12]
     );
 
     assert_eq!(

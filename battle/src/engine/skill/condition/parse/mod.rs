@@ -181,6 +181,11 @@ pub enum ParsedConditionKind {
         compare_code: i32,
         threshold_permille: i32,
     },
+    FightProgressValue {
+        progress_id: i32,
+        compare_code: i32,
+        threshold: i32,
+    },
     PowerIncrChange {
         power_id: i32,
         compare_code: i32,
@@ -288,6 +293,7 @@ pub enum ParsedConditionKind {
     ActiveSkillType(i32),
     ActiveSkillEffectTag(Vec<i32>),
     DamageTargetCountKind(i32),
+    ReceivedDamageTargetCountKind(i32),
     SourceDamageType(crate::engine::skill::target::EntityDamageType),
     AttackerDamageType(crate::engine::skill::target::EntityDamageType),
     AttackCrit,
@@ -300,6 +306,10 @@ pub enum ParsedConditionKind {
         scope: EntityCountScope,
         compare: ConditionCompare,
         count: i32,
+    },
+    AliveAlliedModelCount {
+        model_id: i32,
+        minimum: i32,
     },
     SummonedCount {
         summoned_id: i32,
@@ -502,6 +512,16 @@ pub(super) fn damage_target_count_kind(
     Some(ParsedConditionKind::DamageTargetCountKind(first_i32(
         raw_args,
     )?))
+}
+
+pub(super) fn received_damage_target_count_kind(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::ReceivedDamageTargetCountKind(
+        first_i32(raw_args)?,
+    ))
 }
 
 pub(super) fn hero_reality(_: i32, _: &str, raw_args: &[String]) -> Option<ParsedConditionKind> {

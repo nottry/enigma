@@ -21,10 +21,10 @@ pub use command::{
     CardDeckRankUpRange, CardDraw, CardEnchantHand, CardEnergyAllocation, CardEnergyChange,
     CardHandLimitChange, CardInvalidatePlayed, CardMarkTemporary, CardOpeningDraw,
     CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange, CardRankFailure, CardRankResult,
-    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue,
-    CardRemoveAiOwner, CardRemoveOwner, CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards,
-    CardSetUltimateAvailability, CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange,
-    QueuedCardRankUp, QueuedUseCard, TemporaryCardKind,
+    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
+    CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards, CardSetUltimateAvailability,
+    CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange, QueuedCardRankUp,
+    QueuedUseCard, TemporaryCardKind,
 };
 pub use deck::CardDeck;
 use deck::CardInstanceId;
@@ -714,11 +714,44 @@ impl CardManager {
     }
 
     pub(crate) fn redealable_cards(&self) -> impl Iterator<Item = &CardInfo> {
-        self.hand().iter().filter(|card| is_redealable(card))
+        let catalog = self.deck.catalog();
+        self.hand()
+            .iter()
+            .filter(move |card| is_redealable(card, catalog))
     }
 
     pub(crate) fn redealable_count(&self) -> usize {
         self.redealable_cards().count()
+    }
+
+    pub(crate) fn observed_redeal_draws(&self, observed: &[CardInfo]) -> Option<Vec<CardInfo>> {
+        if observed.len() != self.hand().len() {
+            return None;
+        }
+        let catalog = self.deck.catalog();
+        self.hand()
+            .iter()
+            .zip(observed)
+            .map(|(current, observed)| {
+                if !is_redealable(current, catalog) {
+                    return (current.uid == observed.uid && current.skill_id == observed.skill_id)
+                        .then_some(None);
+                }
+                let rank = catalog
+                    .map(|catalog| catalog.card_skill_rank(current))
+                    .unwrap_or_else(|| current.card_effect.unwrap_or_default());
+                self.draw_pile().iter().find_map(|candidate| {
+                    let owner_uid = candidate.uid?;
+                    let mut skill_id = candidate.skill_id?;
+                    for _ in 1..rank {
+                        skill_id = self.rank_up.get(&(owner_uid, skill_id)).copied()?;
+                    }
+                    (candidate.uid == observed.uid && Some(skill_id) == observed.skill_id)
+                        .then(|| Some(candidate.clone()))
+                })
+            })
+            .collect::<Option<Vec<_>>>()
+            .map(|draws| draws.into_iter().flatten().collect())
     }
 
     fn add_universal_cards(&mut self, count: i32, skill: UniversalCardSkill) {
@@ -761,7 +794,7 @@ impl CardManager {
             .deck
             .hand_mut()
             .iter_mut()
-            .filter(|card| is_redealable(card))
+            .filter(|card| is_redealable(card, catalog))
         {
             let Some(mut replacement) = replacements.next() else {
                 break;
@@ -1082,12 +1115,14 @@ impl CardManager {
     }
 }
 
-fn is_redealable(card: &CardInfo) -> bool {
+fn is_redealable(card: &CardInfo, catalog: Option<crate::catalog::BattleCatalog>) -> bool {
+    let Some(skill_id) = card.skill_id else {
+        return false;
+    };
     !card.temp_card.unwrap_or_default()
         && card.uid.unwrap_or_default() != 0
-        && !card
-            .skill_id
-            .is_some_and(crate::engine::skill::effect::catalog::configured_is_big_skill)
+        && !crate::engine::skill::effect::catalog::configured_is_big_skill(skill_id)
+        && catalog.is_some_and(|catalog| !catalog.is_special_power_card(skill_id))
 }
 
 #[cfg(test)]

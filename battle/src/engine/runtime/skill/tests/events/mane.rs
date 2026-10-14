@@ -1,9 +1,9 @@
 use super::*;
 
 #[test]
-fn mass_action_behaviors_prioritize_the_selected_target() {
+fn mass_action_per_target_behaviors_follow_entity_map_order() {
     crate::test_support::init_config();
-    let entity = |uid| FightEntityInfo {
+    let entity = |uid, buffs| FightEntityInfo {
         uid: Some(uid),
         current_hp: Some(10_000),
         attr: Some(HeroAttribute {
@@ -11,17 +11,29 @@ fn mass_action_behaviors_prioritize_the_selected_target() {
             attack: Some(1_000),
             ..Default::default()
         }),
+        buffs,
+        ..Default::default()
+    };
+    let buff = |uid, buff_id| BuffInfo {
+        uid: Some(uid),
+        buff_id: Some(buff_id),
+        from_uid: Some(-1),
         ..Default::default()
     };
     let fight = Fight {
         attacker: Some(FightTeam {
-            entitys: vec![entity(10), entity(20), entity(30), entity(40)],
+            entitys: vec![
+                entity(234410900, Vec::new()),
+                entity(237352626, vec![buff(2, 109380005)]),
+                entity(240494381, vec![buff(3, 109380001)]),
+                entity(240494371, vec![buff(4, 109380001)]),
+            ],
             ..Default::default()
         }),
         defender: Some(FightTeam {
             entitys: vec![FightEntityInfo {
                 model_id: Some(109380001),
-                ..entity(-1)
+                ..entity(-1, Vec::new())
             }],
             ..Default::default()
         }),
@@ -36,41 +48,56 @@ fn mass_action_behaviors_prioritize_the_selected_target() {
     }
     .into();
     invocation.mode = SkillExecutionMode::Active;
-    invocation.target = SkillTarget::Explicit(40);
-    let mut execution = SkillExecution::new(TargetContext::default());
-    let mut grants = Vec::new();
+    invocation.target = SkillTarget::Explicit(234410900);
+    let ops = emit_all_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &SkillOpTrigger::Active,
+    )
+    .unwrap();
 
-    loop {
-        let emission = emit_ops(
-            invocation,
-            &managers,
-            &pool,
-            &catalog,
-            &mut RoundDeterminism::default(),
-            &mut execution,
-            &SkillOpTrigger::Active,
-        )
-        .unwrap();
-        grants.extend(
-            emission
-                .ops
-                .iter()
-                .filter_map(|emission| match &emission.op {
-                    RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant)))
-                        if grant.buff_id == 109380001 =>
-                    {
-                        Some(grant.target_uid)
-                    }
-                    _ => None,
-                }),
-        );
-        let Some(continuation) = emission.continuation else {
-            break;
-        };
-        invocation = continuation;
-    }
+    let origin_damage = ops
+        .iter()
+        .filter_map(|op| match op {
+            RuleOp::Command(BattleCommand::Hp(HpCommand::Damage(damage)))
+                if damage.hurt.damage_from
+                    == crate::engine::manager::hp::HurtDamageFromType::SkillEffect =>
+            {
+                Some(damage.target_uid)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let grants = ops
+        .iter()
+        .filter_map(|op| match op {
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant)))
+                if grant.buff_id == 109380001 =>
+            {
+                Some(grant.target_uid)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let vacant_removals = ops
+        .iter()
+        .filter_map(|op| match op {
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Remove(remove)))
+                if remove.selector == BuffRemoveSelector::IdOrType(109380001) =>
+            {
+                Some(remove.target_uid)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
 
-    assert_eq!(grants, vec![40, 20, 30, 10]);
+    assert_eq!(origin_damage, [240494371, 240494381]);
+    assert_eq!(vacant_removals, [237352626]);
+    assert_eq!(grants, [240494371, 240494381, 234410900]);
 }
 
 #[test]
@@ -140,9 +167,11 @@ fn committed_conduit_hit_satisfies_attack_conditions() {
         .unwrap();
 
     let mut context = TargetContext::default();
-    super::super::super::invoke::apply_event_context(&managers, &mut context, &hit);
+    let catalog = SkillEffectCatalog::from_game_db(config::configs::get());
+    super::super::super::invoke::apply_event_context(&managers, &catalog, &mut context, &hit);
     assert!(context.active_skill_is_attack);
     assert_eq!(context.active_skill_mode, SkillExecutionMode::Device);
+    assert_eq!(context.damage_target_count_kind, 2);
 
     for (opcode, type_name) in [(501209, "UseHurtSkill"), (792209, "UseDeviceSkill")] {
         let condition = ParsedCondition {

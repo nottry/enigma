@@ -227,6 +227,65 @@ fn heat_scale_rate_uses_the_configured_scale_and_limit() {
 }
 
 #[test]
+fn caster_targeted_heat_scale_rate_applies_to_the_whole_attack() {
+    use crate::engine::{
+        manager::gauge::{GaugeCommand, GaugeOperation},
+        mechanic::lingering_glow,
+        skill::rule::{CommandOrigin, DefinitionKey, RuleDomain},
+    };
+
+    let mut managers = BattleManagers::default();
+    managers
+        .gauge
+        .execute_command(GaugeCommand::new(
+            CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60255, "HeatScaleAddSkillRate"),
+            },
+            lingering_glow::key(1),
+            GaugeOperation::Enable { max: Some(9999) },
+        ))
+        .unwrap();
+    managers
+        .gauge
+        .execute_command(GaugeCommand::new(
+            CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60255, "HeatScaleAddSkillRate"),
+            },
+            lingering_glow::key(1),
+            GaugeOperation::ChangeValue { delta: 12 },
+        ))
+        .unwrap();
+    let pool = TargetPool::default();
+    let mut determinism = RoundDeterminism::default();
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+    let mut target = TargetContext::default();
+
+    assert!(matches!(
+        crate::engine::skill::behavior::rule_ops(
+            BehaviorOpContext {
+                source_uid: 10,
+                source_team: 1,
+                target_uid: 10,
+                active_skill_id: 200,
+                transfer_count: 1,
+                event: None,
+                managers: &managers,
+                pool: &pool,
+                determinism: &mut determinism,
+                modifiers: &mut modifiers,
+                target: &mut target,
+            },
+            &ParsedBehavior::new(60255, "HeatScaleAddSkillRate", vec![1000, 20, 9999]),
+        ),
+        Some(ops) if ops.is_empty()
+    ));
+    assert_eq!(modifiers.rates[0].target_uid, 0);
+    assert_eq!(modifiers.rates[0].fixed_value(), Some(240));
+}
+
+#[test]
 fn purple_crystal_resolves_visible_lingering_glow_when_damage_is_planned() {
     use crate::engine::{
         manager::gauge::{GaugeCommand, GaugeManager, GaugeOperation},
@@ -293,10 +352,65 @@ fn purple_crystal_resolves_visible_lingering_glow_when_damage_is_planned() {
 }
 
 #[test]
-fn selected_crystal_rank_row_carries_its_fixed_mass_and_focus_damage() {
+fn crystal_focus_prefers_the_first_enemy_tied_for_the_highest_halo() {
+    crate::test_support::init_config();
+    let enemy = |uid, layer| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(100),
+        buffs: vec![BuffInfo {
+            uid: Some(-uid),
+            buff_id: Some(31340001),
+            from_uid: Some(10),
+            layer: Some(layer),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![enemy(-1, 1), enemy(-2, 2), enemy(-3, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+
     assert_eq!(
-        crystal_fixed_skill_rates(&[1200, 800, 1]),
+        first_enemy_with_highest_buff_amount(&pool, &managers, 10, 31340001),
+        Some(-2)
+    );
+}
+
+#[test]
+fn selected_crystal_rank_row_scales_mass_and_focus_damage_by_matching_crystals() {
+    let mut managers = BattleManagers::default();
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 1]),
+        Some((0, 0))
+    );
+    assert!(managers.emanation.select(10, 210));
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 1]),
+        Some((2400, 1600))
+    );
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 2]),
         Some((1200, 800))
+    );
+    assert_eq!(
+        crystal_fixed_skill_rates(&managers, 10, &[1200, 800, 4]),
+        None
     );
 }
 
@@ -708,7 +822,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
         domain: crate::engine::skill::rule::RuleDomain::Behavior,
         key: crate::engine::skill::rule::DefinitionKey::new(60291, "AddDevicePower"),
     };
-    for power_id in [1, 2] {
+    for (power_id, delta) in [(0, 1), (1, 6), (2, 6)] {
         managers
             .conduit
             .execute(
@@ -718,7 +832,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
                         source_uid: 10,
                         team: 1,
                         power_id,
-                        delta: 6,
+                        delta,
                         kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
                     },
                 ),
@@ -758,7 +872,7 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
     )
     .unwrap();
 
-    assert_eq!(modifiers.rates[0].fixed_value(), Some(70_200));
+    assert_eq!(modifiers.rates[0].fixed_value(), Some(72_800));
     assert_eq!(
         modifiers.attack_attributes,
         vec![(AttrId::CriticalRate, 1000), (AttrId::Penetration, 700)]
@@ -772,23 +886,32 @@ fn conduit_unique_skill_uses_all_energy_and_its_documented_thresholds() {
             crate::engine::skill::rule::output::RuleOp::Command(
                 crate::engine::skill::rule::output::BattleCommand::ExPoint(
                     crate::engine::manager::ex_point::ExPointCommand::Set(
-                        crate::engine::manager::ex_point::ExPointSet { value: 0, .. }
-                    )
-                )
+                        crate::engine::manager::ex_point::ExPointSet { value: 0, .. },
+                    ),
+                ),
             ),
             crate::engine::skill::rule::output::RuleOp::Command(
                 crate::engine::skill::rule::output::BattleCommand::Conduit(
                     crate::engine::manager::conduit::ConduitCommand::ClearPowers {
-                        power_ids: [1, 2],
+                        power_ids: _,
                         ..
                     }
-                )
+                ),
             ),
             crate::engine::skill::rule::output::RuleOp::EffectMarker {
-                effect_num: 12,
+                effect_num: 13,
                 config_effect: 100031,
                 ..
-            }
+            },
         ]
     ));
+    let crate::engine::skill::rule::output::RuleOp::Command(
+        crate::engine::skill::rule::output::BattleCommand::Conduit(
+            crate::engine::manager::conduit::ConduitCommand::ClearPowers { power_ids, .. },
+        ),
+    ) = &ops[1]
+    else {
+        unreachable!()
+    };
+    assert_eq!(power_ids, &[0, 1, 2]);
 }
