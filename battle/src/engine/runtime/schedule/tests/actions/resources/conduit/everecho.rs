@@ -90,7 +90,7 @@ fn interval_consumes_mend_and_restarts_only_its_device() {
 }
 
 #[test]
-fn free_skill_repeats_while_its_consumed_buff_remains() {
+fn free_skill_repeats_then_continues_in_the_selected_group() {
     init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -158,25 +158,23 @@ fn free_skill_repeats_while_its_consumed_buff_remains() {
     )
     .unwrap();
 
-    let uses = result
+    let finished = result
         .outcomes
         .iter()
-        .filter(|outcome| {
-            matches!(
-                outcome,
-                RuleOutcome::Conduit(
-                    crate::engine::manager::conduit::ConduitChange::SkillFinished {
-                        source_uid: 10,
-                        skill_id: 31450121,
-                        ..
-                    }
-                )
-            )
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Conduit(
+                crate::engine::manager::conduit::ConduitChange::SkillFinished {
+                    source_uid: 10,
+                    skill_id,
+                    ..
+                },
+            ) => Some(*skill_id),
+            _ => None,
         })
-        .count();
-    assert_eq!(uses, 2);
-    assert_eq!(managers.conduit.uses(10), 2);
-    assert_eq!(managers.ex_point.get(10), 20);
+        .collect::<Vec<_>>();
+    assert_eq!(finished, vec![31450121, 31450121, 31450111]);
+    assert_eq!(managers.conduit.uses(10), 3);
+    assert_eq!(managers.ex_point.get(10), 25);
     assert!(!managers.buff.has_buff_id(10, 31450121));
     assert_eq!(managers.conduit.selected_group(10), Some(1));
     assert_eq!(
@@ -190,4 +188,102 @@ fn free_skill_repeats_while_its_consumed_buff_remains() {
             .count(),
         1
     );
+}
+
+#[test]
+fn mend_restart_reopens_a_device_after_its_group_changes() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3145),
+                team_type: Some(1),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                passive_skill: vec![31450141],
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(110),
+                        buff_id: Some(31450121),
+                        from_uid: Some(10),
+                        layer: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(111),
+                        buff_id: Some(31450142),
+                        from_uid: Some(10),
+                        layer: Some(4),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(1001),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::SelectGroup {
+                source_uid: 10,
+                group: 2,
+            },
+        )
+        .unwrap();
+    let mut catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = run_conduit_phase(
+        managers.catalog(),
+        &fight,
+        &mut managers,
+        &pool,
+        &mut catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[sonettobuf::FightDeviceOper {
+            uid: Some(10),
+            index: Some(1),
+        }],
+    )
+    .unwrap();
+
+    let finished = result
+        .outcomes
+        .iter()
+        .filter_map(|outcome| match outcome {
+            RuleOutcome::Conduit(
+                crate::engine::manager::conduit::ConduitChange::SkillFinished {
+                    source_uid: 10,
+                    skill_id,
+                    ..
+                },
+            ) => Some(*skill_id),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(finished, vec![31450121, 31450111, 31450111]);
+    assert_eq!(managers.ex_point.get(10), 20);
+    assert!(!managers.buff.has_buff_id(10, 31450142));
 }

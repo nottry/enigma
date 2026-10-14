@@ -113,29 +113,9 @@ pub fn run_conduit_phase(
         .map(|(index, (source_uid, selected_group))| (source_uid, selected_group, index as i32 + 1))
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
-    let mut completed_devices = HashSet::new();
-    let mut completion_stop_emitted = HashSet::new();
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
-            if completed_devices.contains(&source_uid) {
-                if completion_stop_emitted.insert(source_uid) {
-                    append(
-                        &mut result,
-                        drain::run_conduit_stop(
-                            managers,
-                            pool,
-                            catalog,
-                            determinism,
-                            context,
-                            source_uid,
-                            device_index,
-                            1,
-                        )?,
-                    );
-                }
-                continue;
-            }
             let skills = managers
                 .conduit
                 .selected_skills(source_uid)
@@ -252,9 +232,6 @@ pub fn run_conduit_phase(
                 used_free_skills.retain(|(uid, _)| !restarted_devices.contains(uid));
                 append(&mut result, action);
                 ran = true;
-                if group_changed {
-                    completed_devices.insert(source_uid);
-                }
                 if skill.cost_value <= 0 && !can_repeat && !restarted_devices.contains(&source_uid)
                 {
                     used_free_skills.insert((source_uid, skill.skill_id));
