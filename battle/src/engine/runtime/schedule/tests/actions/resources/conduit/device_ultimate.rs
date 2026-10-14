@@ -56,6 +56,146 @@ fn operation() -> [sonettobuf::FightDeviceOper; 1] {
 }
 
 #[test]
+fn device_overflow_is_banked_before_applied_harmonization_is_recorded() {
+    init_config();
+    let mut twins = FightEntityInfo {
+        uid: Some(10),
+        model_id: Some(3149),
+        current_hp: Some(100_000),
+        ex_point: Some(96),
+        ex_point_max: Some(100),
+        ex_point_type: Some(crate::engine::manager::ex_point::ExPointKind::DevicePower.as_wire()),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(1_000),
+            ..Default::default()
+        }),
+        buffs: vec![BuffInfo {
+            uid: Some(20),
+            buff_id: Some(31450173),
+            from_uid: Some(11),
+            act_info: vec![sonettobuf::BuffActInfo {
+                act_id: Some(1149),
+                param: vec![0],
+                str_param: Some(String::new()),
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    twins.ex_skill = Some(31490151);
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![twins],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(1001),
+                current_hp: Some(100_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(100_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::SelectGroup {
+                source_uid: 10,
+                group: 2,
+            },
+        )
+        .unwrap();
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::ChangePower(
+                crate::engine::manager::conduit::ConduitPowerChange {
+                    origin: crate::engine::skill::rule::CommandOrigin {
+                        domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                        key: crate::engine::skill::rule::DefinitionKey::new(0, "TestPower"),
+                    },
+                    source_uid: 10,
+                    team: 1,
+                    power_id: 2,
+                    delta: 1,
+                    kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
+                },
+            ),
+        )
+        .unwrap();
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+    let result = crate::engine::runtime::drain::run_conduit_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        10,
+        2,
+        1,
+        2,
+        31490141,
+        None,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(10), 100);
+    assert_eq!(
+        managers.buff.snapshot(10, 20).unwrap().act_info[0].param,
+        [1]
+    );
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find_map(|step| find_step(step, 31490141))
+        .unwrap();
+    fn collect_effects(step: &sonettobuf::FightStep, effects: &mut Vec<(i32, i32, i64, i32)>) {
+        for effect in &step.act_effect {
+            effects.push((
+                effect.effect_type.unwrap_or_default(),
+                effect
+                    .buff_act_info
+                    .as_ref()
+                    .and_then(|info| info.act_id)
+                    .unwrap_or_default(),
+                effect.target_id.unwrap_or_default(),
+                effect.effect_num.unwrap_or_default(),
+            ));
+            if let Some(child) = effect.fight_step.as_ref() {
+                collect_effects(child, effects);
+            }
+        }
+    }
+    let mut effects = Vec::new();
+    collect_effects(skill, &mut effects);
+    let banked = effects
+        .iter()
+        .position(|(_, buff_act_id, _, _)| *buff_act_id == 1149)
+        .unwrap();
+    let applied = effects
+        .iter()
+        .position(|(effect_type, _, target_id, effect_num)| {
+            *effect_type == sonettobuf::effect_type_enum::EffectType::Expointchange as i32
+                && *target_id == 10
+                && *effect_num == 4
+        })
+        .unwrap();
+    assert!(banked < applied);
+}
+
+#[test]
 fn conduit_ultimate_requires_full_personal_device_power() {
     init_config();
     let fight = fight(99);

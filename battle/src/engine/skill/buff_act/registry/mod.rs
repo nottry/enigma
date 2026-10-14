@@ -1037,6 +1037,7 @@ buff_act_definitions! {
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(806, "ExPointOverflowBank"), &[EffectType::Expointoverflowbank as i32]));
     (1149, "DeviceExPointOverflowBank") => DeviceExPointOverflowBank,
         events: [EventKind::ExPointChanged, EventKind::PostActionRefill],
+        publications: [EventKind::ExPointOverflow => BeforePublish],
         scoped_runtime: |context| super::device_ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
         supports: |args| matches!(args, [capacity] if *capacity > 0),
         initial_state: ZeroInteger,

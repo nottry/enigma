@@ -108,6 +108,18 @@ fn registry_requires_exact_id_and_type() {
     );
     let device_bank = find(1149, "DeviceExPointOverflowBank").unwrap();
     assert_eq!(device_bank.kind, BuffActKind::DeviceExPointOverflowBank);
+    assert_eq!(
+        runtime_publication(
+            1149,
+            "DeviceExPointOverflowBank",
+            EventKind::ExPointOverflow,
+        ),
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        runtime_publication(1149, "DeviceExPointOverflowBank", EventKind::ExPointChanged,),
+        PublicationPhase::AfterPublish
+    );
     assert!(has_destination(1149, "DeviceExPointOverflowBank", &[50]));
     assert!(!has_destination(1149, "DeviceExPointOverflowBank", &[0]));
     let device_bank_wire = device_bank.wire.unwrap();
