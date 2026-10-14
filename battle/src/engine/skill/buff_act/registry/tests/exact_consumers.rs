@@ -467,6 +467,12 @@ fn hp_lock_is_an_exact_static_consumer() {
     assert!(has_destination(796, "LockHp", &[10]));
     assert!(!has_destination(796, "LockHp", &[0]));
     assert!(find(796, "BanLostLife").is_none());
+
+    let wire = super::super::super::wire::find(796, "LockHp").unwrap();
+    assert_eq!(
+        wire.markers(super::super::super::wire::WirePhase::Add),
+        &[sonettobuf::effect_type_enum::EffectType::Lockhp as i32]
+    );
 }
 
 #[test]
