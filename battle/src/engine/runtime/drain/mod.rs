@@ -690,7 +690,13 @@ fn drain_queue_with_deferred(
 
         // Previous operations may have changed HP, buffs, entities, or resources.
         // Target resolution must see those committed manager values.
-        let current_pool = base_pool.runtime_view(managers);
+        let continuing_source = match (&op, &trigger, frame_path.as_ref()) {
+            (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
+                Some(invocation.plan.source_uid)
+            }
+            _ => None,
+        };
+        let current_pool = base_pool.runtime_view_including(managers, continuing_source);
         let pool = &current_pool;
 
         // Frame groups keep independent reactions under one semantic owner while
@@ -804,7 +810,8 @@ fn drain_queue_with_deferred(
                     );
                 if matches!(trigger, SkillOpTrigger::Active)
                     && base_pool.team_type(invocation.plan.source_uid).is_some()
-                    && ((base_pool.entity(invocation.plan.source_uid).is_some()
+                    && ((frame_path.is_none()
+                        && base_pool.entity(invocation.plan.source_uid).is_some()
                         && pool.entity(invocation.plan.source_uid).is_none())
                         || attack_has_no_target)
                 {
