@@ -379,21 +379,26 @@ fn resource_change_reactions_use_their_exact_publication_phase() {
 
 #[test]
 fn conduit_cost_uses_its_exact_activation_subscription() {
-    for (opcode, frame_scope, frame_target) in [
+    for (opcode, scope, frame_scope, frame_target) in [
         (
             788210,
+            crate::engine::skill::condition::parse::ConduitActivationScope::Owner,
             ReactionFrameScope::Causing,
             ReactionFrameTarget::Owner,
         ),
         (
             788212,
+            crate::engine::skill::condition::parse::ConduitActivationScope::Team,
             ReactionFrameScope::Subscriber,
             ReactionFrameTarget::CausingFrame,
         ),
     ] {
         assert_eq!(
             parse(opcode, "PerDeviceCurrCost", &["1".into()]),
-            Some(ParsedConditionKind::PerConduitCurrentCost { threshold: 1 })
+            Some(ParsedConditionKind::PerConduitCurrentCost {
+                threshold: 1,
+                scope,
+            })
         );
         let definition = find_key(opcode, "PerDeviceCurrCost").unwrap();
         assert_eq!(

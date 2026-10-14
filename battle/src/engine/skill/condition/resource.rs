@@ -2,7 +2,8 @@ use crate::engine::{
     manager::{BattleManagers, eureka::EUREKA_RESOURCE_ID},
     skill::{
         condition::parse::{
-            ConditionCompare, ExPointIncreaseScope, first_i32, parse_fixed, parse_i32,
+            ConditionCompare, ConduitActivationScope, ExPointIncreaseScope, first_i32, parse_fixed,
+            parse_i32,
         },
         condition::{ParsedCondition, ParsedConditionKind, conditions_match},
         target::{TargetContext, TargetPool},
@@ -153,10 +154,22 @@ pub fn power_consumed(_: i32, _: &str, args: &[String]) -> Option<ParsedConditio
     })
 }
 
-pub fn per_conduit_current_cost(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+fn per_conduit_current_cost(
+    args: &[String],
+    scope: ConduitActivationScope,
+) -> Option<ParsedConditionKind> {
     Some(ParsedConditionKind::PerConduitCurrentCost {
         threshold: first_i32(args)?.max(1),
+        scope,
     })
+}
+
+pub fn owner_conduit_current_cost(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+    per_conduit_current_cost(args, ConduitActivationScope::Owner)
+}
+
+pub fn team_conduit_current_cost(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+    per_conduit_current_cost(args, ConduitActivationScope::Team)
 }
 
 pub fn current_entity_power_decrease(_: i32, _: &str, _: &[String]) -> Option<ParsedConditionKind> {
@@ -398,7 +411,7 @@ fn event_condition_count(
                 0
             }
         }
-        ParsedConditionKind::PerConduitCurrentCost { threshold } => {
+        ParsedConditionKind::PerConduitCurrentCost { threshold, scope } => {
             let ResourceEvent::Conduit {
                 target_uid,
                 activation_cost,
@@ -407,13 +420,23 @@ fn event_condition_count(
             else {
                 return 0;
             };
-            if event_in_scope(
-                target_uid,
-                source_uid,
-                condition_targets,
-                condition_target_code,
-                pool,
-            ) {
+            let in_scope = match scope {
+                ConduitActivationScope::Owner
+                    if crate::engine::fight::rules::is_side_uid(source_uid) =>
+                {
+                    pool.team_type(source_uid)
+                        .is_some_and(|team| pool.team_type(target_uid) == Some(team))
+                }
+                ConduitActivationScope::Owner => target_uid == source_uid,
+                ConduitActivationScope::Team => event_in_scope(
+                    target_uid,
+                    source_uid,
+                    condition_targets,
+                    condition_target_code,
+                    pool,
+                ),
+            };
+            if in_scope {
                 activation_cost.max(0) / (*threshold).max(1)
             } else {
                 0
@@ -795,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn conduit_cost_counts_each_configured_activation_cost_unit_for_allies() {
+    fn conduit_cost_keeps_owner_team_and_side_scopes_distinct() {
         let fight = Fight {
             attacker: Some(FightTeam {
                 entitys: vec![10, 11]
@@ -820,7 +843,14 @@ mod tests {
         };
         let managers = BattleManagers::seeded(&fight);
         let pool = TargetPool::from_fight(&fight);
-        let condition = condition(ParsedConditionKind::PerConduitCurrentCost { threshold: 1 });
+        let owner = condition(ParsedConditionKind::PerConduitCurrentCost {
+            threshold: 1,
+            scope: ConduitActivationScope::Owner,
+        });
+        let team = condition(ParsedConditionKind::PerConduitCurrentCost {
+            threshold: 1,
+            scope: ConduitActivationScope::Team,
+        });
         let event = |target_uid| ResourceEvent::Conduit {
             target_uid,
             power_id: 1,
@@ -828,21 +858,39 @@ mod tests {
             spent: 2,
         };
 
-        for target_uid in [10, 11] {
-            assert_eq!(
-                event_conditions_count(
-                    std::slice::from_ref(&condition),
-                    context(event(target_uid), 10, &[10, 11], &managers, &pool),
-                ),
-                3
-            );
-        }
         assert_eq!(
             event_conditions_count(
-                std::slice::from_ref(&condition),
-                context(event(-1), 10, &[10, 11], &managers, &pool),
+                std::slice::from_ref(&owner),
+                context(event(10), 10, &[10], &managers, &pool),
+            ),
+            3
+        );
+        assert_eq!(
+            event_conditions_count(
+                std::slice::from_ref(&owner),
+                context(event(11), 10, &[10], &managers, &pool),
             ),
             0
+        );
+        assert_eq!(
+            event_conditions_count(
+                std::slice::from_ref(&team),
+                context(event(11), 10, &[10, 11], &managers, &pool),
+            ),
+            3
+        );
+        assert_eq!(
+            event_conditions_count(
+                std::slice::from_ref(&owner),
+                context(
+                    event(10),
+                    crate::engine::fight::rules::ATTACKER_SIDE_UID,
+                    &[crate::engine::fight::rules::ATTACKER_SIDE_UID],
+                    &managers,
+                    &pool,
+                ),
+            ),
+            3
         );
     }
 }
