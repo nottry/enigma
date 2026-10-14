@@ -9,8 +9,8 @@ use battle::tooling::{
     entity::{BattleBalance, EntityBuilder, EquipmentBuildInput, HeroBuildInput, Stats},
 };
 use sonettobuf::{
-    Fight, FightEntityInfo, HeroExAttribute, HeroInfo, HeroInfoListReply, HeroSpAttribute,
-    HeroUpdatePush,
+    Equip, EquipDeletePush, EquipUpdatePush, Fight, FightEntityInfo, GetEquipInfoReply,
+    HeroExAttribute, HeroInfo, HeroInfoListReply, HeroSpAttribute, HeroUpdatePush,
 };
 
 use crate::normalize_live_json;
@@ -37,6 +37,17 @@ pub fn preview_attributes_with_request(
         .transpose()?
         .unwrap_or_default();
     let battle_balance = request_battle_balance(fight, request.is_balance)?;
+    let needs_captured_equipment = fight.attacker.iter().any(|team| {
+        team.entitys
+            .iter()
+            .chain(&team.sub_entitys)
+            .any(|entity| entity.equips.is_empty() && entity.equip_uid.is_some_and(|uid| uid > 0))
+    });
+    let captured_equipment = if needs_captured_equipment {
+        captured_equipment_metadata(battle_path)?
+    } else {
+        HashMap::new()
+    };
     let mut ex_attributes = Vec::new();
     let mut sp_attributes = Vec::new();
 
@@ -69,13 +80,19 @@ pub fn preview_attributes_with_request(
             anyhow::anyhow!("attribute preview missing build metadata uid={uid} hero={model_id}")
         })?;
         let build = preview_build_input(entity, hero)?;
-        let equips =
-            validated_equipment_loadout(entity, hero, request.selected_equips.get(&uid).copied())
-                .map_err(|()| {
-                anyhow::anyhow!(
-                    "attribute preview has invalid equipment metadata uid={uid} hero={model_id}",
-                )
-            })?;
+        let equips = validated_equipment_loadout(
+            entity,
+            hero,
+            request.selected_equips.get(&uid).copied(),
+            entity
+                .equip_uid
+                .and_then(|equip_uid| captured_equipment.get(&equip_uid)),
+        )
+        .map_err(|()| {
+            anyhow::anyhow!(
+                "attribute preview has invalid equipment metadata uid={uid} hero={model_id}",
+            )
+        })?;
         let stats = battle_balance.map_or_else(
             || Stats::build_for_captured_loadout(&build, &equips),
             |balance| balance.stats_for(&build, &equips),
@@ -318,6 +335,7 @@ fn validated_equipment_loadout(
     entity: &FightEntityInfo,
     hero: &HeroInfo,
     requested_equip_uid: Option<i64>,
+    captured_equip: Option<&Equip>,
 ) -> Result<Vec<EquipmentBuildInput>, ()> {
     if requested_equip_uid.is_some_and(|uid| uid < 0)
         || hero.default_equip_uid.is_some_and(|uid| uid < 0)
@@ -328,8 +346,24 @@ fn validated_equipment_loadout(
     let expected_equip_uid =
         requested_equip_uid.or_else(|| hero.default_equip_uid.filter(|uid| *uid > 0));
     if entity.equips.is_empty() {
-        return match (expected_equip_uid, entity.equip_uid.filter(|uid| *uid > 0)) {
-            (None, None) => Ok(Vec::new()),
+        return match (
+            expected_equip_uid,
+            entity.equip_uid.filter(|uid| *uid > 0),
+            captured_equip,
+        ) {
+            (None, None, None) => Ok(Vec::new()),
+            (Some(expected), Some(selected), Some(equip))
+                if expected == selected && equip.uid == Some(selected) =>
+            {
+                let input = validated_captured_equipment(equip)?;
+                if config::configs::get()
+                    .linked_psychube_id(hero.hero_id, input.equip_id)
+                    .is_some()
+                {
+                    return Err(());
+                }
+                Ok(vec![input])
+            }
             _ => Err(()),
         };
     }
@@ -390,6 +424,28 @@ fn validated_equipment_loadout(
         })
         .transpose()?;
     Ok(std::iter::once(primary).chain(supplemental).collect())
+}
+
+fn validated_captured_equipment(equip: &Equip) -> Result<EquipmentBuildInput, ()> {
+    let uid = equip.uid.filter(|uid| *uid > 0).ok_or(())?;
+    let equip_id = equip.equip_id.filter(|id| *id > 0).ok_or(())?;
+    let level = equip.level.filter(|level| *level > 0).ok_or(())?;
+    let break_level = equip.break_lv.unwrap_or_default();
+    let refine_level = equip.refine_lv.unwrap_or_default();
+    if break_level < 0 || refine_level < 0 {
+        return Err(());
+    }
+    let configured = config::configs::get().equip.get(equip_id).ok_or(())?;
+    config::configs::get()
+        .equip_strengthen_cost(configured.rare, level)
+        .ok_or(())?;
+    Ok(EquipmentBuildInput {
+        uid,
+        equip_id,
+        level,
+        break_level,
+        refine_level,
+    })
 }
 
 /// Where attacker builds come from: the capture timeline; the roster files saved
@@ -470,6 +526,57 @@ fn replay_rosters(files: Vec<PathBuf>) -> anyhow::Result<Option<HashMap<i64, Her
         }
     }
     Ok(saw_roster.then_some(heroes))
+}
+
+fn captured_equipment_metadata(path: &Path) -> anyhow::Result<HashMap<i64, Equip>> {
+    let Some(files) = capture_timeline_through(path)? else {
+        return Ok(HashMap::new());
+    };
+    let mut equips = HashMap::new();
+    let mut saw_inventory = false;
+    for file in files {
+        let Some(name) = file.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name.ends_with("_GetEquipInfoReply.json") {
+            let reply: GetEquipInfoReply = serde_json::from_value(read_capture_value(&file)?)?;
+            equips.clear();
+            saw_inventory = true;
+            insert_captured_equipment(&mut equips, reply.equips)?;
+        } else if saw_inventory && name.ends_with("_EquipUpdatePush.json") {
+            let update: EquipUpdatePush = serde_json::from_value(read_capture_value(&file)?)?;
+            insert_captured_equipment(&mut equips, update.equips)?;
+        } else if saw_inventory && name.ends_with("_EquipDeletePush.json") {
+            let deleted: EquipDeletePush = serde_json::from_value(read_capture_value(&file)?)?;
+            for uid in deleted.uids {
+                if uid <= 0 {
+                    anyhow::bail!("capture equipment delete has invalid uid {uid}");
+                }
+                equips.remove(&uid);
+            }
+        }
+    }
+    Ok(equips)
+}
+
+fn read_capture_value(path: &Path) -> anyhow::Result<serde_json::Value> {
+    let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(path)?)?;
+    normalize_live_json(&mut value);
+    Ok(value)
+}
+
+fn insert_captured_equipment(
+    inventory: &mut HashMap<i64, Equip>,
+    equips: Vec<Equip>,
+) -> anyhow::Result<()> {
+    for equip in equips {
+        let uid = equip
+            .uid
+            .filter(|uid| *uid > 0)
+            .ok_or_else(|| anyhow::anyhow!("capture equipment is missing a valid uid"))?;
+        inventory.insert(uid, equip);
+    }
+    Ok(())
 }
 
 fn session_files(path: &Path) -> anyhow::Result<Option<Vec<PathBuf>>> {
@@ -830,7 +937,7 @@ mod tests {
         write_roster(&directory, hero.clone());
         let entity = &fight.attacker.as_ref().unwrap().entitys[0];
         let build = preview_build_input(entity, &hero).unwrap();
-        let equips = validated_equipment_loadout(entity, &hero, None).unwrap();
+        let equips = validated_equipment_loadout(entity, &hero, None, None).unwrap();
         let expected = Stats::build_for_loadout(&build, &equips);
 
         let (ex, sp) =
@@ -913,7 +1020,7 @@ mod tests {
         let mut hero = hero(uid);
         hero.default_equip_uid = Some(-1);
 
-        assert!(validated_equipment_loadout(entity, &hero, None).is_err());
+        assert!(validated_equipment_loadout(entity, &hero, None, None).is_err());
     }
 
     #[test]
@@ -925,7 +1032,7 @@ mod tests {
         entity.equips[0].break_lv = Some(3);
         entity.equips[1].break_lv = Some(2);
 
-        let equips = validated_equipment_loadout(entity, &hero(uid), None).unwrap();
+        let equips = validated_equipment_loadout(entity, &hero(uid), None, None).unwrap();
 
         assert_eq!(equips[0].break_level, 3);
         assert_eq!(equips[1].break_level, 2);
@@ -1166,7 +1273,7 @@ mod tests {
         }
         let entity = &fight.attacker.as_ref().unwrap().entitys[0];
         let build = preview_build_input(entity, &hero).unwrap();
-        let equips = validated_equipment_loadout(entity, &hero, None).unwrap();
+        let equips = validated_equipment_loadout(entity, &hero, None, None).unwrap();
         let balance = request_battle_balance(&fight, true).unwrap().unwrap();
         let expected = balance.stats_for(&build, &equips);
         let unbalanced = Stats::build_for_loadout(&build, &equips);
@@ -1296,6 +1403,86 @@ mod tests {
             3149
         );
         assert_eq!(build_metadata_source(&battle_path).unwrap(), "timeline");
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn capture_timeline_supplies_missing_fight_equipment_records() {
+        crate::init_test_config();
+        let directory = test_directory("capture-equipment");
+        let common = directory.join("decoded/common");
+        let battle = directory.join("decoded/Dungeon/Battle1");
+        fs::create_dir_all(&common).unwrap();
+        fs::create_dir_all(&battle).unwrap();
+        fs::write(
+            common.join("capture_000001_GetEquipInfoReply.json"),
+            serde_json::to_vec(&GetEquipInfoReply {
+                equips: vec![
+                    Equip {
+                        equip_id: Some(1532),
+                        uid: Some(100),
+                        level: Some(60),
+                        break_lv: Some(2),
+                        refine_lv: Some(5),
+                        ..Default::default()
+                    },
+                    Equip {
+                        equip_id: Some(1201),
+                        uid: Some(200),
+                        level: Some(1),
+                        ..Default::default()
+                    },
+                ],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            common.join("capture_000002_EquipUpdatePush.json"),
+            serde_json::to_vec(&EquipUpdatePush {
+                equips: vec![Equip {
+                    equip_id: Some(1532),
+                    uid: Some(100),
+                    level: Some(60),
+                    break_lv: Some(3),
+                    refine_lv: Some(5),
+                    ..Default::default()
+                }],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            common.join("capture_000003_EquipDeletePush.json"),
+            serde_json::to_vec(&EquipDeletePush { uids: vec![200] }).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            common.join("capture_000004_StartDungeonReply.json"),
+            b"captured battle",
+        )
+        .unwrap();
+        let battle_path = battle.join("StartDungeonReply.json");
+        fs::write(&battle_path, b"captured battle").unwrap();
+
+        let inventory = captured_equipment_metadata(&battle_path).unwrap();
+        let entity = FightEntityInfo {
+            model_id: Some(3095),
+            equip_uid: Some(100),
+            ..Default::default()
+        };
+        let hero = HeroInfo {
+            hero_id: 3095,
+            default_equip_uid: Some(100),
+            ..Default::default()
+        };
+        let equips =
+            validated_equipment_loadout(&entity, &hero, None, inventory.get(&100)).unwrap();
+
+        assert_eq!(equips.len(), 1);
+        assert_eq!(equips[0].equip_id, 1532);
+        assert_eq!(equips[0].break_level, 3);
+        assert!(!inventory.contains_key(&200));
         fs::remove_dir_all(directory).unwrap();
     }
 
