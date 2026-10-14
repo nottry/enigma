@@ -603,6 +603,27 @@ impl BattleManagers {
         {
             damage.amount = damage.amount.min(cap);
         }
+        match &mut command {
+            hp::HpCommand::Damage(damage) => {
+                if let Some(cap) = crate::engine::skill::buff_act::lock_hp::max_loss(
+                    &self.buff,
+                    hp,
+                    damage.target_uid,
+                ) {
+                    damage.amount = damage.amount.min(cap);
+                }
+            }
+            hp::HpCommand::Lose(loss) => {
+                if let Some(cap) = crate::engine::skill::buff_act::lock_hp::max_loss(
+                    &self.buff,
+                    hp,
+                    loss.target_uid,
+                ) {
+                    loss.amount = loss.amount.min(cap);
+                }
+            }
+            _ => {}
+        }
         hp.validate_command(command)?;
         let fake_hp_consumed = match command {
             hp::HpCommand::Damage(damage)

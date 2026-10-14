@@ -246,6 +246,7 @@ pub enum BuffActKind {
     AttrFixFromInjuryBank,
     AbsorbHurt,
     LayerMasterHalo,
+    LockHp,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
     LostHpToFakeHp,
@@ -891,6 +892,9 @@ buff_act_definitions! {
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(743, "ReboundBasedOnDamage"), &[]));
     (795, "None") => TargetingTag,
         effect_time_subscription: false, supports: |_| true, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(795, "None"), &[EffectType::None as i32]));
+    (796, "LockHp") => LockHp,
+        effect_time_subscription: false, supports: super::lock_hp::supports, state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(796, "LockHp"), &[EffectType::None as i32]));
     (725, "AddToTarget") => AddToTarget,
         runtime: |context| super::add_to_target::rule_ops(context.managers, context.subscriber, context.event?, context.catalog, context.pool),
         supports: |_| true;

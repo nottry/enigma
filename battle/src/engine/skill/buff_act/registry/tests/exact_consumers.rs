@@ -448,6 +448,17 @@ fn hp_loss_floor_is_an_exact_static_consumer() {
 }
 
 #[test]
+fn hp_lock_is_an_exact_static_consumer() {
+    let definition = find(796, "LockHp").unwrap();
+
+    assert_eq!(definition.kind, BuffActKind::LockHp);
+    assert!(definition.state.consumer);
+    assert!(has_destination(796, "LockHp", &[10]));
+    assert!(!has_destination(796, "LockHp", &[0]));
+    assert!(find(796, "BanLostLife").is_none());
+}
+
+#[test]
 fn missing_hp_healing_is_an_exact_static_consumer() {
     let definition = find(1011, "CureUpByLostHp").unwrap();
 
