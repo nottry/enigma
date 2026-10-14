@@ -1,6 +1,131 @@
 use super::*;
 
 #[test]
+fn action_queue_commit_selects_everecho_group_for_its_enabling_buff() {
+    init_config();
+    for (initial_group, buff, expected_group) in [
+        (2, None, 1),
+        (
+            1,
+            Some(BuffInfo {
+                uid: Some(20),
+                buff_id: Some(31450121),
+                from_uid: Some(10),
+                ..Default::default()
+            }),
+            2,
+        ),
+    ] {
+        let fight = Fight {
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3145),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    passive_skill: vec![31450141],
+                    buffs: buff.into_iter().collect(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let pool = TargetPool::from_fight(&fight);
+        let mut managers = BattleManagers::seeded(&fight);
+        managers
+            .execute_card(CardCommand::Setup(CardSetup {
+                hand: vec![CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+                draw_pile: Vec::new(),
+                deck_num: 1,
+            }))
+            .unwrap();
+        managers
+            .execute_card(CardCommand::Play(CardPlay {
+                origin: CARD_PLAY_ORIGIN,
+                hand_index: 0,
+                target_uid: None,
+                chosen_skill_id: None,
+                choice: None,
+                recorded_skill: None,
+            }))
+            .unwrap();
+        managers
+            .conduit
+            .execute(
+                crate::engine::manager::conduit::ConduitCommand::SelectGroup {
+                    source_uid: 10,
+                    group: initial_group,
+                },
+            )
+            .unwrap();
+        let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+
+        let result = run_action_queue_committed(
+            &mut managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext::default(),
+            1,
+            99_998,
+            0,
+        )
+        .unwrap();
+
+        let changes = result
+            .outcomes
+            .iter()
+            .filter_map(|outcome| match outcome {
+                RuleOutcome::Conduit(
+                    crate::engine::manager::conduit::ConduitChange::SkillGroupChanged {
+                        origin,
+                        source_uid,
+                        group,
+                        ..
+                    },
+                ) if origin.key.opcode == 60293 => Some((*source_uid, *group)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(changes, [(10, expected_group)]);
+        assert_eq!(managers.conduit.selected_group(10), Some(expected_group));
+
+        fn collect_group_changes<'a>(
+            step: &'a sonettobuf::FightStep,
+            changes: &mut Vec<&'a sonettobuf::ActEffect>,
+        ) {
+            for effect in &step.act_effect {
+                if effect.effect_type
+                    == Some(sonettobuf::effect_type_enum::EffectType::Deviceskillindex as i32)
+                    && effect.config_effect == Some(60293)
+                {
+                    changes.push(effect);
+                }
+                if let Some(nested) = effect.fight_step.as_ref() {
+                    collect_group_changes(nested, changes);
+                }
+            }
+        }
+        let mut projected = Vec::new();
+        let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+        for step in &steps {
+            collect_group_changes(step, &mut projected);
+        }
+        let [effect] = projected.as_slice() else {
+            panic!("expected one configured conduit group change")
+        };
+        assert_eq!(effect.target_id, Some(10));
+        assert_eq!(effect.effect_num, Some(expected_group));
+        assert_eq!(effect.team_type, Some(1));
+    }
+}
+
+#[test]
 fn action_queue_commit_records_cards_in_an_independent_buff_act_frame() {
     init_config();
     let fight = Fight {
