@@ -1013,6 +1013,17 @@ fn drain_queue_with_deferred(
                         frame_owner,
                     } = emission;
                     let op = attach_buff_grant_relation(op, consequence);
+                    if let RuleOp::SkillLifecycle(
+                        crate::engine::skill::action::SkillLifecycle::ActionCompleted(event),
+                    ) = &op
+                        && let Some(completion) = take_conduit_activation_completion(
+                            queue,
+                            event.source_uid,
+                            event.skill_id,
+                        )
+                    {
+                        outputs.push(completion);
+                    }
                     match op {
                         RuleOp::Skill(child) => {
                             let after_current_action = child.start.waits_for_current_action();
@@ -2218,6 +2229,27 @@ fn prepend(queue: &mut VecDeque<QueuedOp>, items: impl IntoIterator<Item = Queue
     for item in items.into_iter().rev() {
         queue.push_front(item);
     }
+}
+
+fn take_conduit_activation_completion(
+    queue: &mut VecDeque<QueuedOp>,
+    source_uid: i64,
+    skill_id: i32,
+) -> Option<QueuedOp> {
+    let index = queue.iter().position(|queued| {
+        matches!(
+            queued.op,
+            RuleOp::Command(
+                crate::engine::skill::rule::output::BattleCommand::Conduit(
+                    crate::engine::manager::conduit::ConduitCommand::CompleteActivation {
+                        source_uid: queued_source,
+                        skill_id: queued_skill,
+                    }
+                )
+            ) if queued_source == source_uid && queued_skill == skill_id
+        )
+    })?;
+    queue.remove(index)
 }
 
 // The reaction step inside an action that cast a held skill; the action's own casts have none.

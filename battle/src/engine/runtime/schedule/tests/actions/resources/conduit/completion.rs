@@ -89,3 +89,127 @@ fn conduit_skill_finishes_after_its_hit_passive_reaction() {
 
     assert!(reaction < completion);
 }
+
+#[test]
+fn conduit_activation_reactions_settle_before_ally_action_reactions() {
+    init_config();
+    let entity = |uid, model_id| FightEntityInfo {
+        uid: Some(uid),
+        model_id: Some(model_id),
+        team_type: Some(1),
+        current_hp: Some(100_000),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            attack: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    ex_skill_level: Some(2),
+                    destiny_stone: Some(302502),
+                    destiny_rank: Some(4),
+                    ..entity(10, 3025)
+                },
+                FightEntityInfo {
+                    passive_skill: vec![31450141],
+                    buffs: vec![sonettobuf::BuffInfo {
+                        uid: Some(111),
+                        buff_id: Some(31450142),
+                        from_uid: Some(11),
+                        layer: Some(3),
+                        ..Default::default()
+                    }],
+                    ..entity(11, 3145)
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                team_type: Some(2),
+                ..entity(-1, 1001)
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    managers
+        .conduit
+        .execute(
+            crate::engine::manager::conduit::ConduitCommand::ChangePower(
+                crate::engine::manager::conduit::ConduitPowerChange {
+                    origin: crate::engine::skill::rule::CommandOrigin {
+                        domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                        key: crate::engine::skill::rule::DefinitionKey::new(0, "TestPower"),
+                    },
+                    source_uid: 10,
+                    team: 1,
+                    power_id: 2,
+                    delta: 1,
+                    kind: crate::engine::manager::conduit::ConduitPowerChangeKind::Standard,
+                },
+            ),
+        )
+        .unwrap();
+    managers
+        .conduit
+        .execute(crate::engine::manager::conduit::ConduitCommand::StopSkill {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                key: crate::engine::skill::rule::DefinitionKey::new(60294, "StopDeviceSkill"),
+            },
+            source_uid: 11,
+            team: 1,
+            skill_id: 31450111,
+        })
+        .unwrap();
+
+    let result = crate::engine::runtime::drain::run_conduit_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        10,
+        1,
+        1,
+        1,
+        302524112,
+        None,
+        None,
+    )
+    .unwrap();
+
+    let activated = result
+        .outcomes
+        .iter()
+        .position(|outcome| {
+            matches!(
+                outcome,
+                RuleOutcome::Conduit(
+                    crate::engine::manager::conduit::ConduitChange::ActivationCompleted(_)
+                )
+            )
+        })
+        .unwrap();
+    let action_completed = result
+        .outcomes
+        .iter()
+        .position(|outcome| {
+            matches!(
+                outcome,
+                RuleOutcome::SkillLifecycle(SkillLifecycle::ActionCompleted(_))
+            )
+        })
+        .unwrap();
+
+    assert!(activated < action_completed);
+    assert!(!managers.buff.has_buff_id(11, 31450142));
+}
