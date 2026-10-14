@@ -1,4 +1,8 @@
 use super::*;
+use crate::engine::{
+    runtime::skill::SkillExecution,
+    skill::action::{SkillExecutionMode, SkillInvocation, SkillRequest, SkillTarget},
+};
 
 fn contains_effect(step: &sonettobuf::FightStep, effect_type: i32, target_uid: i64) -> bool {
     step.act_effect.iter().any(|effect| {
@@ -772,4 +776,68 @@ fn lethal_skill_cost_settles_before_damage_and_stops_later_behaviors() {
             .and_then(|buff| buff.buff_id)
             .is_some_and(|buff_id| matches!(buff_id, 4101 | 5112))
     }));
+}
+
+#[test]
+fn prior_source_death_does_not_suppress_after_damage_behaviors() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(0),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [119381126], []);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: -1,
+        skill_id: 119381126,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    invocation.phase = Some(crate::engine::skill::action::SkillPhase::AfterDamage);
+    invocation.target = SkillTarget::Explicit(10);
+    let mut execution = SkillExecution::new(TargetContext::default());
+    execution.record_targets([10]);
+    execution.record_attacks([10]);
+
+    let emission = crate::engine::runtime::skill::emit_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &crate::engine::runtime::skill::SkillOpTrigger::Active,
+    )
+    .unwrap();
+
+    assert!(emission.ops.iter().any(|emission| matches!(
+        &emission.op,
+        RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant)))
+            if matches!(grant.buff_id, 4101 | 5112)
+    )));
 }
