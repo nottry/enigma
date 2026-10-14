@@ -295,7 +295,7 @@ fn anjo_contract_is_offered_once_during_opening_and_not_on_later_rounds() {
             .iter()
             .filter(|effect| effect.effect_type == Some(deck_count))
             .count(),
-        2
+        1
     );
     assert_eq!(
         opening_steps[deck_counts[1]]

@@ -1100,19 +1100,18 @@ pub fn run_start(
     let (initial_deck_num, setup_deck_num) =
         opening_deck_counts.expect("start schedule has one CardSetup stage");
     let mut setup_deck_counts = DrainResult::default();
-    push_cues(
-        &mut setup_deck_counts.frames,
-        [
-            RoundCue::DeckCount {
-                count: initial_deck_num,
-                team_type: 1,
-            },
-            RoundCue::DeckCount {
-                count: setup_deck_num,
-                team_type: 1,
-            },
-        ],
-    );
+    let mut deck_counts = Vec::new();
+    if initial_deck_num > 0 {
+        deck_counts.push(RoundCue::DeckCount {
+            count: initial_deck_num,
+            team_type: 1,
+        });
+    }
+    deck_counts.push(RoundCue::DeckCount {
+        count: setup_deck_num,
+        team_type: 1,
+    });
+    push_cues(&mut setup_deck_counts.frames, deck_counts);
     append_round_phase(&mut opening_refill, setup_deck_counts);
     append(&mut result, opening_refill);
     let owner_uids = pool
