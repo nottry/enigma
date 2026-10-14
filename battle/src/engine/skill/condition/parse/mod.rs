@@ -262,6 +262,11 @@ pub enum ParsedConditionKind {
         careers: Vec<i32>,
         threshold: i32,
     },
+    PerTeamCareerCount {
+        career: i32,
+        divisor: i32,
+        opposing_team: bool,
+    },
     TeamCareerCount {
         careers: Vec<i32>,
         compare: ConditionCompare,

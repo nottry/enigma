@@ -21,6 +21,27 @@ pub fn parse_per_target_career_count(
     })
 }
 
+pub fn per_team_career_count(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+    let [career, divisor, scope] = args else {
+        return None;
+    };
+    let career = career.parse().ok()?;
+    let divisor = divisor.parse().ok()?;
+    let opposing_team = match scope.as_str() {
+        "1" => false,
+        "2" => true,
+        _ => return None,
+    };
+    if career <= 0 || divisor <= 0 {
+        return None;
+    }
+    Some(ParsedConditionKind::PerTeamCareerCount {
+        career,
+        divisor,
+        opposing_team,
+    })
+}
+
 pub fn team_career_count_at_least(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
     Some(ParsedConditionKind::TeamCareerCount {
         careers: parse_list(args.first()?)?,
@@ -111,6 +132,34 @@ mod tests {
             Some(ParsedConditionKind::PerTargetCareerCount {
                 careers: vec![1, 2, 3, 4],
                 threshold: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn per_team_career_count_keeps_the_configured_side() {
+        assert_eq!(
+            per_team_career_count(
+                517010,
+                "PerHasTargetCareer",
+                &["2".into(), "1".into(), "1".into()],
+            ),
+            Some(ParsedConditionKind::PerTeamCareerCount {
+                career: 2,
+                divisor: 1,
+                opposing_team: false,
+            })
+        );
+        assert_eq!(
+            per_team_career_count(
+                517010,
+                "PerHasTargetCareer",
+                &["3".into(), "1".into(), "2".into()],
+            ),
+            Some(ParsedConditionKind::PerTeamCareerCount {
+                career: 3,
+                divisor: 1,
+                opposing_team: true,
             })
         );
     }

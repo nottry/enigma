@@ -50,6 +50,7 @@ pub const START: &[(SetupStage, i32)] = &[
     (SetupStage::BuffSync, 0),
     (SetupStage::RoundStartLate, 0),
     (SetupStage::RoundStart, 3),
+    (SetupStage::OpeningSync, 0),
     (SetupStage::CardSetup, 0),
     (SetupStage::AfterRoundStart, 0),
     (SetupStage::RoundStart, 4),

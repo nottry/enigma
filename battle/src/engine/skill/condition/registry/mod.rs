@@ -739,6 +739,7 @@ condition_definitions! {
     [565104] "EnemyHighestTypeIdBuffCountMoreThan" => buff::enemy_highest_buff_type_at_least, predicate(&[]);
     [508208] "CareerCheck" => career::parse_career_check, predicate(&[]);
     [508212] "CareerCheck" => career::parse_career_check, event_trigger(EventKind::AllyAction, None);
+    [517010] "PerHasTargetCareer" => career::per_team_career_count, setup_route(SetupStage::OpeningSync, 0, &[]);
     [650002, 650102] "PerHasTargetCareerList" => career::parse_per_target_career_count, setup_route(SetupStage::EnterFight, 0, &[]);
     [621002] "CareerNatureHeroNum" => career::natural_ally_count, setup_route(SetupStage::EnterFight, 0, &[]);
     [562002] "CareerGroupHeroCountGE" => career::team_career_count_at_least, setup_route(SetupStage::EnterFight, 0, &[]);

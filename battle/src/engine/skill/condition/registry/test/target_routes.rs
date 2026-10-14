@@ -171,6 +171,30 @@ fn enter_fight_team_career_threshold_keeps_its_exact_key() {
 }
 
 #[test]
+fn enter_fight_team_career_multiplier_keeps_its_exact_key() {
+    assert_eq!(
+        parse(
+            517010,
+            "PerHasTargetCareer",
+            &["2".into(), "1".into(), "1".into()],
+        ),
+        Some(ParsedConditionKind::PerTeamCareerCount {
+            career: 2,
+            divisor: 1,
+            opposing_team: false,
+        })
+    );
+    assert_eq!(
+        find_key(517010, "PerHasTargetCareer").map(|definition| definition.role),
+        Some(ConditionRole::Setup {
+            stage: SetupStage::OpeningSync,
+            priority: 0,
+        })
+    );
+    assert!(find_key(517, "PerHasTargetCareer").is_none());
+}
+
+#[test]
 fn exact_target_team_career_count_keeps_its_round_start_route() {
     assert_eq!(
         parse(

@@ -459,6 +459,46 @@ fn per_target_career_condition_preserves_its_fire_count() {
 }
 
 #[test]
+fn per_team_career_condition_counts_the_carrier() {
+    let pool = TargetPool::from_fight(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    career: Some(2),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    career: Some(2),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(12),
+                    career: Some(3),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let condition = exact_condition(517010, "PerHasTargetCareer", &["2", "1", "1"]);
+
+    assert_eq!(
+        conditions_fire_count(
+            &[condition],
+            10,
+            &[10],
+            None,
+            &pool,
+            TargetContext::default(),
+        ),
+        2
+    );
+}
+
+#[test]
 fn team_career_threshold_counts_the_caster_once() {
     init_config();
     let fight = Fight {

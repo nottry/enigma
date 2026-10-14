@@ -7,7 +7,32 @@ fn unmapped_target_codes_are_detectable_before_capture_override() {
     ));
     assert!(is_mapped_target_code(128));
     assert!(is_mapped_target_code(208));
+    assert!(is_mapped_target_code(3102));
     assert!(!is_mapped_target_code(999));
+}
+
+#[test]
+fn afflatus_target_codes_select_matching_allies() {
+    let entity = |uid, position, career| FightEntityInfo {
+        career: Some(career),
+        ..entity_at(uid, position)
+    };
+    let pool = TargetPool::from_fight(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 2), entity(11, 2, 2), entity(12, 3, 3)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(
+        resolve_code(3102, 10, &pool, &mut RoundDeterminism::default()),
+        vec![10, 11]
+    );
+    assert_eq!(
+        resolve_code(3103, 10, &pool, &mut RoundDeterminism::default()),
+        vec![12]
+    );
 }
 
 #[test]

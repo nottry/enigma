@@ -31,6 +31,24 @@ fn start_schedule_finishes_unconditional_setup_before_round_start() {
 }
 
 #[test]
+fn opening_sync_runs_after_round_settlement_and_before_cards() {
+    let settlement = START
+        .iter()
+        .position(|step| *step == (SetupStage::RoundStart, 3))
+        .unwrap();
+    let sync = START
+        .iter()
+        .position(|step| *step == (SetupStage::OpeningSync, 0))
+        .unwrap();
+    let cards = START
+        .iter()
+        .position(|step| *step == (SetupStage::CardSetup, 0))
+        .unwrap();
+
+    assert!(settlement < sync && sync < cards);
+}
+
+#[test]
 fn opening_sync_runs_marsha_and_isolde_in_position_order() {
     init_config();
 
