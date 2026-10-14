@@ -184,6 +184,8 @@ impl BattleRuntime {
                 std::iter::empty(),
             );
         }
+        let mut ai_turn =
+            schedule::AiTurnPlan::new(captured_ai_choices, self.managers.card.ai_queue());
         let catalog = &mut self.catalog;
         let mut pool = crate::engine::skill::target::TargetPool::from_fight_with_catalog(
             self.catalog_data
@@ -224,6 +226,7 @@ impl BattleRuntime {
             }),
         )
         .map_err(|error| format!("{error:?}"))?;
+        ai_turn.observe(&conduit_selection);
         let player = schedule::run_player_phase(
             &self.fight,
             &mut self.managers,
@@ -277,12 +280,15 @@ impl BattleRuntime {
             &self.managers,
             &pool,
         );
+        ai_turn.observe(&player);
         let mut fight_steps = project_result(player, fight_version, absorb_hurt_map_layout)?;
+        ai_turn.observe(&conduit);
         fight_steps.extend(project_result(
             conduit,
             fight_version,
             absorb_hurt_map_layout,
         )?);
+        ai_turn.observe(&card_energy_clear);
         fight_steps.extend(project_result(
             card_energy_clear,
             fight_version,
@@ -307,6 +313,7 @@ impl BattleRuntime {
             )
         }
         .map_err(|error| format!("{error:?}"))?;
+        ai_turn.observe(&attacker_settlement);
         fight_steps.extend(project_result(
             attacker_settlement,
             fight_version,
@@ -324,15 +331,17 @@ impl BattleRuntime {
             self.round_state.before_cards2 = round_field_cards(self.managers.card.hand());
         }
         if runs_phase_two {
+            let refill_settlement = schedule::run_post_action_refill_settlement(
+                &mut self.managers,
+                &pool,
+                catalog,
+                &mut self.determinism,
+                context,
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            ai_turn.observe(&refill_settlement);
             fight_steps.extend(project_result(
-                schedule::run_post_action_refill_settlement(
-                    &mut self.managers,
-                    &pool,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                )
-                .map_err(|error| format!("{error:?}"))?,
+                refill_settlement,
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
@@ -357,16 +366,18 @@ impl BattleRuntime {
                     .expect("battle runtime was not constructed with a catalog"),
                 &self.fight,
             );
+            let promotion = schedule::run_promotions(
+                &self.fight,
+                &mut self.managers,
+                catalog,
+                &mut self.determinism,
+                context,
+                promotions.iter().cloned(),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            ai_turn.observe(&promotion);
             fight_steps.extend(project_result(
-                schedule::run_promotions(
-                    &self.fight,
-                    &mut self.managers,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    promotions.iter().cloned(),
-                )
-                .map_err(|error| format!("{error:?}"))?,
+                promotion,
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
@@ -378,16 +389,18 @@ impl BattleRuntime {
                 .filter(|entity| self.managers.hp.current(entity.uid) <= 0)
                 .map(|entity| entity.uid)
                 .collect::<Vec<_>>();
+            let card_cleanup = schedule::run_entity_card_cleanup(
+                &mut self.managers,
+                &pool,
+                catalog,
+                &mut self.determinism,
+                context,
+                defeated_defenders,
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            ai_turn.observe(&card_cleanup);
             fight_steps.extend(project_result(
-                schedule::run_entity_card_cleanup(
-                    &mut self.managers,
-                    &pool,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    defeated_defenders,
-                )
-                .map_err(|error| format!("{error:?}"))?,
+                card_cleanup,
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
@@ -404,6 +417,7 @@ impl BattleRuntime {
             )
             .map_err(|error| format!("{error:?}"))?;
             apply_cloth_power(&self.fight, &self.managers, &mut self.round_state, &refill);
+            ai_turn.observe(&refill);
             fight_steps.extend(project_result(
                 refill,
                 fight_version,
@@ -413,48 +427,25 @@ impl BattleRuntime {
         }
         if runs_phase_two {
             let wave_entry_condition_uids = std::mem::take(&mut self.wave_entry_condition_uids);
+            let before_ai = schedule::run_before_ai_round_start(
+                &mut self.managers,
+                &pool,
+                catalog,
+                &mut self.determinism,
+                context,
+                1,
+                &wave_entry_condition_uids,
+                (uses_action_phase_power_clear && !wave_defeated_after_attacker_settlement)
+                    .then_some(2),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            ai_turn.observe(&before_ai);
             fight_steps.extend(project_result(
-                schedule::run_before_ai_round_start(
-                    &mut self.managers,
-                    &pool,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    1,
-                    &wave_entry_condition_uids,
-                    (uses_action_phase_power_clear && !wave_defeated_after_attacker_settlement)
-                        .then_some(2),
-                )
-                .map_err(|error| format!("{error:?}"))?,
+                before_ai,
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
-            let choices = captured_ai_choices.map_or_else(
-                || {
-                    self.managers
-                        .card
-                        .ai_queue()
-                        .iter()
-                        .filter_map(|card| {
-                            Some(determinism::AiSkillChoice {
-                                source_uid: card.uid?,
-                                skill_id: card.skill_id?,
-                                target_uid: card.target_uid.unwrap_or_default(),
-                            })
-                        })
-                        .collect()
-                },
-                |mut choices| {
-                    choices.retain(|choice| {
-                        self.managers
-                            .card
-                            .ai_queue()
-                            .iter()
-                            .any(|card| card.uid == Some(choice.source_uid))
-                    });
-                    choices
-                },
-            );
+            let choices = ai_turn.into_choices();
             let ai = schedule::run_ai_actions(
                 &self.fight,
                 &mut self.managers,

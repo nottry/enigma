@@ -279,6 +279,59 @@ pub struct AiActionResult {
     pub(crate) invalidated_card_rewards: Vec<InvalidatedAiCardReward>,
 }
 
+pub(crate) struct AiTurnPlan {
+    choices: Vec<AiSkillChoice>,
+}
+
+impl AiTurnPlan {
+    pub(crate) fn new(
+        captured: Option<Vec<AiSkillChoice>>,
+        cards: &[sonettobuf::CardInfo],
+    ) -> Self {
+        let choices = captured.unwrap_or_else(|| {
+            cards
+                .iter()
+                .filter_map(|card| {
+                    Some(AiSkillChoice {
+                        source_uid: card.uid?,
+                        skill_id: card.skill_id?,
+                        target_uid: card.target_uid.unwrap_or_default(),
+                    })
+                })
+                .collect()
+        });
+        Self { choices }
+    }
+
+    pub(crate) fn observe(&mut self, result: &DrainResult) {
+        let mut canceled_owners = Vec::new();
+        for outcome in &result.outcomes {
+            let changes = match outcome {
+                RuleOutcome::Card(changes) => Some(changes.as_ref()),
+                RuleOutcome::MonsterChange(changes) => changes.cards.as_ref(),
+                _ => None,
+            };
+            let Some(changes) = changes.filter(|changes| {
+                changes.kind == crate::engine::manager::card::CardChangeKind::AiCardsInvalidated
+            }) else {
+                continue;
+            };
+            canceled_owners.extend(
+                changes
+                    .ai_invalidations
+                    .iter()
+                    .filter_map(|invalidated| invalidated.card.uid),
+            );
+        }
+        self.choices
+            .retain(|choice| !canceled_owners.contains(&choice.source_uid));
+    }
+
+    pub(crate) fn into_choices(self) -> Vec<AiSkillChoice> {
+        self.choices
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct InvalidatedAiCardReward {
     owner_uid: i64,

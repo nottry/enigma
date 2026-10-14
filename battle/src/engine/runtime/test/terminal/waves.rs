@@ -258,6 +258,31 @@ fn wave_clear_runtime(
     (runtime, dealt)
 }
 
+fn seed_ai_turn(runtime: &mut BattleRuntime, choices: Vec<determinism::AiSkillChoice>) {
+    let cards = choices
+        .iter()
+        .map(|choice| sonettobuf::CardInfo {
+            uid: Some(choice.source_uid),
+            skill_id: Some(choice.skill_id),
+            target_uid: Some(choice.target_uid),
+            ..Default::default()
+        })
+        .collect();
+    runtime
+        .managers
+        .execute_card(crate::engine::manager::card::CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: crate::engine::skill::rule::CommandOrigin {
+                    domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                    key: crate::engine::skill::rule::DefinitionKey::new(0, "AiTurnQueue"),
+                },
+                cards,
+            },
+        ))
+        .unwrap();
+    runtime.determinism.enqueue_ai_skills(choices);
+}
+
 #[test]
 fn wave_clear_runs_phase_two_refill_before_wave_transition() {
     let remaining = player_card(30230111);
@@ -281,7 +306,7 @@ fn wave_clear_runs_phase_two_refill_before_wave_transition() {
             },
         )
         .collect::<Vec<_>>();
-    runtime.determinism.enqueue_ai_skills(ai_choices);
+    seed_ai_turn(&mut runtime, ai_choices);
 
     let round = runtime
         .build_begin_round_from_schedule(&BeginRoundRequest {
@@ -368,7 +393,7 @@ fn predepleted_wave_runs_phase_two_refill_before_wave_transition() {
             },
         )
         .collect::<Vec<_>>();
-    runtime.determinism.enqueue_ai_skills(ai_choices);
+    seed_ai_turn(&mut runtime, ai_choices);
     runtime.managers.hp.lose(-1, i32::MAX, 10);
     runtime.managers.hp.lose(-2, i32::MAX, 10);
 
@@ -440,7 +465,7 @@ fn enemy_phase_reaction_clear_advances_the_configured_wave() {
             },
         )
         .collect::<Vec<_>>();
-    runtime.determinism.enqueue_ai_skills(ai_choices);
+    seed_ai_turn(&mut runtime, ai_choices);
 
     let round = runtime
         .build_begin_round_from_schedule(&BeginRoundRequest::default())
