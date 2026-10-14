@@ -457,6 +457,20 @@ impl ConduitManager {
         self.running.contains(&source_uid)
     }
 
+    pub fn has_stopped_skill(&self, source_uid: i64) -> bool {
+        self.areas
+            .values()
+            .flat_map(|area| &area.devices)
+            .find(|device| device.uid == source_uid)
+            .is_some_and(|device| {
+                device
+                    .skill_groups
+                    .iter()
+                    .flatten()
+                    .any(|skill| skill.is_stopped)
+            })
+    }
+
     pub fn skill(&self, source_uid: i64, skill_id: i32) -> Option<(i32, ConduitSkill)> {
         self.areas.iter().find_map(|(team, area)| {
             let device = area

@@ -624,14 +624,14 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
             let [buff_id, amount] = behavior.args.as_slice() else {
                 return None;
             };
-            let Some(crate::engine::event::payload::BattleEvent::AllyAction(action)) =
-                context.event
+            let Some(crate::engine::event::payload::BattleEvent::AllyAction(_)) = context.event
             else {
                 return None;
             };
-            if action.source_uid != context.target_uid
-                || action.mode != SkillExecutionMode::Device
-                || !action.is_interval
+            if !context
+                .managers
+                .conduit
+                .has_stopped_skill(context.target_uid)
             {
                 return Some(Vec::new());
             }

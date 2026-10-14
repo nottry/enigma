@@ -361,7 +361,7 @@ fn interval_conduit_skill_stops_the_exact_active_skill() {
 }
 
 #[test]
-fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
+fn team_action_restarts_a_device_only_after_its_skill_stops() {
     crate::test_support::init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -383,7 +383,7 @@ fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
         }),
         ..Default::default()
     };
-    let managers = BattleManagers::seeded(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
     let pool = crate::engine::skill::target::TargetPool::from_fight(&fight);
     let mut determinism = crate::engine::runtime::determinism::RoundDeterminism::default();
     let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
@@ -420,7 +420,7 @@ fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
             ..Default::default()
         },
     );
-    let mut ops_for = |event| {
+    let mut ops_for = |managers: &BattleManagers, event| {
         rule_ops(
             BehaviorOpContext {
                 source_uid: 10,
@@ -429,7 +429,7 @@ fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
                 active_skill_id: 31450141,
                 transfer_count: 1,
                 event,
-                managers: &managers,
+                managers,
                 pool: &pool,
                 determinism: &mut determinism,
                 modifiers: &mut modifiers,
@@ -439,27 +439,47 @@ fn only_the_owners_interval_consumes_the_device_charge_and_restarts() {
         )
     };
 
-    assert!(ops_for(Some(&other_device)).unwrap().is_empty());
-    assert!(ops_for(Some(&owner_active)).unwrap().is_empty());
-    assert!(ops_for(Some(&owner_non_interval)).unwrap().is_empty());
-    let ops = ops_for(Some(&owner_interval)).unwrap();
-
+    assert_eq!(ops_for(&managers, Some(&other_device)), Some(Vec::new()));
+    managers
+        .conduit
+        .execute(ConduitCommand::StopSkill {
+            origin: crate::engine::skill::rule::CommandOrigin {
+                domain: crate::engine::skill::rule::RuleDomain::Behavior,
+                key: crate::engine::skill::rule::DefinitionKey::new(60294, "StopDeviceSkill"),
+            },
+            source_uid: 10,
+            team: 1,
+            skill_id: 31450111,
+        })
+        .unwrap();
+    for event in [&owner_active, &owner_non_interval, &owner_interval] {
+        let ops = ops_for(&managers, Some(event)).unwrap();
+        assert!(matches!(
+            ops.as_slice(),
+            [
+                RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
+                    target_uid: 10,
+                    selector: BuffSelector::IdOrType(31450142),
+                    amount: 4,
+                    ..
+                }))),
+                RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
+                    source_uid: 10,
+                })),
+            ]
+        ));
+    }
     assert!(matches!(
-        ops.as_slice(),
+        ops_for(&managers, Some(&other_device)).unwrap().as_slice(),
         [
-            RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(BuffConsume {
-                target_uid: 10,
-                selector: BuffSelector::IdOrType(31450142),
-                amount: 4,
-                ..
-            }))),
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(_))),
             RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
                 source_uid: 10,
             })),
         ]
     ));
     assert!(
-        ops_for(None).is_none(),
+        ops_for(&managers, None).is_none(),
         "event-free variants remain unsupported"
     );
 }

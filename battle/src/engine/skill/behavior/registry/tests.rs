@@ -36,6 +36,15 @@ fn lookup_requires_the_exact_opcode_type_pair() {
 }
 
 #[test]
+fn consume_buff_reset_device_listens_to_allies_and_targets_its_owner() {
+    let definition = find_key(60308, "ConsumeBuffResetDevice").unwrap();
+
+    assert_eq!(definition.required_event, Some(EventKind::AllyAction));
+    assert_eq!(definition.target_emission_mode, TargetEmissionMode::Owner);
+    assert!(definition.destination);
+}
+
+#[test]
 fn ezio_behaviors_accept_only_their_configured_shapes() {
     let behavior = |opcode, type_name, raw_args: &[&str]| {
         ParsedBehavior::from_spec(
