@@ -221,7 +221,7 @@ fn client_conduit_selection_projects_two_top_level_confirmations_before_actions(
     let fight = Fight {
         version: Some(7),
         attacker: Some(FightTeam {
-            entitys: vec![entity(10, 3149)],
+            entitys: vec![entity(10, 3149), entity(12, 3149)],
             ..Default::default()
         }),
         defender: Some(FightTeam {
@@ -262,10 +262,16 @@ fn client_conduit_selection_projects_two_top_level_confirmations_before_actions(
                 param1: Some(1),
                 ..Default::default()
             }],
-            devices_opers: vec![sonettobuf::FightDeviceOper {
-                uid: Some(10),
-                index: Some(1),
-            }],
+            devices_opers: vec![
+                sonettobuf::FightDeviceOper {
+                    uid: Some(10),
+                    index: Some(1),
+                },
+                sonettobuf::FightDeviceOper {
+                    uid: Some(12),
+                    index: Some(2),
+                },
+            ],
             ..Default::default()
         })
         .unwrap();
@@ -280,24 +286,29 @@ fn client_conduit_selection_projects_two_top_level_confirmations_before_actions(
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(selection_effects.len(), 2);
-    assert_eq!(selection_effects[0], selection_effects[1]);
+    assert_eq!(selection_effects.len(), 4);
+    assert_eq!(selection_effects[0], selection_effects[2]);
+    assert_eq!(selection_effects[1], selection_effects[3]);
     let effect = selection_effects[0];
     assert_eq!(effect.target_id, Some(10));
     assert_eq!(effect.effect_num, Some(1));
     assert_eq!(effect.team_type, Some(1));
     assert_eq!(effect.config_effect, Some(0));
+    assert_eq!(selection_effects[1].target_id, Some(12));
+    assert_eq!(selection_effects[1].effect_num, Some(2));
     let use_cards = &round.fight_step[0].act_effect[0].card_info_list;
-    assert_eq!(use_cards.len(), 2);
+    assert_eq!(use_cards.len(), 3);
     assert_eq!(use_cards[0].uid, Some(10));
     assert_eq!(use_cards[0].skill_id, Some(31446011));
-    assert_eq!(use_cards[1].uid, Some(0));
-    assert_eq!(use_cards[1].skill_id, Some(0));
-    assert_eq!(use_cards[1].hero_id, Some(0));
-    assert_eq!(
-        use_cards[1].card_type,
-        Some(sonettobuf::card_info::CardType::Device as i32)
-    );
+    for card in &use_cards[1..] {
+        assert_eq!(card.uid, Some(0));
+        assert_eq!(card.skill_id, Some(0));
+        assert_eq!(card.hero_id, Some(0));
+        assert_eq!(
+            card.card_type,
+            Some(sonettobuf::card_info::CardType::Device as i32)
+        );
+    }
     assert_eq!(
         round.fight_step[0]
             .act_effect
@@ -311,7 +322,7 @@ fn client_conduit_selection_projects_two_top_level_confirmations_before_actions(
         ]
     );
     for step in &round.fight_step[1..=2] {
-        assert_eq!(step.act_effect.len(), 1);
+        assert_eq!(step.act_effect.len(), 2);
         assert_eq!(&step.act_effect[0], effect);
     }
     let card_action_index = round

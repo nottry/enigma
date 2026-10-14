@@ -19,11 +19,14 @@ use super::{
     schedule,
 };
 
-fn append_client_conduit_selection_confirmations(frames: Vec<SemanticFrame>) -> Vec<SemanticFrame> {
-    let mut confirmed = Vec::with_capacity(frames.len().saturating_mul(2));
-    for frame in frames {
-        let confirmation = match frame.items.as_slice() {
-            [FrameItem::Change(change)] => match change.as_ref() {
+fn append_client_conduit_selection_confirmations(
+    mut frames: Vec<SemanticFrame>,
+) -> Vec<SemanticFrame> {
+    let confirmations = frames
+        .iter()
+        .flat_map(|frame| &frame.items)
+        .filter_map(|item| match item {
+            FrameItem::Change(change) => match change.as_ref() {
                 crate::engine::runtime::change::BattleChange::Conduit(
                     crate::engine::manager::conduit::ConduitChange::GroupSelected {
                         source_uid,
@@ -38,17 +41,17 @@ fn append_client_conduit_selection_confirmations(frames: Vec<SemanticFrame>) -> 
                 _ => None,
             },
             _ => None,
-        };
-        confirmed.push(frame);
-        if let Some(cue) = confirmation {
-            confirmed.push(SemanticFrame {
-                owner: FrameOwner::Command,
-                trigger: FrameTrigger::Active,
-                items: vec![FrameItem::Cue(cue)],
-            });
-        }
+        })
+        .map(FrameItem::Cue)
+        .collect::<Vec<_>>();
+    if !confirmations.is_empty() {
+        frames.push(SemanticFrame {
+            owner: FrameOwner::Command,
+            trigger: FrameTrigger::Active,
+            items: confirmations,
+        });
     }
-    confirmed
+    frames
 }
 
 struct WaveTransition {
@@ -205,7 +208,7 @@ impl BattleRuntime {
             crate::engine::fight::versions::round_start_setup_layout(fight_version)
                 == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
 
-        let conduit_selection = drain::run(
+        let conduit_selection = drain::run_command_group(
             &mut self.managers,
             &pool,
             catalog,
