@@ -63,10 +63,11 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
             skill_id: 116330112,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
     let skill = steps
         .iter()
         .find(|step| step.act_id == Some(116330112))
@@ -76,7 +77,7 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
 }
 
 #[test]
-fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resource() {
+fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
     init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -98,8 +99,6 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
                 FightEntityInfo {
                     uid: Some(-2),
                     current_hp: Some(100),
-                    ex_point: Some(5),
-                    ex_skill: Some(999),
                     team_type: Some(-1),
                     ..Default::default()
                 },
@@ -110,11 +109,14 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
     };
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
-    let mut catalog = SkillEffectCatalog::default();
-    catalog.insert(ParsedSkillEffect {
-        skill_id: 999,
-        slots: Vec::new(),
-    });
+    let catalog = SkillEffectCatalog::default();
+    let promotions = [crate::engine::fight::reserve::Promotion {
+        defeated_uid: -1,
+        entering_uid: -2,
+        position: 1,
+        team_type: 2,
+        entering: FightEntityInfo::default(),
+    }];
 
     let result = run_ai_actions(
         &fight,
@@ -123,24 +125,36 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [
-            AiSkillChoice {
-                source_uid: -1,
-                skill_id: 100,
-                target_uid: 10,
-            },
-            AiSkillChoice {
-                source_uid: -2,
-                skill_id: 999,
-                target_uid: 10,
-            },
-        ],
+        [AiSkillChoice {
+            source_uid: -1,
+            skill_id: 100,
+            target_uid: 10,
+        }],
+        &promotions,
     )
     .unwrap();
 
-    assert_eq!(managers.ex_point.get(-1), 1);
+    assert_eq!(managers.ex_point.get(-1), 0);
     assert_eq!(managers.ex_point.get(-2), 0);
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let AiActionResult {
+        output,
+        invalidated_card_rewards,
+    } = result;
+    let invalidated_steps = crate::engine::packet::timeline::project(&output.frames).unwrap();
+    let rewards = run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        invalidated_card_rewards,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(-1), 0);
+    assert_eq!(managers.ex_point.get(-2), 1);
+    let mut steps = invalidated_steps;
+    steps.extend(crate::engine::packet::timeline::project(&rewards.frames).unwrap());
     assert_eq!(
         steps[0].act_effect[0].effect_type,
         Some(sonettobuf::effect_type_enum::EffectType::Cardinvalid as i32)
@@ -148,18 +162,34 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
     assert_eq!(steps[0].act_effect[0].effect_num, Some(1));
     assert_eq!(steps[0].from_id, Some(-1));
     assert_eq!(steps[0].act_effect[0].config_effect, Some(0));
-    assert_eq!(
-        steps[1].act_effect[0].effect_type,
-        Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
-    );
-    assert_eq!(steps[1].act_effect[0].effect_num, Some(1));
-    let skill = steps.iter().find(|step| step.act_id == Some(999)).unwrap();
-    assert_eq!(skill.card_index, Some(2));
-    assert_eq!(skill.to_id, Some(10));
-    assert!(skill.act_effect.iter().any(|effect| {
-        effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
-            && effect.effect_num == Some(-5)
-    }));
+    let invalid = steps
+        .iter()
+        .position(|step| step.from_id == Some(-1))
+        .unwrap();
+    let small_round_end = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Smallroundend as i32)
+        })
+        .unwrap();
+    let reward = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
+        })
+        .unwrap();
+    let clear = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Clearuniversalcard as i32)
+        })
+        .unwrap();
+    assert!(invalid < small_round_end && small_round_end < reward && reward < clear);
+    assert_eq!(steps[reward].act_effect[0].effect_num, Some(1));
+    assert_eq!(steps[reward].act_effect[0].target_id, Some(-2));
 }
 
 #[test]
@@ -217,11 +247,12 @@ fn ai_actions_invalidate_a_queued_ultimate_after_its_resource_is_lost() {
             skill_id: 40231731,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 
     assert_eq!(managers.ex_point.get(-1), 0);
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].from_id, Some(-1));
     assert!(!steps.iter().any(|step| step.act_id == Some(40231731)));
@@ -603,6 +634,7 @@ fn action_queue_stops_when_the_configured_win_target_dies() {
                 target_uid: -4,
             },
         ],
+        &[],
     )
     .unwrap();
 

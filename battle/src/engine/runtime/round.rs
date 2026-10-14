@@ -181,7 +181,7 @@ impl BattleRuntime {
                 std::iter::empty(),
             );
         }
-        let mut ai_envelope = self.managers.card.ai_queue().to_vec();
+        let ai_envelope = self.managers.card.ai_queue().to_vec();
 
         let catalog = &mut self.catalog;
         let mut pool = crate::engine::skill::target::TargetPool::from_fight_with_catalog(
@@ -288,36 +288,6 @@ impl BattleRuntime {
             absorb_hurt_map_layout,
         )?);
         let ended_during_attacker_actions = battle_ended(&self.fight, &pool, &self.managers);
-        let promotions = if ended_during_attacker_actions {
-            Vec::new()
-        } else {
-            self.managers.promote_reserves(&mut self.fight)
-        };
-        self.objectives.record_promotions(&promotions);
-        if !promotions.is_empty() {
-            self.managers.sync_roster(&self.fight);
-            pool = crate::engine::skill::target::TargetPool::from_fight_with_catalog(
-                self.catalog_data
-                    .expect("battle runtime was not constructed with a catalog"),
-                &self.fight,
-            );
-        }
-        if !promotions.is_empty() {
-            fight_steps.extend(project_result(
-                schedule::run_promotions(
-                    &self.fight,
-                    &mut self.managers,
-                    catalog,
-                    &mut self.determinism,
-                    context,
-                    promotions,
-                )
-                .map_err(|error| format!("{error:?}"))?,
-                fight_version,
-                absorb_hurt_map_layout,
-            )?);
-            ai_envelope = self.managers.card.ai_queue().to_vec();
-        }
         let attacker_settlement = if ended_during_attacker_actions {
             schedule::run_finished_attacker_settlement(
                 &mut self.managers,
@@ -369,6 +339,33 @@ impl BattleRuntime {
         if needs_refill && runs_phase_two {
             fight_steps.extend(project_result(
                 schedule::run_round_deal(2),
+                fight_version,
+                absorb_hurt_map_layout,
+            )?);
+        }
+        let promotions = if ended_during_attacker_actions {
+            Vec::new()
+        } else {
+            self.managers.promote_reserves(&mut self.fight)
+        };
+        self.objectives.record_promotions(&promotions);
+        if !promotions.is_empty() {
+            self.managers.sync_roster(&self.fight);
+            pool = crate::engine::skill::target::TargetPool::from_fight_with_catalog(
+                self.catalog_data
+                    .expect("battle runtime was not constructed with a catalog"),
+                &self.fight,
+            );
+            fight_steps.extend(project_result(
+                schedule::run_promotions(
+                    &self.fight,
+                    &mut self.managers,
+                    catalog,
+                    &mut self.determinism,
+                    context,
+                    promotions.iter().cloned(),
+                )
+                .map_err(|error| format!("{error:?}"))?,
                 fight_version,
                 absorb_hurt_map_layout,
             )?);
@@ -451,15 +448,25 @@ impl BattleRuntime {
                 &mut self.determinism,
                 context,
                 choices,
+                &promotions,
             )
             .map_err(|error| format!("{error:?}"))?;
-            fight_steps.extend(project_result(ai, fight_version, absorb_hurt_map_layout)?);
+            let schedule::AiActionResult {
+                output: ai_output,
+                invalidated_card_rewards,
+            } = ai;
+            fight_steps.extend(project_result(
+                ai_output,
+                fight_version,
+                absorb_hurt_map_layout,
+            )?);
             let after_ai_round_end = schedule::run_after_ai_round_end(
                 &mut self.managers,
                 &pool,
                 catalog,
                 &mut self.determinism,
                 settlement_context,
+                invalidated_card_rewards,
             )
             .map_err(|error| format!("{error:?}"))?;
             fight_steps.extend(project_result(

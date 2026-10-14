@@ -175,7 +175,11 @@ fn queued_defeated_owner_card_cleanup(
     let team_type = pool
         .team_type(death.target_uid)
         .or_else(|| managers.buff.team_type(death.target_uid))?;
-    if !owner.queues_in_drain(team_type) {
+    if !owner.queues_in_drain(team_type)
+        || managers
+            .entity
+            .has_pending_reserve_promotion(death.target_uid, &managers.hp)
+    {
         return None;
     }
     Some(QueuedOp {

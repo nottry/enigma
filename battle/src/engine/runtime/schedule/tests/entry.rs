@@ -60,9 +60,18 @@ fn reserve_promotion_records_roster_change_and_removes_the_old_ai_cards() {
             .map(|effect| effect.effect_type.unwrap())
             .collect::<Vec<_>>(),
         vec![
-            sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32,
+            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
             sonettobuf::effect_type_enum::EffectType::Changehero as i32,
         ]
+    );
+    assert_eq!(
+        steps[0].act_effect[0]
+            .fight_step
+            .as_ref()
+            .unwrap()
+            .act_effect[0]
+            .effect_type,
+        Some(sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32)
     );
     assert_eq!(
         steps[0].act_effect[1].entity.as_ref().unwrap().uid,

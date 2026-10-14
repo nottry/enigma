@@ -251,12 +251,21 @@ pub fn run_after_ai_round_end(
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
     context: TargetContext,
+    invalidated_card_rewards: Vec<InvalidatedAiCardReward>,
 ) -> Result<DrainResult, DrainError> {
     let (mut result, settled_buffs) =
         run_defender_settlement(managers, pool, catalog, determinism, context)?;
     append(
         &mut result,
-        run_round_end_transition(managers, pool, catalog, determinism, context, settled_buffs)?,
+        run_round_end_transition(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            settled_buffs,
+            invalidated_card_rewards,
+        )?,
     );
     Ok(result)
 }
@@ -326,9 +335,21 @@ fn run_round_end_transition(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     settled_buffs: Vec<crate::engine::event::payload::BuffChangeEvent>,
+    invalidated_card_rewards: Vec<InvalidatedAiCardReward>,
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     push_cue(&mut result.frames, RoundCue::SmallRoundEnd { team_type: 1 });
+    append(
+        &mut result,
+        run_invalidated_ai_card_rewards(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            invalidated_card_rewards,
+        )?,
+    );
     push_cue(&mut result.frames, RoundCue::ClearUniversalCard);
     append(
         &mut result,

@@ -84,6 +84,7 @@ pub struct EntityManager {
     teams: HashMap<i64, i32>,
     identities: HashMap<i64, FightEntityInfo>,
     roster_lanes: HashMap<i64, RosterLane>,
+    reserve_order: HashMap<i32, Vec<i64>>,
     order: Vec<i64>,
     identity_order: Vec<i64>,
     replacements: HashMap<i64, FightEntityInfo>,
@@ -154,6 +155,17 @@ impl EntityManager {
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
             .collect::<Vec<_>>();
+        let mut reserve_order = HashMap::<i32, Vec<i64>>::new();
+        for (side, lane, entity) in &entities {
+            if *lane == RosterLane::Reserve
+                && let Some(uid) = entity.uid
+            {
+                reserve_order
+                    .entry(entity.team_type.unwrap_or(*side))
+                    .or_default()
+                    .push(uid);
+            }
+        }
         let largest_existing_index = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
@@ -165,6 +177,7 @@ impl EntityManager {
             teams,
             identities,
             roster_lanes,
+            reserve_order,
             identity_order: order.clone(),
             order,
             replacements: HashMap::new(),
@@ -363,6 +376,12 @@ impl EntityManager {
         };
         self.teams.insert(uid, team_type);
         self.roster_lanes.insert(uid, lane);
+        if lane == RosterLane::Reserve {
+            let reserves = self.reserve_order.entry(team_type).or_default();
+            if !reserves.contains(&uid) {
+                reserves.push(uid);
+            }
+        }
         if !self.identities.contains_key(&uid) {
             self.order.push(uid);
             self.identity_order.push(uid);
@@ -375,46 +394,62 @@ impl EntityManager {
         hp: &HpManager,
     ) -> Vec<crate::engine::fight::reserve::Promotion> {
         let mut promotions = Vec::new();
-        for team_type in [1, 2] {
-            let mains = self.roster_uids(team_type, RosterLane::Main);
-            let mut reserves = self
-                .roster_uids(team_type, RosterLane::Reserve)
-                .into_iter()
-                .filter(|uid| hp.current(*uid) > 0)
-                .collect::<Vec<_>>();
-            for defeated_uid in mains {
-                if hp.current(defeated_uid) > 0 || reserves.is_empty() {
-                    continue;
-                }
-                let entering_uid = reserves.remove(0);
-                let Some(mut defeated) = self.identities.get(&defeated_uid).cloned() else {
-                    continue;
-                };
-                let Some(mut entering) = self.identities.get(&entering_uid).cloned() else {
-                    continue;
-                };
-                std::mem::swap(&mut defeated.position, &mut entering.position);
-                let main_position = entering.position;
-                if let (Some(defeated_index), Some(entering_index)) = (
-                    self.order.iter().position(|uid| *uid == defeated_uid),
-                    self.order.iter().position(|uid| *uid == entering_uid),
-                ) {
-                    self.order.swap(defeated_index, entering_index);
-                }
-                self.identities.insert(defeated_uid, defeated.clone());
-                self.identities.insert(entering_uid, entering.clone());
-                self.roster_lanes.insert(defeated_uid, RosterLane::Reserve);
-                self.roster_lanes.insert(entering_uid, RosterLane::Main);
-                promotions.push(crate::engine::fight::reserve::Promotion {
-                    defeated_uid,
-                    entering_uid,
-                    position: main_position.unwrap_or_default(),
-                    team_type,
-                    entering,
-                });
+        for (defeated_uid, entering_uid, team_type) in self.pending_reserve_promotions(hp) {
+            let Some(mut defeated) = self.identities.get(&defeated_uid).cloned() else {
+                continue;
+            };
+            let Some(mut entering) = self.identities.get(&entering_uid).cloned() else {
+                continue;
+            };
+            std::mem::swap(&mut defeated.position, &mut entering.position);
+            let main_position = entering.position;
+            if let (Some(defeated_index), Some(entering_index)) = (
+                self.order.iter().position(|uid| *uid == defeated_uid),
+                self.order.iter().position(|uid| *uid == entering_uid),
+            ) {
+                self.order.swap(defeated_index, entering_index);
             }
+            let reserves = self.reserve_order.entry(team_type).or_default();
+            reserves.retain(|uid| *uid != entering_uid && *uid != defeated_uid);
+            reserves.push(defeated_uid);
+            self.identities.insert(defeated_uid, defeated.clone());
+            self.identities.insert(entering_uid, entering.clone());
+            self.roster_lanes.insert(defeated_uid, RosterLane::Reserve);
+            self.roster_lanes.insert(entering_uid, RosterLane::Main);
+            promotions.push(crate::engine::fight::reserve::Promotion {
+                defeated_uid,
+                entering_uid,
+                position: main_position.unwrap_or_default(),
+                team_type,
+                entering,
+            });
         }
         promotions
+    }
+
+    pub(crate) fn has_pending_reserve_promotion(&self, uid: i64, hp: &HpManager) -> bool {
+        self.pending_reserve_promotions(hp)
+            .iter()
+            .any(|(defeated_uid, _, _)| *defeated_uid == uid)
+    }
+
+    fn pending_reserve_promotions(&self, hp: &HpManager) -> Vec<(i64, i64, i32)> {
+        [1, 2]
+            .into_iter()
+            .flat_map(|team_type| {
+                self.roster_uids(team_type, RosterLane::Main)
+                    .into_iter()
+                    .filter(|uid| hp.current(*uid) <= 0)
+                    .zip(
+                        self.roster_uids(team_type, RosterLane::Reserve)
+                            .into_iter()
+                            .filter(|uid| hp.current(*uid) > 0),
+                    )
+                    .map(move |(defeated_uid, entering_uid)| {
+                        (defeated_uid, entering_uid, team_type)
+                    })
+            })
+            .collect()
     }
 
     pub(crate) fn replace_team_roster(
@@ -438,6 +473,7 @@ impl EntityManager {
         {
             self.roster_lanes.insert(uid, RosterLane::Inactive);
         }
+        self.reserve_order.insert(team_type, Vec::new());
         for entity in mains {
             self.register_in_lane(entity, RosterLane::Main);
         }
@@ -447,6 +483,16 @@ impl EntityManager {
     }
 
     fn roster_uids(&self, team_type: i32, lane: RosterLane) -> Vec<i64> {
+        if lane == RosterLane::Reserve {
+            return self
+                .reserve_order
+                .get(&team_type)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|uid| self.roster_lanes.get(uid) == Some(&lane))
+                .collect();
+        }
         self.order
             .iter()
             .copied()

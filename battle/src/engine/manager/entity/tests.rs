@@ -181,6 +181,75 @@ fn replacing_a_wave_roster_deactivates_the_previous_combatants() {
 }
 
 #[test]
+fn pending_promotions_match_dead_mains_to_available_reserves_in_roster_order() {
+    let entity = |uid, hp, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(hp),
+        position: Some(position),
+        ..Default::default()
+    };
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 0, 1), entity(-2, 0, 2)],
+            sub_entitys: vec![entity(-3, 100, -1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = EntityManager::seed(&fight);
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+
+    assert!(manager.has_pending_reserve_promotion(-1, &hp));
+    assert!(!manager.has_pending_reserve_promotion(-2, &hp));
+    assert_eq!(
+        manager
+            .promote_reserves(&hp)
+            .into_iter()
+            .map(|promotion| (promotion.defeated_uid, promotion.entering_uid))
+            .collect::<Vec<_>>(),
+        [(-1, -3)]
+    );
+}
+
+#[test]
+fn promoted_defeated_unit_moves_behind_the_remaining_reserves() {
+    let entity = |uid, hp, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(hp),
+        position: Some(position),
+        ..Default::default()
+    };
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 0, 1)],
+            sub_entitys: vec![entity(-2, 100, -1), entity(-3, 100, -2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = EntityManager::seed(&fight);
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+
+    manager.promote_reserves(&hp);
+    manager.sync_to_fight(&mut fight);
+
+    let defender = fight.defender.unwrap();
+    assert_eq!(defender.entitys[0].uid, Some(-2));
+    assert_eq!(
+        defender
+            .sub_entitys
+            .iter()
+            .filter_map(|entity| entity.uid)
+            .collect::<Vec<_>>(),
+        [-3, -1]
+    );
+}
+
+#[test]
 fn defeated_combatant_count_keeps_prior_waves_and_excludes_special_entities() {
     let entity = |uid, current_hp, position| FightEntityInfo {
         uid: Some(uid),

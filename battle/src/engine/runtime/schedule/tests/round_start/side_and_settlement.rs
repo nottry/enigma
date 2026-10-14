@@ -192,6 +192,7 @@ fn defender_round_start_late_applies_configured_buffs_before_ai_and_filters_owne
             skill_id: 999,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 
