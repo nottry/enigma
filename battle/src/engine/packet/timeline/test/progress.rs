@@ -82,6 +82,7 @@ fn progress_value_change_projects_the_committed_delta() {
     assert_eq!(effect.target_id, Some(8));
     assert_eq!(effect.buff_act_id, Some(8));
     assert_eq!(effect.effect_num, Some(-100));
+    assert_eq!(effect.reserve_str.as_deref(), Some("0"));
 }
 
 #[test]

@@ -41,6 +41,7 @@ impl EffectPacket {
             config_effect: Some(0),
             buff_act_id: Some(change.after.id),
             reserve_id: Some(0),
+            reserve_str: Some(change.after.value.to_string()),
             team_type: Some(0),
             effect_num1: Some(0),
             ..Default::default()
