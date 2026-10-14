@@ -8,7 +8,7 @@ use crate::engine::{
         buff::{BuffCommand, BuffDurationAdvance},
         card::{
             CARD_ENERGY_CLEAR_ORIGIN, CARD_PLAY_ORIGIN, CardCommand, CardInvalidatePlayed,
-            CardRefillOne, CardRefreshAiQueue, CardSetup,
+            CardRefillOne, CardRefreshAiQueue, CardSetAiQueue, CardSetup,
         },
         eureka::{EurekaChange, EurekaCommand, PowerType},
         ex_point::{ExPointChange, ExPointCommand},
@@ -297,6 +297,25 @@ pub fn run_ai_actions(
     promotions: &[crate::engine::fight::reserve::Promotion],
 ) -> Result<AiActionResult, DrainError> {
     let mut result = AiActionResult::default();
+    append(
+        &mut result.output,
+        drain::run_command_group(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            [RuleOp::Command(BattleCommand::Card(
+                CardCommand::SetAiQueue(CardSetAiQueue {
+                    origin: CommandOrigin {
+                        domain: RuleDomain::Lifecycle,
+                        key: DefinitionKey::new(0, "AiActionQueueSettlement"),
+                    },
+                    cards: Vec::new(),
+                }),
+            ))],
+        )?,
+    );
     for (index, choice) in choices.into_iter().enumerate() {
         if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
             break;

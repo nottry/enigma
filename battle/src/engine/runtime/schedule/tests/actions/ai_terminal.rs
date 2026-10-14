@@ -77,6 +77,42 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
 }
 
 #[test]
+fn ai_action_phase_consumes_the_current_queue() {
+    let fight = Fight::default();
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-2),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+
+    run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [],
+        &[],
+    )
+    .unwrap();
+
+    assert!(managers.card.ai_queue().is_empty());
+}
+
+#[test]
 fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
     init_config();
     let fight = Fight {
