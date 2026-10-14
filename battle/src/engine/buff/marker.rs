@@ -147,6 +147,20 @@ mod tests {
     }
 
     #[test]
+    fn conduit_selection_marks_only_its_initial_add() {
+        crate::test_support::init_config();
+
+        assert_eq!(
+            add_markers(31490002),
+            vec![BuffMarker {
+                effect_type: EffectType::None as i32,
+            }]
+        );
+        assert!(static_markers(31490002).is_empty());
+        assert!(refresh_markers(31490002).is_empty());
+    }
+
+    #[test]
     fn unregistered_recorded_buff_layer_counter_has_no_wire_marker() {
         crate::test_support::init_config();
 

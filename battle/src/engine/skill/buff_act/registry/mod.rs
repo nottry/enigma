@@ -1387,7 +1387,7 @@ buff_act_definitions! {
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1049, "CrystalNotifySelect"), &[EffectType::None as i32]));
     (10030, "TwinsNotifySelect") => ConduitCardSelection, effect_time_subscription: false,
         supports: super::conduit_select::supports, state_consumer: true, initial_state: ConduitCardSelection,
-        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(10030, "TwinsNotifySelect"), &[]));
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(10030, "TwinsNotifySelect"), &[EffectType::None as i32]));
     (1050, "HeatScaleUseSkill") => HeatScaleUseSkill,
         scoped_runtime: |context| Some(super::heat_scale_use_skill::rule_ops(context.managers, context.catalog, context.subscriber)),
         supports: |_| true, references: references_for_feature, initial_state: HeatScale,
