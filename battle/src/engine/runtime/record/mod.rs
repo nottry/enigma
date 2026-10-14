@@ -287,6 +287,46 @@ pub(crate) fn owner_at_path<'a>(frames: &'a [SemanticFrame], path: &[usize]) -> 
     &frame.owner
 }
 
+pub(crate) fn prior_conduit_activation_reaction_path(
+    frames: &[SemanticFrame],
+    current: &[usize],
+) -> Option<FramePath> {
+    let (&current_index, parent_path) = current.split_last()?;
+    if parent_path.is_empty() {
+        return None;
+    }
+    let (source_uid, skill_id) = match owner_at_path(frames, current) {
+        FrameOwner::Skill {
+            source_uid,
+            skill_id,
+            ..
+        } => (*source_uid, *skill_id),
+        _ => return None,
+    };
+    frame_at(frames, parent_path).items[..current_index]
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(index, item)| match item {
+            FrameItem::Child(frame)
+                if matches!(
+                    frame.owner,
+                    FrameOwner::Skill {
+                        source_uid: owner_uid,
+                        skill_id: owner_skill_id,
+                        ..
+                    } if owner_uid == source_uid && owner_skill_id == skill_id
+                ) && matches!(
+                    frame.trigger,
+                    FrameTrigger::Event(BattleEvent::ConduitActivated(_))
+                ) =>
+            {
+                Some(parent_path.iter().copied().chain([index]).collect())
+            }
+            _ => None,
+        })
+}
+
 pub(crate) fn active_skill_scope_path(
     frames: &[SemanticFrame],
     path: &[usize],

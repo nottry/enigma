@@ -212,4 +212,27 @@ fn conduit_activation_reactions_settle_before_ally_action_reactions() {
 
     assert!(activated < action_completed);
     assert!(!managers.buff.has_buff_id(11, 31450142));
+
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find_map(|step| find_step(step, 302524112))
+        .unwrap();
+    let reactions = skill
+        .act_effect
+        .iter()
+        .filter_map(|effect| effect.fight_step.as_ref())
+        .filter(|step| step.act_id == Some(31450141))
+        .collect::<Vec<_>>();
+    assert_eq!(reactions.len(), 1);
+    assert!(reactions[0].act_effect.iter().any(|effect| {
+        effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Devicestop as i32)
+            && effect.target_id == Some(11)
+            && effect.effect_num == Some(0)
+    }));
+    assert!(skill.act_effect.iter().any(|effect| {
+        effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Buffdel as i32)
+            && effect.target_id == Some(11)
+            && effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31450142)
+    }));
 }

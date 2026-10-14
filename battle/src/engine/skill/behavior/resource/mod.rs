@@ -241,14 +241,23 @@ impl BehaviorHandler for Handler {
     }
 
     fn output_owner(behavior: &ParsedBehavior, op: &RuleOp, _index: usize) -> Option<OutputOwner> {
-        (behavior.spec.kind == BehaviorKind::ConsumeBuffIntoChargeAndRewards
-            && matches!(
-                op,
+        match (behavior.spec.kind, op) {
+            (
+                BehaviorKind::ConsumeBuffIntoChargeAndRewards,
                 RuleOp::Command(BattleCommand::Buff(
-                    BuffCommand::Consume(_) | BuffCommand::Grant(_)
-                ))
-            ))
-        .then_some(OutputOwner::CausingEvent)
+                    BuffCommand::Consume(_) | BuffCommand::Grant(_),
+                )),
+            )
+            | (
+                BehaviorKind::ConsumeBuffResetDevice,
+                RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(_))),
+            ) => Some(OutputOwner::CausingEvent),
+            (
+                BehaviorKind::ConsumeBuffResetDevice,
+                RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice { .. })),
+            ) => Some(OutputOwner::ConduitActivationReaction),
+            _ => None,
+        }
     }
 }
 

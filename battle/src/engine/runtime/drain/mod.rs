@@ -13,7 +13,8 @@ use crate::engine::{
         record::{
             FrameOwner, FramePath, FrameTrigger, RoundCue, RoundPhase, SemanticFrame, SetupSide,
             active_skill_scope_path, entity_entry_halo_scope_path, event_scope_path, owner_at_path,
-            push_change, push_child, push_cue, push_root, set_skill_target,
+            prior_conduit_activation_reaction_path, push_change, push_child, push_cue, push_root,
+            set_skill_target,
         },
         skill::{self, SkillExecution, SkillOpError, SkillOpTrigger},
     },
@@ -52,6 +53,7 @@ pub enum DrainError {
     RecursionLimitExceeded,
     MissingActiveSkillContext,
     MissingReactionSide(i64),
+    MissingConduitActivationReaction,
 }
 
 fn required_buff_act_definition(
@@ -1072,7 +1074,17 @@ fn drain_queue_with_deferred(
                                 op: command,
                                 trigger: trigger.clone(),
                                 skill_execution: None,
-                                frame_path: Some(output_frame_path(owner, &frame_path)),
+                                frame_path: Some(if owner
+                                    == crate::engine::skill::behavior::registry::OutputOwner::ConduitActivationReaction
+                                {
+                                    prior_conduit_activation_reaction_path(
+                                        &result.frames,
+                                        &frame_path,
+                                    )
+                                    .ok_or(DrainError::MissingConduitActivationReaction)?
+                                } else {
+                                    output_frame_path(owner, &frame_path)
+                                }),
                                 parent_path: None,
                                 frame_group: None,
                                 independent_parent_group: None,
@@ -1968,6 +1980,7 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
+                        | crate::engine::skill::behavior::registry::OutputOwner::ConduitActivationReaction
                         | crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
@@ -2182,6 +2195,7 @@ fn output_frame_path(
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
         OutputOwner::CausingEvent
+        | OutputOwner::ConduitActivationReaction
         | OutputOwner::NestedLifecycleMechanic
         | OutputOwner::SetupParent
         | OutputOwner::SetupOrFinalSettlementParent => {
