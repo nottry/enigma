@@ -383,6 +383,10 @@ fn defender_action_phase_fight_progress_gate_keeps_its_exact_route_and_payload_o
             phase: None,
         })
     );
+    assert_eq!(
+        find_key(1010301, "ProgressValue").map(|definition| definition.reaction_frame_target),
+        Some(ReactionFrameTarget::Owner)
+    );
     assert!(find_key(1010101, "ProgressValue").is_none());
     assert_eq!(
         find_key(1010012, "ProgressValue").map(|definition| definition.role),
