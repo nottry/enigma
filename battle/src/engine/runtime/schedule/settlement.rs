@@ -527,7 +527,7 @@ pub fn run_round_end_final_settlement(
 ) -> Result<DrainResult, DrainError> {
     let owner_uids = final_settlement_owner_order(pool, managers);
     let event = BattleEvent::BuffsSettled(settled_buffs);
-    let mut result = drain::run_grouped_owner_event(
+    let mut result = drain::run_grouped_owner_event_lanes(
         managers,
         pool,
         catalog,
@@ -535,22 +535,8 @@ pub fn run_round_end_final_settlement(
         context,
         event.clone(),
         &owner_uids,
-        drain::ReactionLane::BuffActs,
+        &[drain::ReactionLane::BuffActs, drain::ReactionLane::Skills],
     )?;
-    let mut skills = drain::run_group_event(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        event.clone(),
-        drain::ReactionLane::Skills,
-        None,
-    )?;
-    if skills.events.first() == Some(&event) {
-        skills.events.remove(0);
-    }
-    append(&mut result, skills);
     append(
         &mut result,
         run_duration_advances_for_event(
