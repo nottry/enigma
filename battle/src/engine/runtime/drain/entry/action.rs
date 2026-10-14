@@ -390,25 +390,8 @@ pub fn run_conduit_action(
             subscriber: None,
             caster_frame: None,
         },
-        QueuedOp {
-            op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Conduit(
-                crate::engine::manager::conduit::ConduitCommand::FinishSkill {
-                    source_uid,
-                    skill_id,
-                },
-            )),
-            trigger: SkillOpTrigger::Active,
-            skill_execution: None,
-            frame_path: None,
-            parent_path: Some(root),
-            frame_group: Some(skill_frame),
-            independent_parent_group: None,
-            frame_owner: None,
-            subscriber: None,
-            caster_frame: None,
-        },
     ]);
-    drain_queue_with_frames_and_cleanup_owner(
+    let mut result = drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -417,7 +400,42 @@ pub fn run_conduit_action(
         &mut queue,
         frames,
         DefenderCardCleanupOwner::ScheduledRoundPhase,
-    )
+    )?;
+    let frame_path = skill_frame
+        .borrow()
+        .clone()
+        .ok_or(DrainError::MissingActiveSkillContext)?;
+    let mut completion = VecDeque::from([QueuedOp {
+        op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Conduit(
+            crate::engine::manager::conduit::ConduitCommand::FinishSkill {
+                source_uid,
+                skill_id,
+            },
+        )),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: Some(frame_path),
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+    let mut completed = drain_queue_with_frames_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        &mut completion,
+        std::mem::take(&mut result.frames),
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )?;
+    result.outcomes.append(&mut completed.outcomes);
+    result.events.append(&mut completed.events);
+    result.frames = completed.frames;
+    Ok(result)
 }
 
 #[allow(clippy::too_many_arguments)]
