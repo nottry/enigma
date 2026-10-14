@@ -114,10 +114,26 @@ pub fn run_conduit_phase(
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
     let mut completed_devices = HashSet::new();
+    let mut completion_stop_emitted = HashSet::new();
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
             if completed_devices.contains(&source_uid) {
+                if completion_stop_emitted.insert(source_uid) {
+                    append(
+                        &mut result,
+                        drain::run_conduit_stop(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            context,
+                            source_uid,
+                            device_index,
+                            1,
+                        )?,
+                    );
+                }
                 continue;
             }
             let skills = managers
@@ -130,6 +146,7 @@ pub fn run_conduit_phase(
                 std::iter::empty(),
             );
             let mut ran = false;
+            let mut stop_emitted_this_pass = false;
             for (position, skill) in skills.into_iter().enumerate() {
                 let cost_modifier = crate::engine::skill::buff_act::device_cost_reduce::modifier(
                     managers,
@@ -163,19 +180,24 @@ pub fn run_conduit_phase(
                         context,
                     );
                 if unavailable {
-                    append(
-                        &mut result,
-                        drain::run_conduit_stop(
-                            managers,
-                            pool,
-                            catalog,
-                            determinism,
-                            context,
-                            source_uid,
-                            device_index,
-                            position as i32 + 1,
-                        )?,
-                    );
+                    if !crate::engine::round::outcome::battle_ended(fight, pool, managers)
+                        || !stop_emitted_this_pass
+                    {
+                        append(
+                            &mut result,
+                            drain::run_conduit_stop(
+                                managers,
+                                pool,
+                                catalog,
+                                determinism,
+                                context,
+                                source_uid,
+                                device_index,
+                                position as i32 + 1,
+                            )?,
+                        );
+                        stop_emitted_this_pass = true;
+                    }
                     continue;
                 }
                 let frame_target_uid = (catalog.logic_target(skill.skill_id)

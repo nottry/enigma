@@ -179,4 +179,15 @@ fn free_skill_repeats_while_its_consumed_buff_remains() {
     assert_eq!(managers.ex_point.get(10), 20);
     assert!(!managers.buff.has_buff_id(10, 31450121));
     assert_eq!(managers.conduit.selected_group(10), Some(1));
+    assert_eq!(
+        result
+            .frames
+            .iter()
+            .filter(|frame| matches!(
+                frame.owner,
+                crate::engine::runtime::record::FrameOwner::ConduitStopped { source_uid: 10, .. }
+            ))
+            .count(),
+        1
+    );
 }

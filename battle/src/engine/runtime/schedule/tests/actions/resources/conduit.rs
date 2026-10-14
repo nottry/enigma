@@ -969,6 +969,17 @@ fn conduit_finishes_non_attack_devices_after_battle_ends() {
     assert_eq!(managers.conduit.uses(11), 1);
     assert_eq!(managers.ex_point.get(11), 10);
     assert_eq!(managers.conduit.uses(12), 1);
+    assert_eq!(
+        result
+            .frames
+            .iter()
+            .filter(|frame| matches!(
+                frame.owner,
+                crate::engine::runtime::record::FrameOwner::ConduitStopped { source_uid: 12, .. }
+            ))
+            .count(),
+        2
+    );
     assert!(!result.outcomes.iter().any(|outcome| matches!(
         outcome,
         RuleOutcome::Conduit(
