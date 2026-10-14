@@ -27,7 +27,7 @@ pub enum TargetEmissionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputOwner {
     Skill,
-    NestedCommand,
+    NestedLifecycleMechanic,
     Parent,
     CausingEvent,
     SetupParent,

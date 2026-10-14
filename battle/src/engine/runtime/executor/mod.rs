@@ -115,7 +115,7 @@ impl RuleOutcome {
                 let mut owned = Vec::new();
                 if let Some(toughness) = changes.toughness {
                     owned.push((
-                        OutputOwner::NestedCommand,
+                        OutputOwner::NestedLifecycleMechanic,
                         BattleChange::ToughnessReset(toughness),
                     ));
                 }

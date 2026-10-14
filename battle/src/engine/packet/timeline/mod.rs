@@ -208,10 +208,12 @@ fn project_frame(
             EffectPacket::effect_fight_step_action(*source_uid, *target_uid, 0, effects),
         ))),
         FrameOwner::SetupBuffAct { .. } => Ok(StepPacket::effect(effects)),
-        FrameOwner::SetupMechanic => Ok(StepPacket::effect(effects).map(|mut step| {
-            step.fake_timeline = Some(true);
-            step
-        })),
+        FrameOwner::SetupMechanic | FrameOwner::LifecycleMechanic => {
+            Ok(StepPacket::effect(effects).map(|mut step| {
+                step.fake_timeline = Some(true);
+                step
+            }))
+        }
         FrameOwner::SetupSide(_)
         | FrameOwner::SetupEntity { .. }
         | FrameOwner::StageWave { .. }

@@ -51,6 +51,7 @@ pub enum FrameOwner {
         key: crate::engine::skill::rule::DefinitionKey,
     },
     SetupMechanic,
+    LifecycleMechanic,
     StageWave {
         wave: i32,
     },

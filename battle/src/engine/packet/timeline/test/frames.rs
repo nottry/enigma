@@ -139,3 +139,36 @@ fn projects_a_semantic_skill_frame_without_reading_runtime_state() {
     assert_eq!(steps[0].act_id, Some(20));
     assert_eq!(steps[0].act_effect[0].effect_num, Some(1));
 }
+
+#[test]
+fn lifecycle_mechanic_projects_as_nested_fake_timeline() {
+    let frame = SemanticFrame {
+        owner: FrameOwner::Skill {
+            source_uid: -1,
+            skill_id: 20,
+            card_index: 0,
+            target_uid: Some(-1),
+        },
+        trigger: crate::engine::runtime::record::FrameTrigger::Active,
+        items: vec![FrameItem::Child(Box::new(SemanticFrame {
+            owner: FrameOwner::LifecycleMechanic,
+            trigger: crate::engine::runtime::record::FrameTrigger::Active,
+            items: vec![FrameItem::Change(Box::new(BattleChange::ToughnessReset(
+                crate::engine::manager::toughness::ToughnessReset {
+                    target_uid: -1,
+                    before: None,
+                    after: None,
+                },
+            )))],
+        }))],
+    };
+
+    let steps = project(&[frame]).unwrap();
+    let nested = steps[0].act_effect[0].fight_step.as_ref().unwrap();
+
+    assert_eq!(nested.fake_timeline, Some(true));
+    assert_eq!(
+        nested.act_effect[0].effect_type,
+        Some(EffectType::Toughnessreset as i32)
+    );
+}

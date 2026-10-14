@@ -1592,12 +1592,13 @@ fn drain_queue_with_deferred(
                     push_cue(&mut result.frames, RoundCue::RedealHandSync { cards });
                 }
                 for (owner, change) in outcome.owned_changes() {
-                    if owner == crate::engine::skill::behavior::registry::OutputOwner::NestedCommand
+                    if owner
+                        == crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
                     {
                         let nested = push_child(
                             &mut result.frames,
                             &frame_path,
-                            FrameOwner::Command,
+                            FrameOwner::LifecycleMechanic,
                             frame_trigger(&trigger),
                         );
                         push_change(&mut result.frames, &nested, change);
@@ -1956,7 +1957,7 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        | crate::engine::skill::behavior::registry::OutputOwner::NestedCommand
+                        | crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
                         | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
                             unreachable!("manager follow-up owner must be resolved")
@@ -2170,7 +2171,7 @@ fn output_frame_path(
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
         OutputOwner::CausingEvent
-        | OutputOwner::NestedCommand
+        | OutputOwner::NestedLifecycleMechanic
         | OutputOwner::SetupParent
         | OutputOwner::SetupOrFinalSettlementParent => {
             unreachable!("conditional output ownership must be resolved before draining")
