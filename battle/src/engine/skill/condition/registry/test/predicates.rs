@@ -657,6 +657,21 @@ fn active_life_more_gate_keeps_its_exact_static_route() {
 }
 
 #[test]
+fn static_life_less_gate_keeps_its_exact_identity() {
+    assert_eq!(
+        find_key(1, "LifeLess").map(|definition| definition.role),
+        Some(ConditionRole::Predicate)
+    );
+    assert_eq!(
+        parse(1, "LifeLess", &["11".into()]),
+        Some(ParsedConditionKind::HpPermille {
+            compare: super::super::super::parse::ConditionCompare::LessThan,
+            threshold: 11,
+        })
+    );
+}
+
+#[test]
 fn round_end_life_more_gate_uses_a_strict_threshold() {
     assert_eq!(
         parse(2301, "LifeMore", &["900".into()]),
