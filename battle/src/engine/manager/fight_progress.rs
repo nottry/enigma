@@ -123,7 +123,7 @@ impl FightProgressManager {
     pub fn change_value(
         &mut self,
         command: FightProgressValueCommand,
-    ) -> Result<FightProgressValueChange, FightProgressError> {
+    ) -> Result<Option<FightProgressValueChange>, FightProgressError> {
         let mut matches = self
             .records
             .iter()
@@ -171,12 +171,15 @@ impl FightProgressManager {
             .clamp(0, before.max);
         let after = FightProgressState { value, ..before };
         record.value = Some(after.value);
-        Ok(FightProgressValueChange {
+        if after == before {
+            return Ok(None);
+        }
+        Ok(Some(FightProgressValueChange {
             origin: command.origin,
             before,
             after,
             delta: after.value - before.value,
-        })
+        }))
     }
 
     pub fn sync_fight(&self, fight: &mut Fight) {
@@ -275,6 +278,7 @@ mod tests {
                 progress_id: 8,
                 delta: -100,
             })
+            .unwrap()
             .unwrap();
 
         assert_eq!(change.before.value, 100);
@@ -377,6 +381,7 @@ mod tests {
                 progress_id: 8,
                 delta: i32::MAX,
             })
+            .unwrap()
             .unwrap();
         assert_eq!((capped.after.value, capped.delta), (100, 66));
 
@@ -386,7 +391,39 @@ mod tests {
                 progress_id: 8,
                 delta: i32::MIN,
             })
+            .unwrap()
             .unwrap();
         assert_eq!((floored.after.value, floored.delta), (0, -100));
+    }
+
+    #[test]
+    fn saturated_value_change_has_no_change_result() {
+        let origin = CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(100016, "ProgressChangeNew"),
+        };
+        let mut manager = FightProgressManager::default();
+        manager
+            .initialize(FightProgressCommand {
+                origin,
+                initial: 100,
+                max: 100,
+                show_id: 10,
+                progress_id: 8,
+                skill_id: 119381117,
+            })
+            .unwrap();
+
+        assert_eq!(
+            manager
+                .change_value(FightProgressValueCommand {
+                    origin,
+                    progress_id: 8,
+                    delta: 21,
+                })
+                .unwrap(),
+            None
+        );
+        assert_eq!(manager.get(8).unwrap().value, 100);
     }
 }

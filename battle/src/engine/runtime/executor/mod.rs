@@ -774,9 +774,11 @@ pub(crate) fn execute_rule_op_with(
         RuleOp::Command(BattleCommand::FightProgress(command)) => Ok(RuleOutcome::FightProgress(
             managers.fight_progress.initialize(command)?,
         )),
-        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(
-            RuleOutcome::FightProgressValue(managers.fight_progress.change_value(command)?),
-        ),
+        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(managers
+            .fight_progress
+            .change_value(command)?
+            .map(RuleOutcome::FightProgressValue)
+            .unwrap_or(RuleOutcome::StateChanged)),
         RuleOp::Command(BattleCommand::FieldTransfer(command)) => {
             let changes = crate::engine::mechanic::field_transfer::execute(managers, command)?;
             for buff in &changes.buffs {
