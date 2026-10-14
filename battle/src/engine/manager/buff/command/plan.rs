@@ -939,7 +939,10 @@ impl BuffManager {
             Some(LayerRefreshPlan::Update { .. })
         ) && (policy.uid.reserve_on_layer_refresh
             || partially_capped_layer_refresh
-            || halo_refresh))
+            || halo_refresh
+            || (self.shared_uid_lane
+                && definition.is_stackable_type()
+                && definition.uses_child_uid())))
             || (action == GrantAction::RefreshLayer
                 && matches!(layer_refresh, Some(LayerRefreshPlan::NoChange))
                 && (halo_refresh
