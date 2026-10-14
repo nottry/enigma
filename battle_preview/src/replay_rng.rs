@@ -150,6 +150,33 @@ fn skill_target_choices(
             if !choice.targets.is_empty() || !choice.additional_targets.is_empty() {
                 choices.push(choice);
             }
+            for child in step
+                .act_effect
+                .iter()
+                .filter_map(|effect| effect.fight_step.as_ref())
+            {
+                let Some((child_skill_id, target_uid)) = child
+                    .act_id
+                    .filter(|child_skill_id| *child_skill_id > 0)
+                    .zip(child.to_id.filter(|target_uid| *target_uid != 0))
+                else {
+                    continue;
+                };
+                let Some(target_code) =
+                    catalog.direct_skill_target_code_for_child(skill_id, child_skill_id)
+                else {
+                    continue;
+                };
+                choices.push(SkillTargetChoice {
+                    skill_id,
+                    source_uid,
+                    target_code,
+                    targets: vec![target_uid],
+                    additional_targets: Vec::new(),
+                    crit_targets: Vec::new(),
+                    additional_crit_targets: Vec::new(),
+                });
+            }
         }
         for child in step
             .act_effect
@@ -526,6 +553,77 @@ mod tests {
         assert_eq!(choices[0].skill_id, 109380001);
         assert_eq!(choices[0].target_code, 202);
         assert_eq!(choices[0].additional_targets, vec![40, 20, 30, 10]);
+    }
+
+    #[test]
+    fn direct_child_step_imports_the_parent_target_choice() {
+        use battle::tooling::scan::{ParsedBehavior, ParsedSkillEffect, TargetRequest};
+        use sonettobuf::{ActEffect, fight_hurt_info::DamageFromType};
+
+        let parent_skill_id = 10;
+        let child_skill_id = 20;
+        let source_uid = 30;
+        let target_uid = -2;
+        let mut catalog = SkillEffectCatalog::default();
+        catalog.insert(ParsedSkillEffect {
+            skill_id: parent_skill_id,
+            slots: vec![SkillEffectSlot::new(
+                ParsedBehavior::from_spec(
+                    battle::tooling::scan::behavior::classify::BehaviorSpec::new(
+                        50008,
+                        "DirectUseSkill",
+                    ),
+                    vec![child_skill_id],
+                    vec![child_skill_id.to_string()],
+                ),
+                TargetRequest {
+                    code: 206,
+                    raw: Vec::new(),
+                },
+            )],
+        });
+        catalog.insert_logic_target(child_skill_id, 202);
+        let hurt = |target_id| ActEffect {
+            target_id: Some(target_id),
+            hurt_info: Some(FightHurtInfo {
+                damage_from_type: Some(DamageFromType::Skill as i32),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let round = FightRound {
+            fight_step: vec![FightStep {
+                act_id: Some(parent_skill_id),
+                from_id: Some(source_uid),
+                act_effect: vec![ActEffect {
+                    fight_step: Some(FightStep {
+                        act_id: Some(child_skill_id),
+                        from_id: Some(source_uid),
+                        to_id: Some(target_uid),
+                        act_effect: vec![hurt(target_uid), hurt(-1)],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let choices = skill_target_choices(&catalog, &round);
+
+        assert_eq!(choices.len(), 2);
+        assert_eq!(
+            (
+                choices[0].skill_id,
+                choices[0].source_uid,
+                choices[0].target_code,
+                choices[0].targets.as_slice(),
+            ),
+            (parent_skill_id, source_uid, 206, [target_uid].as_slice())
+        );
+        assert_eq!(choices[1].skill_id, child_skill_id);
+        assert_eq!(choices[1].targets, vec![target_uid, -1]);
     }
 
     #[test]

@@ -147,6 +147,25 @@ impl SkillEffectCatalog {
             .collect()
     }
 
+    pub fn direct_skill_target_code_for_child(
+        &self,
+        skill_id: i32,
+        child_skill_id: i32,
+    ) -> Option<i32> {
+        let mut target_codes = self.get(skill_id)?.slots.iter().filter_map(|slot| {
+            let definition = crate::engine::skill::behavior::registry::find(&slot.behavior)?;
+            (definition.kind == BehaviorKind::DirectUseSkill
+                && (definition.references)(&slot.behavior)
+                    .skills
+                    .contains(&child_skill_id))
+            .then_some(slot.target.code)
+        });
+        let target_code = target_codes.next()?;
+        target_codes
+            .all(|candidate| candidate == target_code)
+            .then_some(target_code)
+    }
+
     pub fn random_condition_keys(&self) -> Vec<(i32, i32)> {
         fn append(
             conditions: &[crate::engine::skill::condition::ParsedCondition],

@@ -34,9 +34,9 @@ pub mod scan {
         manager::buff::BuffPolicy,
         skill::{
             condition::{ConditionTiming, ParsedCondition, ParsedConditionKind, parse_conditions},
-            effect::{ParsedBehavior, SkillEffectCatalog, SkillEffectSlot},
+            effect::{ParsedBehavior, ParsedSkillEffect, SkillEffectCatalog, SkillEffectSlot},
             rule::route::{ConditionDriver, ConditionRoute, RouteError},
-            target::is_mapped_target_code,
+            target::{TargetRequest, is_mapped_target_code},
         },
     };
 
