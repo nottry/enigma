@@ -17,6 +17,17 @@ fn hurt_to_progress_owns_the_pre_damage_hit_route() {
         definition.runtime.frame_scope,
         RuntimeFrameScope::CausingFrame
     );
+    let wire = definition.wire.unwrap();
+    for phase in [
+        super::super::super::wire::WirePhase::Add,
+        super::super::super::wire::WirePhase::Static,
+        super::super::super::wire::WirePhase::Refresh,
+    ] {
+        assert_eq!(
+            wire.markers(phase),
+            &[sonettobuf::effect_type_enum::EffectType::None as i32]
+        );
+    }
 }
 
 #[test]
