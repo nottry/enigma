@@ -13,6 +13,7 @@ pub mod damage_target;
 pub mod detonate;
 pub mod electric;
 pub mod fake_hp;
+pub mod fight_progress;
 pub mod focus_all_entity_buff;
 pub mod gauge;
 pub mod general;
@@ -164,6 +165,44 @@ mod op_tests {
                     ..
                 })
             ))])
+        ));
+    }
+
+    #[test]
+    fn progress_init_new_emits_the_exact_progress_definition() {
+        let managers = BattleManagers::default();
+        let pool = TargetPool::default();
+        let mut determinism = RoundDeterminism::default();
+        let mut modifiers = SkillModifiers::default();
+        let mut target = TargetContext::default();
+        let behavior = ParsedBehavior::new(100015, "ProgressInitNew", vec![0, 100, 10, 8]);
+
+        assert!(matches!(
+            rule_ops(
+                BehaviorOpContext {
+                    source_uid: -99999,
+                    source_team: 2,
+                    target_uid: -99999,
+                    active_skill_id: 119381117,
+                    transfer_count: 1,
+                    event: None,
+                    managers: &managers,
+                    pool: &pool,
+                    determinism: &mut determinism,
+                    modifiers: &mut modifiers,
+                    target: &mut target,
+                },
+                &behavior,
+            ),
+            Some(ops) if matches!(
+                ops.as_slice(),
+                [RuleOp::Command(BattleCommand::FightProgress(command))]
+                    if command.initial == 0
+                        && command.max == 100
+                        && command.show_id == 10
+                        && command.progress_id == 8
+                        && command.skill_id == 119381117
+            )
         ));
     }
 

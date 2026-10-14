@@ -94,6 +94,73 @@ fn compiled_setup_schedule_owns_stage_order() {
 }
 
 #[test]
+fn progress_init_new_commits_during_enter_fight() {
+    crate::test_support::init_config();
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-99999),
+                team_type: Some(2),
+                current_hp: Some(1),
+                passive_skill: vec![119381117],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(
+            BehaviorSpec::new(100015, "ProgressInitNew"),
+            vec![0, 100, 10, 8],
+            vec!["0".into(), "100".into(), "10".into(), "8".into()],
+        ),
+        TargetRequest::self_only(),
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 5,
+        type_name: "EnterFight".to_owned(),
+        kind: ParsedConditionKind::Lifecycle(LifecycleMode::EnterFight),
+        raw_args: Vec::new(),
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 119381117,
+        slots: vec![slot],
+    });
+
+    let result = run_setup_stage(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        SetupStage::EnterFight,
+        0,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        result.outcomes.as_slice(),
+        [RuleOutcome::FightProgress(change)]
+            if change.state.id == 8
+                && change.state.max == 100
+                && change.state.value == 0
+                && change.state.show_id == 10
+                && change.state.skill_id == 119381117
+    ));
+    assert_eq!(managers.fight_progress.get(8).unwrap().skill_id, 119381117);
+    managers.sync_entities(&mut fight);
+    assert_eq!(
+        fight.progress_list,
+        vec![managers.fight_progress.get(8).unwrap().into()]
+    );
+}
+
+#[test]
 fn event_required_behavior_does_not_run_from_its_configured_setup_route() {
     crate::test_support::init_config();
     let fight = Fight {

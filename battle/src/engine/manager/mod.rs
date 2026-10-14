@@ -10,6 +10,7 @@ pub mod entity;
 pub mod eureka;
 pub mod ex_point;
 pub mod field;
+pub mod fight_progress;
 pub mod gauge;
 pub mod hp;
 pub mod indicator;
@@ -72,6 +73,7 @@ pub struct BattleManagers {
     pub gauge: gauge::GaugeManager,
     pub nuo_di_ka: crate::engine::mechanic::nuo_di_ka::NuoDiKa,
     pub field: field::FieldManager,
+    pub fight_progress: fight_progress::FightProgressManager,
     pub upgrade: UpgradeManager,
     pub summon: SummonManager,
     pub toughness: toughness::ToughnessManager,
@@ -1402,6 +1404,7 @@ impl BattleManagers {
         managers.card.seed(fight);
         managers.conduit = ConduitManager::configured(catalog, fight);
         managers.entity = entity::EntityManager::configured(catalog, fight);
+        managers.fight_progress.seed(fight);
         managers.wave = wave::WaveManager::seed_with_catalog(catalog, fight);
         managers
     }
@@ -1431,6 +1434,7 @@ impl BattleManagers {
             self.project_entity_state(entity);
         }
         self.eureka.sync_fight(fight);
+        self.fight_progress.sync_fight(fight);
         let features = self.buff.active_features(&self.hp);
         if let Some(attacker) = fight.attacker.as_mut() {
             attacker.heat_scale = self.heat_scale_snapshot(1, &features);

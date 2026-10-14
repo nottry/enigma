@@ -378,6 +378,9 @@ fn project_change(
         BattleChange::Contract(crate::engine::manager::contract::ContractChange::Cleared {
             ..
         }) => Vec::new(),
+        BattleChange::FightProgress(change) => {
+            EffectPacket::fight_progress_initialized(change.state).to_vec()
+        }
         BattleChange::BuffActTrigger(trigger) => {
             vec![EffectPacket::buff_act_trigger(*trigger)]
         }

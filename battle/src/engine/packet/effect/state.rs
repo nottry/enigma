@@ -1,6 +1,36 @@
 use super::*;
 
 impl EffectPacket {
+    pub fn fight_progress_initialized(
+        state: crate::engine::manager::fight_progress::FightProgressState,
+    ) -> [ActEffect; 2] {
+        [
+            ActEffect {
+                target_id: Some(i64::from(state.id)),
+                effect_type: Some(EffectType::Progressmaxchange as i32),
+                effect_num: Some(state.max),
+                config_effect: Some(0),
+                buff_act_id: Some(state.id),
+                reserve_id: Some(0),
+                reserve_str: Some(state.skill_id.to_string()),
+                team_type: Some(0),
+                effect_num1: Some(state.show_id),
+                ..Default::default()
+            },
+            ActEffect {
+                target_id: Some(i64::from(state.id)),
+                effect_type: Some(EffectType::Progresschange as i32),
+                effect_num: Some(state.value),
+                config_effect: Some(0),
+                buff_act_id: Some(state.id),
+                reserve_id: Some(0),
+                team_type: Some(0),
+                effect_num1: Some(0),
+                ..Default::default()
+            },
+        ]
+    }
+
     pub fn career_change(target_uid: i64, career: i32, config_effect: i32) -> ActEffect {
         ActEffect {
             target_id: Some(target_uid),
