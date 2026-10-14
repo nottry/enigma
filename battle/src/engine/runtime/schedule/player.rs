@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Allocates configured card energy before the owning action phase begins.
 pub fn run_card_energy_allocation(
@@ -59,6 +59,38 @@ pub fn run_action_phase_start(
     drain::run_command_group(managers, pool, catalog, determinism, context, ops)
 }
 
+fn free_skill_consumed_remaining_buff(action: &DrainResult, source_uid: i64) -> bool {
+    let mut amounts = HashMap::new();
+    let mut record = |changes: &crate::engine::manager::buff::BuffChanges| {
+        for event in changes.events() {
+            let change = match event {
+                BattleEvent::BuffAdded(change)
+                | BattleEvent::BuffChanged(change)
+                | BattleEvent::BuffRemoved(change) => change,
+                _ => continue,
+            };
+            if change.target_uid != source_uid {
+                continue;
+            }
+            amounts
+                .entry((change.target_uid, change.buff_uid))
+                .and_modify(|(_, after)| *after = change.after_amount)
+                .or_insert((change.before_amount, change.after_amount));
+        }
+    };
+    for outcome in &action.outcomes {
+        match outcome {
+            RuleOutcome::Buff(changes) => record(changes),
+            RuleOutcome::BuffBatch(changes) => changes.iter().for_each(&mut record),
+            _ => {}
+        }
+    }
+
+    amounts
+        .into_values()
+        .any(|(before, after)| after > 0 && after < before)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_conduit_phase(
     battle_catalog: crate::catalog::BattleCatalog,
@@ -81,9 +113,13 @@ pub fn run_conduit_phase(
         .map(|(index, (source_uid, selected_group))| (source_uid, selected_group, index as i32 + 1))
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
+    let mut completed_devices = HashSet::new();
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
+            if completed_devices.contains(&source_uid) {
+                continue;
+            }
             let skills = managers
                 .conduit
                 .selected_skills(source_uid)
@@ -178,11 +214,31 @@ pub fn run_conduit_phase(
                         _ => None,
                     })
                     .collect::<HashSet<_>>();
+                let group_changed = action.outcomes.iter().any(|outcome| {
+                    matches!(
+                        outcome,
+                        RuleOutcome::Conduit(
+                            crate::engine::manager::conduit::ConduitChange::SkillGroupChanged {
+                                source_uid: changed_uid,
+                                ..
+                            }
+                        ) if *changed_uid == source_uid
+                    )
+                });
+                let can_repeat = skill.cost_value <= 0
+                    && free_skill_consumed_remaining_buff(&action, source_uid);
                 used_free_skills.retain(|(uid, _)| !restarted_devices.contains(uid));
                 append(&mut result, action);
                 ran = true;
-                if skill.cost_value <= 0 && !restarted_devices.contains(&source_uid) {
+                if group_changed {
+                    completed_devices.insert(source_uid);
+                }
+                if skill.cost_value <= 0 && !can_repeat && !restarted_devices.contains(&source_uid)
+                {
                     used_free_skills.insert((source_uid, skill.skill_id));
+                }
+                if group_changed {
+                    break;
                 }
             }
             if ran {
