@@ -57,6 +57,18 @@ fn completed_attack_target_count_keeps_its_after_damage_route() {
 }
 
 #[test]
+fn attack_modifier_target_count_keeps_its_exact_predicate_route() {
+    assert_eq!(
+        parse(53203, "HurtNumType", &["1".into()]),
+        Some(ParsedConditionKind::DamageTargetCountKind(1))
+    );
+    assert_eq!(
+        find_key(53203, "HurtNumType").map(|definition| definition.role),
+        Some(ConditionRole::Predicate)
+    );
+}
+
+#[test]
 fn buff_and_obscurity_conditions_keep_their_exact_routes() {
     assert_eq!(
         parse(88, "BuffTypeAdd", &["4".into()]),

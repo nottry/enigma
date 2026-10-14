@@ -841,6 +841,7 @@ condition_definitions! {
     [47204] "HurtNotRestraint" => parse::hurt_not_restrained, incoming_attack_modifier(predicate(&[]));
     [47209] "HurtNotRestraint" => parse::hurt_not_restrained, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53201] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
+    [53203] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
     [53208] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
     [53209] "HurtNumType" => parse::received_damage_target_count_kind, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53210] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
