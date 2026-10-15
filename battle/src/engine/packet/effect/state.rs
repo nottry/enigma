@@ -34,6 +34,11 @@ impl EffectPacket {
     pub fn fight_progress_changed(
         change: crate::engine::manager::fight_progress::FightProgressValueChange,
     ) -> ActEffect {
+        let clamp_boundary = if change.delta > 0 {
+            change.after.max
+        } else {
+            0
+        };
         ActEffect {
             target_id: Some(i64::from(change.after.id)),
             effect_type: Some(EffectType::Progresschange as i32),
@@ -41,7 +46,7 @@ impl EffectPacket {
             config_effect: Some(0),
             buff_act_id: Some(change.after.id),
             reserve_id: Some(0),
-            reserve_str: Some(change.after.value.to_string()),
+            reserve_str: Some(clamp_boundary.to_string()),
             team_type: Some(0),
             effect_num1: Some(0),
             ..Default::default()

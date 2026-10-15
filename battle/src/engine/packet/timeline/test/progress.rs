@@ -54,7 +54,7 @@ fn progress_initialization_projects_max_before_value() {
 }
 
 #[test]
-fn progress_value_change_projects_the_committed_delta() {
+fn progress_value_change_projects_the_committed_delta_and_clamp_boundary() {
     let state = FightProgressState {
         id: 8,
         max: 100,
@@ -83,6 +83,25 @@ fn progress_value_change_projects_the_committed_delta() {
     assert_eq!(effect.buff_act_id, Some(8));
     assert_eq!(effect.effect_num, Some(-100));
     assert_eq!(effect.reserve_str.as_deref(), Some("0"));
+
+    let [effect] = project_change_with_reduce_hp(
+        &BattleChange::FightProgressValue(FightProgressValueChange {
+            origin: CommandOrigin {
+                domain: RuleDomain::BuffAct,
+                key: DefinitionKey::new(1148, "HurtToProgress"),
+            },
+            before: FightProgressState { value: 0, ..state },
+            after: FightProgressState { value: 34, ..state },
+            delta: 34,
+        }),
+        true,
+    )
+    .unwrap()
+    .try_into()
+    .unwrap();
+
+    assert_eq!(effect.effect_num, Some(34));
+    assert_eq!(effect.reserve_str.as_deref(), Some("100"));
 }
 
 #[test]
