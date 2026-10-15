@@ -129,7 +129,6 @@ fn defender_action_phase_runs_progress_reactions_before_ai() {
             value: Some(100),
             show_id: Some(1),
             skill_id: Some(1),
-            ..Default::default()
         }],
         ..Default::default()
     };
