@@ -35,18 +35,21 @@ pub async fn act229_info(
         .filter(|row| row.activity_id == activity_id)
         .map(|row| {
             let state = saved.iter().find(|state| state.0 == row.stage);
-            let heroes = state.map(|state| heroes(&state.5)).unwrap_or_default();
+            let heroes = state
+                .map(|state| heroes(&state.5))
+                .transpose()?
+                .unwrap_or_default();
 
-            Act229StageNo {
+            Ok(Act229StageNo {
                 stage_id: Some(row.stage),
                 star: Some(state.map(|state| state.1).unwrap_or_default()),
                 max_star: Some(state.map(|state| state.2).unwrap_or_default()),
                 round: Some(state.map(|state| state.3).unwrap_or_default()),
                 min_round: Some(state.map(|state| state.4).unwrap_or_default()),
                 heros: heroes,
-            }
+            })
         })
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, AppError>>()?;
     stages.sort_by_key(|stage| stage.stage_id.unwrap_or_default());
 
     Ok(GetAct229InfoReply {
@@ -55,8 +58,8 @@ pub async fn act229_info(
     })
 }
 
-fn heroes(json: &str) -> Vec<Act229HeroNo> {
-    serde_json::from_str(json).unwrap_or_default()
+fn heroes(json: &str) -> Result<Vec<Act229HeroNo>, AppError> {
+    Ok(serde_json::from_str(json)?)
 }
 
 pub fn act229_battle_episode(activity_id: i32, stage_id: i32) -> Result<i32, AppError> {
@@ -89,7 +92,7 @@ pub async fn act229_heroes_available(
         .filter_map(|hero| hero.hero_id)
         .collect::<std::collections::HashSet<_>>();
     for (saved_stage_id, json) in saved {
-        let saved_heroes = self::heroes(&json);
+        let saved_heroes = self::heroes(&json)?;
         if saved_stage_id == stage_id {
             if !saved_heroes.is_empty() && saved_heroes != heroes {
                 return Err(AppError::InvalidRequest);
@@ -259,5 +262,41 @@ mod test {
         act229_heroes_available(&db, 7, 138521, 2, &heroes)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn malformed_saved_heroes_do_not_unlock_a_roster() {
+        let data_dir = format!("{}/../data/excel2json", env!("CARGO_MANIFEST_DIR"));
+        let _ = config::init(&data_dir);
+        let db = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        database::run_migrations(&db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO users (id, username, created_at, updated_at)
+             VALUES (42, 'act229-corrupt', 0, 0)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO user_activity229_stages
+                (user_id, activity_id, stage_id, heroes_json)
+             VALUES (42, 138521, 1, '{')",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        let selected = [Act229HeroNo {
+            hero_id: Some(3143),
+            equip_uids: Vec::new(),
+        }];
+
+        assert!(matches!(
+            act229_heroes_available(&db, 42, 138521, 1, &selected).await,
+            Err(AppError::Serde(_))
+        ));
+        assert!(matches!(
+            act229_info(&db, 42, Some(138521)).await,
+            Err(AppError::Serde(_))
+        ));
     }
 }

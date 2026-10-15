@@ -59,34 +59,118 @@ fn subtract_costs<T: Eq>(costs: &mut Vec<(T, i32)>, retained: &[(T, i32)]) {
     costs.retain(|(_, amount)| *amount > 0);
 }
 
-pub fn battle_star(runtime: &battle::Battle, battle_id: i32) -> i32 {
-    let Some(battle) = configs::get().battle.get(battle_id) else {
-        return 1;
+pub fn battle_star(runtime: &battle::Battle, battle_id: i32) -> Result<i32, AppError> {
+    let tables = configs::get();
+    if battle_id == 0 {
+        return Ok(1);
+    }
+    let Some(battle) = tables.battle.get(battle_id) else {
+        return Err(AppError::Custom(format!(
+            "missing battle config {battle_id}"
+        )));
     };
     let base_star = successful_battle_base_star(&battle.advanced_condition);
-    let advanced_star = battle
-        .advanced_condition
-        .split('|')
-        .filter_map(|id| id.parse::<i32>().ok())
-        .filter_map(|id| configs::get().condition.get(id))
-        .filter(|condition| {
-            let limit = condition.attr.parse::<i32>().unwrap_or_default();
-            match runtime.meets_advanced_condition(condition.r#type, limit) {
-                Some(met) => met,
-                None => {
-                    tracing::warn!(
-                        condition_id = condition.id,
-                        condition_type = condition.r#type,
-                        "unsupported dungeon advanced condition"
-                    );
-                    false
-                }
-            }
-        })
-        .count() as i32;
-    base_star + advanced_star
+    let advanced_star =
+        advanced_condition_star(runtime, battle_id, &battle.advanced_condition, tables)?;
+    Ok(base_star + advanced_star)
+}
+
+fn advanced_condition_star(
+    runtime: &battle::Battle,
+    battle_id: i32,
+    raw: &str,
+    tables: &config::GameDB,
+) -> Result<i32, AppError> {
+    if raw.is_empty() {
+        return Ok(0);
+    }
+    let mut star = 0;
+    for raw_id in raw.split('|') {
+        let condition_id = raw_id.parse::<i32>().map_err(|_| {
+            AppError::Custom(format!(
+                "battle {battle_id} has malformed advanced condition id {raw_id:?}"
+            ))
+        })?;
+        let condition = tables.condition.get(condition_id).ok_or_else(|| {
+            AppError::Custom(format!(
+                "battle {battle_id} references missing advanced condition {condition_id}"
+            ))
+        })?;
+        let limit = condition_limit(battle_id, condition)?;
+        match runtime.meets_advanced_condition(condition.r#type, limit) {
+            Some(true) => star += 1,
+            Some(false) => {}
+            None => tracing::warn!(
+                battle_id,
+                condition_id,
+                condition_type = condition.r#type,
+                "unsupported dungeon advanced condition"
+            ),
+        }
+    }
+    Ok(star)
+}
+
+fn condition_limit(
+    battle_id: i32,
+    condition: &config::condition::Condition,
+) -> Result<i32, AppError> {
+    condition.attr.parse::<i32>().map_err(|_| {
+        AppError::Custom(format!(
+            "battle {battle_id} condition {} has malformed attr {:?}",
+            condition.id, condition.attr
+        ))
+    })
 }
 
 fn successful_battle_base_star(advanced_condition: &str) -> i32 {
     1 + i32::from(advanced_condition.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn runtime() -> battle::Battle {
+        battle::tooling::unstarted_battle(
+            battle::catalog::BattleCatalog::new(configs::get()),
+            sonettobuf::Fight::default(),
+        )
+    }
+
+    #[test]
+    fn malformed_advanced_conditions_are_errors() {
+        let data_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("data/excel2json");
+        let _ = config::init(data_dir.to_str().unwrap());
+        let runtime = runtime();
+        let tables = configs::get();
+
+        for raw in ["bad", "2147483647", "1||2"] {
+            assert!(advanced_condition_star(&runtime, 1, raw, tables).is_err());
+        }
+        let condition = config::condition::Condition {
+            attr: "bad".to_owned(),
+            desc: String::new(),
+            id: 7,
+            progress: 0,
+            r#type: 7,
+        };
+        assert!(condition_limit(1, &condition).is_err());
+    }
+
+    #[test]
+    fn only_the_no_battle_sentinel_uses_the_base_star() {
+        let data_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("data/excel2json");
+        let _ = config::init(data_dir.to_str().unwrap());
+        let runtime = runtime();
+
+        assert_eq!(battle_star(&runtime, 0).unwrap(), 1);
+        assert!(battle_star(&runtime, i32::MAX).is_err());
+    }
 }

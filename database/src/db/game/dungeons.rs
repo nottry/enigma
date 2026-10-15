@@ -811,6 +811,8 @@ pub async fn update_dungeon_progress_in_transaction(
         .r#const
         .get(78)
         .map(|value| chapter_type_daily_limit(&value.value, chapter_type))
+        .transpose()?
+        .flatten()
         .unwrap_or_default();
     let challenge_increment = i32::from(!chapter.challenge_count_limit.is_empty());
     let daily_increment = i32::from(episode_daily_limit > 0);
@@ -884,14 +886,41 @@ pub async fn update_dungeon_progress_in_transaction(
     Ok((dungeon, chapter_type_nums))
 }
 
-fn chapter_type_daily_limit(value: &str, chapter_type: i32) -> i32 {
-    value
-        .split('|')
-        .find_map(|entry| {
-            let (kind, count) = entry.split_once('#')?;
-            (kind.parse::<i32>().ok()? == chapter_type).then(|| count.parse().unwrap_or_default())
-        })
-        .unwrap_or_default()
+fn chapter_type_daily_limit(value: &str, chapter_type: i32) -> Result<Option<i32>> {
+    for entry in value.split('|').filter(|entry| !entry.is_empty()) {
+        let (kind, count) = entry
+            .split_once('#')
+            .with_context(|| format!("malformed chapter daily limit entry {entry:?}"))?;
+        let kind = kind
+            .parse::<i32>()
+            .with_context(|| format!("invalid chapter type in daily limit entry {entry:?}"))?;
+        let count = count
+            .parse::<i32>()
+            .with_context(|| format!("invalid count in chapter daily limit entry {entry:?}"))?;
+        ensure!(
+            count >= 0,
+            "negative count in chapter daily limit entry {entry:?}"
+        );
+        if kind == chapter_type {
+            return Ok(Some(count));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod chapter_daily_limit_tests {
+    use super::chapter_type_daily_limit;
+
+    #[test]
+    fn distinguishes_absent_and_malformed_chapter_limits() {
+        assert_eq!(chapter_type_daily_limit("6#2|7#3", 6).unwrap(), Some(2));
+        assert_eq!(chapter_type_daily_limit("6#2|7#3", 8).unwrap(), None);
+
+        for malformed in ["6", "bad#2", "6#bad", "6#2#3", "6#-1"] {
+            assert!(chapter_type_daily_limit(malformed, 6).is_err());
+        }
+    }
 }
 
 pub fn prerequisite_episode_ids(targets: impl IntoIterator<Item = i32>) -> Result<Vec<i32>> {

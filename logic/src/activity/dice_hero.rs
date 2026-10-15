@@ -56,22 +56,20 @@ async fn dice_hero_info(
             game_info: chapters
                 .into_iter()
                 .map(|chapter| {
-                    let pass_level_ids =
-                        serde_json::from_str(&chapter.pass_level_ids).unwrap_or_default();
-                    let relic_ids = serde_json::from_str(&chapter.relic_ids).unwrap_or_default();
-                    let reward_items =
-                        serde_json::from_str(&chapter.reward_items_json).unwrap_or_default();
+                    let pass_level_ids = serde_json::from_str(&chapter.pass_level_ids)?;
+                    let relic_ids = serde_json::from_str(&chapter.relic_ids)?;
+                    let reward_items = serde_json::from_str(&chapter.reward_items_json)?;
 
-                    dice_hero_game_info(
+                    Ok(dice_hero_game_info(
                         chapter.chapter,
                         pass_level_ids,
                         chapter.current_hero_id,
                         relic_ids,
                         reward_items,
                         tables,
-                    )
+                    ))
                 })
-                .collect(),
+                .collect::<Result<Vec<_>, AppError>>()?,
         }),
     })
 }
@@ -137,15 +135,11 @@ async fn dice_hero_get_reward(
     tables: &config::GameDB,
 ) -> Result<DiceHeroGetRewardReply, AppError> {
     let chapter_state = dice_hero::get_chapter(db, player_id, chapter).await?;
-    let pass_level_ids =
-        serde_json::from_str::<Vec<i32>>(&chapter_state.pass_level_ids).unwrap_or_default();
+    let pass_level_ids = serde_json::from_str::<Vec<i32>>(&chapter_state.pass_level_ids)?;
     let reward_items =
-        serde_json::from_str::<Vec<DiceHeroRewardItem>>(&chapter_state.reward_items_json)
-            .unwrap_or_default();
-    let mut relic_ids =
-        serde_json::from_str::<Vec<i32>>(&chapter_state.relic_ids).unwrap_or_default();
-    let mut skill_card_ids =
-        serde_json::from_str::<Vec<i32>>(&chapter_state.skill_card_ids).unwrap_or_default();
+        serde_json::from_str::<Vec<DiceHeroRewardItem>>(&chapter_state.reward_items_json)?;
+    let mut relic_ids = serde_json::from_str::<Vec<i32>>(&chapter_state.relic_ids)?;
+    let mut skill_card_ids = serde_json::from_str::<Vec<i32>>(&chapter_state.skill_card_ids)?;
     let mut current_hero_id = chapter_state.current_hero_id;
 
     if reward_items.is_empty() {
@@ -243,8 +237,7 @@ async fn ensure_dice_hero_reward_panel(
         return Ok(());
     }
 
-    let pass_level_ids =
-        serde_json::from_str::<Vec<i32>>(&chapter.pass_level_ids).unwrap_or_default();
+    let pass_level_ids = serde_json::from_str::<Vec<i32>>(&chapter.pass_level_ids)?;
     let Some(level) = next_dice_hero_level(chapter.chapter, &pass_level_ids, tables) else {
         return Ok(());
     };
@@ -389,4 +382,83 @@ fn split_i32_list(value: &str) -> Vec<i32> {
         .split('#')
         .filter_map(|part| part.parse::<i32>().ok())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn malformed_chapter_state_is_not_replaced() {
+        let data_dir = format!("{}/../data/excel2json", env!("CARGO_MANIFEST_DIR"));
+        let _ = config::init(&data_dir);
+        let tables = config::configs::get();
+        let chapter = chapter_ids(tables)[0];
+        let db = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        database::run_migrations(&db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO users (id, username, created_at, updated_at)
+             VALUES (43, 'dice-hero-corrupt', 0, 0)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        dice_hero::sync_chapters(&db, 43, vec![chapter])
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "UPDATE user_dice_hero_chapters SET pass_level_ids = '{'
+             WHERE user_id = 43 AND chapter = ?",
+        )
+        .bind(chapter)
+        .execute(&db)
+        .await
+        .unwrap();
+        assert!(
+            dice_hero::complete_level(&db, 43, chapter, 1)
+                .await
+                .is_err()
+        );
+
+        for field in [
+            "pass_level_ids",
+            "reward_items_json",
+            "relic_ids",
+            "skill_card_ids",
+        ] {
+            sqlx::query(
+                "UPDATE user_dice_hero_chapters
+                 SET pass_level_ids = '[]', reward_items_json = '[]',
+                     relic_ids = '[]', skill_card_ids = '[]'
+                 WHERE user_id = 43 AND chapter = ?",
+            )
+            .bind(chapter)
+            .execute(&db)
+            .await
+            .unwrap();
+            sqlx::query(&format!(
+                "UPDATE user_dice_hero_chapters SET {field} = '{{'
+                 WHERE user_id = 43 AND chapter = ?"
+            ))
+            .bind(chapter)
+            .execute(&db)
+            .await
+            .unwrap();
+
+            assert!(matches!(
+                dice_hero_get_reward(&db, 43, chapter, Vec::new(), tables).await,
+                Err(AppError::Serde(_))
+            ));
+            let stored: String = sqlx::query_scalar(&format!(
+                "SELECT {field} FROM user_dice_hero_chapters
+                 WHERE user_id = 43 AND chapter = ?"
+            ))
+            .bind(chapter)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            assert_eq!(stored, "{", "{field}");
+        }
+    }
 }

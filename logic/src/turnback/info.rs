@@ -66,7 +66,7 @@ pub(super) async fn turnback_info(
             tasks,
             bonus_point: Some(state.bonus_point),
             first_show: Some(state.first_show),
-            has_get_task_bonus: serde_json::from_str(&state.has_get_task_bonus).unwrap_or_default(),
+            has_get_task_bonus: state.claimed_task_bonus_ids()?,
             sign_in_day: Some(state.sign_in_day),
             sign_in_infos,
             once_bonus: Some(state.once_bonus),
