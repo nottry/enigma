@@ -1,4 +1,4 @@
-use sonettobuf::{BuffInfo, Fight, FightEntityInfo, FightTeam};
+use sonettobuf::{BuffInfo, EquipRecord, Fight, FightEntityInfo, FightTeam};
 
 use super::*;
 use crate::engine::skill::{
@@ -29,6 +29,101 @@ fn manager_owned_passive_skills_preserve_configured_order() {
     assert_eq!(
         entity_skill_owners(entity, &pool, &managers),
         vec![(10, 900), (10, 100)]
+    );
+}
+
+#[test]
+fn conduit_energy_reactions_delay_only_equipped_psychube_passives() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    current_hp: Some(1),
+                    passive_skill: vec![31440141, 31450141],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(12),
+                    current_hp: Some(1),
+                    passive_skill: vec![437011],
+                    trial_equip: Some(EquipRecord {
+                        equip_id: Some(1570),
+                        refine_lv: Some(0),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    current_hp: Some(1),
+                    passive_skill: vec![437311],
+                    equips: vec![EquipRecord {
+                        equip_id: Some(1573),
+                        refine_lv: Some(1),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let subscribers = for_compiled_event(&pool, &managers, &catalog, EventKind::ConduitActivated)
+        .unwrap()
+        .skills;
+
+    assert_eq!(
+        subscribers
+            .iter()
+            .find(|subscriber| subscriber.skill_id == 31440141)
+            .unwrap()
+            .key
+            .timing,
+        crate::engine::event::subscription::ReactionTiming::Immediate
+    );
+    assert_eq!(
+        subscribers
+            .iter()
+            .find(|subscriber| subscriber.skill_id == 31450141)
+            .unwrap()
+            .key
+            .timing,
+        crate::engine::event::subscription::ReactionTiming::Immediate
+    );
+    assert_eq!(
+        subscribers
+            .iter()
+            .find(|subscriber| subscriber.skill_id == 437311)
+            .unwrap()
+            .key
+            .timing,
+        crate::engine::event::subscription::ReactionTiming::AfterAction
+    );
+    assert_eq!(
+        subscribers
+            .iter()
+            .find(|subscriber| subscriber.skill_id == 437011)
+            .unwrap()
+            .key
+            .timing,
+        crate::engine::event::subscription::ReactionTiming::AfterAction
+    );
+
+    managers.entity.update(FightEntityInfo {
+        uid: Some(11),
+        current_hp: Some(1),
+        passive_skill: vec![437311],
+        ..Default::default()
+    });
+    assert_eq!(
+        managers.entity.passive_source(11, 437311),
+        crate::engine::entity::passive::PassiveSourceKind::Psychube
     );
 }
 

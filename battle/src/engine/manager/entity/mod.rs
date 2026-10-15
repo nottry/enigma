@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use sonettobuf::{Fight, FightEntityInfo, HeroAttribute};
 
 use crate::engine::{
+    entity::passive::{Passive, PassiveSourceKind},
     event::payload::BattleEvent,
     fight::defender::Defender,
     manager::hp::HpManager,
@@ -100,23 +101,29 @@ pub struct EntityManager {
     order: Vec<i64>,
     identity_order: Vec<i64>,
     replacements: HashMap<i64, FightEntityInfo>,
+    passive_sources: HashMap<i64, HashMap<i32, PassiveSourceKind>>,
     ultimate_kinds: HashMap<i64, ExtraSkillKind>,
     next_special_uid: i64,
 }
 
 impl EntityManager {
     pub(crate) fn configured(catalog: crate::catalog::BattleCatalog, fight: &Fight) -> Self {
-        Self::from_fight(fight, catalog.defender_reservation_count(fight))
+        Self::from_fight(
+            catalog.game_data(),
+            fight,
+            catalog.defender_reservation_count(fight),
+        )
     }
 
     pub fn seed_with_game_data(game_data: &config::GameDB, fight: &Fight) -> Self {
         Self::from_fight(
+            game_data,
             fight,
             crate::catalog::configured_defender_reservation_count(game_data, fight),
         )
     }
 
-    fn from_fight(fight: &Fight, reserved_index: usize) -> Self {
+    fn from_fight(game_data: &config::GameDB, fight: &Fight, reserved_index: usize) -> Self {
         let entities = fight
             .attacker
             .iter()
@@ -159,6 +166,13 @@ impl EntityManager {
             .iter()
             .filter_map(|(_, _, entity)| Some((entity.uid?, entity.clone())))
             .collect();
+        let passive_sources = entities
+            .iter()
+            .filter_map(|(_, _, entity)| {
+                let sources = psychube_passive_sources(game_data, entity);
+                (!sources.is_empty()).then_some((entity.uid?, sources))
+            })
+            .collect();
         let roster_lanes = entities
             .iter()
             .filter_map(|(_, lane, entity)| Some((entity.uid?, *lane)))
@@ -193,6 +207,7 @@ impl EntityManager {
             identity_order: order.clone(),
             order,
             replacements: HashMap::new(),
+            passive_sources,
             ultimate_kinds: HashMap::new(),
             next_special_uid: -(largest_existing_index.max(reserved_index) as i64 + 1),
         }
@@ -368,11 +383,18 @@ impl EntityManager {
 
     pub(crate) fn update(&mut self, entity: FightEntityInfo) {
         let Some(uid) = entity.uid else { return };
+        if let Some(sources) = self.passive_sources.get_mut(&uid) {
+            sources.retain(|skill_id, _| entity.passive_skill.contains(skill_id));
+        }
         self.identities.insert(uid, entity.clone());
         self.replacements.insert(uid, entity);
     }
 
-    pub(crate) fn register(&mut self, entity: &FightEntityInfo) {
+    pub(crate) fn register(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        entity: &FightEntityInfo,
+    ) {
         let lane = entity
             .uid
             .and_then(|uid| self.roster_lanes.get(&uid).copied())
@@ -381,10 +403,15 @@ impl EntityManager {
             } else {
                 RosterLane::Main
             });
-        self.register_in_lane(entity, lane);
+        self.register_in_lane(catalog, entity, lane);
     }
 
-    pub(crate) fn register_in_lane(&mut self, entity: &FightEntityInfo, lane: RosterLane) {
+    pub(crate) fn register_in_lane(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        entity: &FightEntityInfo,
+        lane: RosterLane,
+    ) {
         let (Some(uid), Some(team_type)) = (entity.uid, entity.team_type) else {
             return;
         };
@@ -400,6 +427,7 @@ impl EntityManager {
             self.order.push(uid);
             self.identity_order.push(uid);
         }
+        self.refresh_passive_sources(catalog.game_data(), entity);
         self.identities.insert(uid, entity.clone());
     }
 
@@ -468,6 +496,7 @@ impl EntityManager {
 
     pub(crate) fn replace_team_roster(
         &mut self,
+        catalog: crate::catalog::BattleCatalog,
         team_type: i32,
         mains: &[FightEntityInfo],
         reserves: &[FightEntityInfo],
@@ -489,10 +518,10 @@ impl EntityManager {
         }
         self.reserve_order.insert(team_type, Vec::new());
         for entity in mains {
-            self.register_in_lane(entity, RosterLane::Main);
+            self.register_in_lane(catalog, entity, RosterLane::Main);
         }
         for entity in reserves {
-            self.register_in_lane(entity, RosterLane::Reserve);
+            self.register_in_lane(catalog, entity, RosterLane::Reserve);
         }
     }
 
@@ -554,6 +583,21 @@ impl EntityManager {
             .get(&uid)
             .or_else(|| self.identities.get(&uid))
             .map(|entity| entity.passive_skill.as_slice())
+    }
+
+    pub(crate) fn passive_source(&self, uid: i64, skill_id: i32) -> PassiveSourceKind {
+        self.passive_sources
+            .get(&uid)
+            .and_then(|sources| sources.get(&skill_id))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn refresh_passive_sources(&mut self, game_data: &config::GameDB, entity: &FightEntityInfo) {
+        let Some(uid) = entity.uid else { return };
+        let sources = self.passive_sources.entry(uid).or_default();
+        sources.retain(|skill_id, _| entity.passive_skill.contains(skill_id));
+        sources.extend(psychube_passive_sources(game_data, entity));
     }
 
     pub(crate) fn passive_overrides(&self) -> impl Iterator<Item = (i64, &[i32])> {
@@ -716,6 +760,21 @@ impl EntityManager {
             })
             .collect()
     }
+}
+
+fn psychube_passive_sources(
+    game_data: &config::GameDB,
+    entity: &FightEntityInfo,
+) -> HashMap<i32, PassiveSourceKind> {
+    entity
+        .equips
+        .iter()
+        .chain(entity.trial_equip.iter())
+        .filter_map(|equip| Some((equip.equip_id?, equip.refine_lv.map(|level| level.max(1)))))
+        .flat_map(|(equip_id, refine_lv)| Passive::psychube_from(game_data, equip_id, refine_lv))
+        .filter(|passive| entity.passive_skill.contains(&passive.skill_id))
+        .map(|passive| (passive.skill_id, passive.source.kind))
+        .collect()
 }
 
 fn replace_intrinsic_passives(

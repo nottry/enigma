@@ -340,18 +340,16 @@ pub(crate) fn dispatch_selected_skill_event(
     selection: DispatchSkillSelection,
 ) -> Result<DispatchBatch, SubscriberError> {
     let (owner_uid, skill_id) = selection.owner_skill;
-    let skills = catalog
-        .compiled_subscription_lanes(skill_id)
-        .map_err(|route| SubscriberError::UncompiledRoute { skill_id, route })?
-        .into_iter()
-        .filter(|(_, key)| event.subscription_kinds().any(|event| event == key.event))
-        .map(|(slot_index, key)| SkillSubscriber {
-            owner_uid,
-            skill_id,
-            slot_index: Some(slot_index),
-            key,
-        })
-        .collect();
+    let mut skills = Vec::new();
+    for event_kind in event.subscription_kinds() {
+        for subscriber in subscriber::for_compiled_skill_event(
+            managers, catalog, owner_uid, skill_id, event_kind,
+        )? {
+            if !skills.contains(&subscriber) {
+                skills.push(subscriber);
+            }
+        }
+    }
     let mut subscribers = subscriber::EventSubscribers {
         skills,
         buff_acts: Vec::new(),

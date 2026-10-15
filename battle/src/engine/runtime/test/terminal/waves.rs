@@ -103,10 +103,13 @@ fn wave_entry_round_start_condition_is_not_repeated_on_the_next_request() {
         entity.skill_group1.clear();
         entity.skill_group2.clear();
     }
-    runtime
-        .managers
-        .entity
-        .replace_team_roster(2, &defender.entitys, &defender.sub_entitys);
+    let catalog = runtime.managers.catalog();
+    runtime.managers.entity.replace_team_roster(
+        catalog,
+        2,
+        &defender.entitys,
+        &defender.sub_entitys,
+    );
     assert_eq!(runtime.managers.ex_point.get(-3), 0);
     assert_eq!(runtime.managers.ex_point.get(-4), 0);
 

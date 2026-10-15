@@ -157,7 +157,7 @@ fn replacing_a_wave_roster_deactivates_the_previous_combatants() {
     };
     let mut manager = EntityManager::seed(&fight);
 
-    manager.replace_team_roster(2, &[entity(-3, 1)], &[entity(-4, -1)]);
+    manager.replace_team_roster(catalog(), 2, &[entity(-3, 1)], &[entity(-4, -1)]);
     manager.sync_to_fight(&mut fight);
 
     let defender = fight.defender.unwrap();
@@ -279,7 +279,7 @@ fn defeated_combatant_count_keeps_prior_waves_and_excludes_special_entities() {
 
     let next = entity(-3, 0, 1);
     hp.register(&next);
-    manager.replace_team_roster(2, std::slice::from_ref(&next), &[]);
+    manager.replace_team_roster(catalog(), 2, std::slice::from_ref(&next), &[]);
     manager.sync_to_fight(&mut fight);
 
     assert_eq!(manager.defeated_combatant_count(2, &hp), 2);

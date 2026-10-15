@@ -235,7 +235,10 @@ fn exact_dead_alias_subscribes_to_entity_death() {
         death.reaction_frame_target,
         ReactionFrameTarget::EventTarget
     );
-    assert_eq!(death.reaction_timing, ReactionTiming::Immediate);
+    assert_eq!(
+        death.reaction_timing.resolve(Default::default()),
+        ReactionTiming::Immediate
+    );
 }
 
 #[test]
@@ -333,7 +336,8 @@ fn resource_change_reactions_use_their_exact_publication_phase() {
         Some(PublicationPhase::AfterPublish)
     );
     assert_eq!(
-        find_key(566, "PowerUseAddBuff").map(|definition| definition.reaction_timing),
+        find_key(566, "PowerUseAddBuff")
+            .map(|definition| definition.reaction_timing.resolve(Default::default())),
         Some(ReactionTiming::AfterSkill)
     );
     assert_eq!(
@@ -409,7 +413,10 @@ fn conduit_cost_uses_its_exact_activation_subscription() {
             }
         );
         assert_eq!(definition.publication, PublicationPhase::AfterPublish);
-        assert_eq!(definition.reaction_timing, ReactionTiming::Immediate);
+        assert_eq!(
+            definition.reaction_timing.resolve(Default::default()),
+            ReactionTiming::Immediate
+        );
         assert_eq!(definition.reaction_frame_target, frame_target);
         assert_eq!(definition.reaction_frame_scope, frame_scope);
     }
@@ -522,7 +529,10 @@ fn actor_post_hit_filter_runs_after_the_source_skill() {
         }
     );
     assert_eq!(definition.publication, PublicationPhase::BeforePublish);
-    assert_eq!(definition.reaction_timing, ReactionTiming::AfterSkill);
+    assert_eq!(
+        definition.reaction_timing.resolve(Default::default()),
+        ReactionTiming::AfterSkill
+    );
     assert_eq!(
         definition.reaction_frame_target,
         ReactionFrameTarget::CausingFrame

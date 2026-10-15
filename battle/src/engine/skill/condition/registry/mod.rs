@@ -5,6 +5,7 @@ use super::{
     resource, target_identity, trigger,
 };
 use crate::engine::{
+    entity::passive::PassiveSourceKind,
     event::{
         kind::EventKind,
         subscription::{PublicationPhase, ReactionTiming},
@@ -132,6 +133,27 @@ pub enum ReactionMultiplicity {
     OncePerAction,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionTimingPolicy {
+    Fixed(ReactionTiming),
+    ByPassiveSource {
+        psychube: ReactionTiming,
+        fallback: ReactionTiming,
+    },
+}
+
+impl ReactionTimingPolicy {
+    pub const fn resolve(self, source: PassiveSourceKind) -> ReactionTiming {
+        match self {
+            Self::Fixed(timing) => timing,
+            Self::ByPassiveSource { psychube, fallback } => match source {
+                PassiveSourceKind::Psychube => psychube,
+                _ => fallback,
+            },
+        }
+    }
+}
+
 impl SkillActionTriggerPolicy {
     pub const fn child_skill_kind(self) -> Option<extra::ExtraSkillKind> {
         match self {
@@ -151,7 +173,7 @@ pub struct ConditionDefinition {
     pub role: ConditionRole,
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
-    pub reaction_timing: ReactionTiming,
+    pub reaction_timing: ReactionTimingPolicy,
     pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
@@ -176,7 +198,7 @@ pub struct ConditionMetadata {
     pub role: ConditionRole,
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
-    pub reaction_timing: ReactionTiming,
+    pub reaction_timing: ReactionTimingPolicy,
     pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
@@ -234,7 +256,7 @@ pub const fn predicate(dependencies: &'static [EventKind]) -> ConditionMetadata 
         role: ConditionRole::Predicate,
         dependencies,
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -260,7 +282,7 @@ pub const fn event_trigger(event: EventKind, phase: Option<SkillPhase>) -> Condi
         role: ConditionRole::Trigger { event, phase },
         dependencies: &[],
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -290,7 +312,7 @@ pub const fn setup_route(
         role: ConditionRole::Setup { stage, priority },
         dependencies,
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -317,17 +339,25 @@ pub const fn before_publish(mut metadata: ConditionMetadata) -> ConditionMetadat
 }
 
 pub const fn after_skill(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterSkill;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterSkill);
     metadata
 }
 
 pub const fn after_shared_hit(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterSharedHit;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterSharedHit);
     metadata
 }
 
 pub const fn after_hit_skills(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterHitSkills;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterHitSkills);
+    metadata
+}
+
+pub const fn psychube_after_action(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_timing = ReactionTimingPolicy::ByPassiveSource {
+        psychube: ReactionTiming::AfterAction,
+        fallback: ReactionTiming::Immediate,
+    };
     metadata
 }
 
@@ -687,7 +717,7 @@ condition_definitions! {
     [745304] "ExPointMax" => resource::ex_point_full, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [571017] "LostPower" => resource::lost_power, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
     [788210] "PerDeviceCurrCost" => resource::owner_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
-    [788212] "PerDeviceCurrCost" => resource::team_conduit_current_cost, reaction_targets_causing_frame(event_trigger(EventKind::ConduitActivated, None));
+    [788212] "PerDeviceCurrCost" => resource::team_conduit_current_cost, psychube_after_action(reaction_targets_causing_frame(event_trigger(EventKind::ConduitActivated, None)));
     [792208] "UseDeviceSkill" => none::unconditional_without_arguments, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
     [792209] "UseDeviceSkill" => active_skill::device_hurt_skill, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [786203] "PerDeviceCounter" => conduit::counter, predicate(&[EventKind::ConduitActivated]);

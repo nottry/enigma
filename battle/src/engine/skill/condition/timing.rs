@@ -40,7 +40,7 @@ impl ParsedCondition {
                     subscriptions,
                     SubscriptionKey::at_phase(event, definition.key, phase)
                         .with_publication(definition.publication)
-                        .with_timing(definition.reaction_timing),
+                        .with_timing(definition.reaction_timing.resolve(Default::default())),
                 ),
                 ConditionRole::Predicate => {
                     for event in definition.dependencies {
@@ -48,7 +48,9 @@ impl ParsedCondition {
                             subscriptions,
                             SubscriptionKey::new(*event, definition.key)
                                 .with_publication(definition.publication)
-                                .with_timing(definition.reaction_timing),
+                                .with_timing(
+                                    definition.reaction_timing.resolve(Default::default()),
+                                ),
                         );
                     }
                 }

@@ -1229,7 +1229,8 @@ impl BattleManagers {
     }
 
     pub fn register_entity(&mut self, entity: &FightEntityInfo) {
-        self.entity.register(entity);
+        let catalog = self.catalog();
+        self.entity.register(catalog, entity);
         self.register_entity_state(entity);
     }
 
@@ -1270,7 +1271,7 @@ impl BattleManagers {
             return Ok(None);
         };
         self.entity
-            .replace_team_roster(2, &roster.entitys, &roster.sub_entitys);
+            .replace_team_roster(catalog, 2, &roster.entitys, &roster.sub_entitys);
         for entity in roster.entitys.iter().chain(&roster.sub_entitys) {
             self.register_entity_state(entity);
         }

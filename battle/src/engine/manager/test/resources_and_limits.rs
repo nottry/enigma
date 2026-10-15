@@ -358,9 +358,10 @@ fn ex_point_info_uses_current_roster_in_encounter_order() {
         ..Default::default()
     };
     let mut managers = BattleManagers::seeded(&fight);
+    let catalog = managers.catalog();
     managers
         .entity
-        .replace_team_roster(2, &[entity(-3)], &[entity(-2)]);
+        .replace_team_roster(catalog, 2, &[entity(-3)], &[entity(-2)]);
     managers.sync_entities(&mut fight);
 
     let uids = managers

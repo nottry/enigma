@@ -12,7 +12,10 @@ fn shared_damage_reacts_once_per_event_batch() {
 fn damage_hp_threshold_reactions_wait_for_hit_skills() {
     for opcode in [1209, 1304] {
         let definition = find_key(opcode, "LifeLess").unwrap();
-        assert_eq!(definition.reaction_timing, ReactionTiming::AfterHitSkills);
+        assert_eq!(
+            definition.reaction_timing.resolve(Default::default()),
+            ReactionTiming::AfterHitSkills
+        );
         assert_eq!(
             definition.reaction_multiplicity,
             ReactionMultiplicity::OncePerAction

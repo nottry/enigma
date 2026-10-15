@@ -106,7 +106,12 @@ fn conduit_activation_reactions_settle_before_ally_action_reactions() {
                     ..entity(10, 3025)
                 },
                 FightEntityInfo {
-                    passive_skill: vec![31450141],
+                    passive_skill: vec![31450141, 437311],
+                    equips: vec![sonettobuf::EquipRecord {
+                        equip_id: Some(1573),
+                        refine_lv: Some(1),
+                        ..Default::default()
+                    }],
                     buffs: vec![sonettobuf::BuffInfo {
                         uid: Some(111),
                         buff_id: Some(31450142),
@@ -115,6 +120,10 @@ fn conduit_activation_reactions_settle_before_ally_action_reactions() {
                         ..Default::default()
                     }],
                     ..entity(11, 3145)
+                },
+                FightEntityInfo {
+                    passive_skill: vec![31440141],
+                    ..entity(12, 3144)
                 },
             ],
             ..Default::default()
@@ -226,4 +235,30 @@ fn conduit_activation_reactions_settle_before_ally_action_reactions() {
             && effect.target_id == Some(11)
             && effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31450142)
     }));
+    let mend_removed = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Buffdel as i32)
+                && effect.target_id == Some(11)
+                && effect.buff.as_ref().and_then(|buff| buff.buff_id) == Some(31450142)
+        })
+        .unwrap();
+    for hero_reaction in [31440141, 31450141] {
+        let position = skill
+            .act_effect
+            .iter()
+            .position(|effect| {
+                effect.fight_step.as_ref().and_then(|step| step.act_id) == Some(hero_reaction)
+            })
+            .unwrap();
+        assert!(position < mend_removed);
+    }
+    let psychube_reaction = skill
+        .act_effect
+        .iter()
+        .position(|effect| effect.fight_step.as_ref().and_then(|step| step.act_id) == Some(437311))
+        .unwrap();
+
+    assert!(mend_removed < psychube_reaction);
 }
