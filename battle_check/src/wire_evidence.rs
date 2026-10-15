@@ -308,7 +308,7 @@ fn phase_id(phase: WirePhase) -> u8 {
 }
 
 fn response_files(root: &Path) -> Vec<PathBuf> {
-    bounded_json_files(root)
+    capture_json_files(root)
         .into_iter()
         .filter(|path| {
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
@@ -323,7 +323,7 @@ fn response_files(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-pub(crate) fn bounded_json_files(root: &Path) -> Vec<PathBuf> {
+pub(crate) fn capture_json_files(root: &Path) -> Vec<PathBuf> {
     let Ok(root_metadata) = fs::symlink_metadata(root) else {
         return Vec::new();
     };
@@ -334,9 +334,16 @@ pub(crate) fn bounded_json_files(root: &Path) -> Vec<PathBuf> {
         return Vec::new();
     };
     let mut files = Vec::new();
+    let mut decoded_files = Vec::new();
     let mut visited = BTreeSet::new();
-    let mut directories = vec![root.clone()];
-    while let Some(directory) = directories.pop() {
+    let root_is_decoded = root.components().any(|part| {
+        part.as_os_str()
+            .to_string_lossy()
+            .eq_ignore_ascii_case("decoded")
+    });
+    let mut found_decoded = root_is_decoded;
+    let mut directories = vec![(root.clone(), root_is_decoded)];
+    while let Some((directory, inside_decoded)) = directories.pop() {
         let Ok(canonical) = directory.canonicalize() else {
             continue;
         };
@@ -351,20 +358,32 @@ pub(crate) fn bounded_json_files(root: &Path) -> Vec<PathBuf> {
             let Ok(metadata) = fs::symlink_metadata(&path) else {
                 continue;
             };
+            let named_decoded = entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case("decoded");
             if is_link_or_reparse(&metadata) {
+                found_decoded |= named_decoded;
                 continue;
             }
             if metadata.is_dir() {
-                directories.push(path);
+                let inside_decoded = inside_decoded || named_decoded;
+                found_decoded |= inside_decoded;
+                directories.push((path, inside_decoded));
             } else if metadata.is_file()
                 && path
                     .extension()
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("json"))
             {
+                if inside_decoded {
+                    decoded_files.push(path.clone());
+                }
                 files.push(path);
             }
         }
     }
+    // Broad version roots also contain static dumps; decoded subtrees are the packet source.
+    let mut files = if found_decoded { decoded_files } else { files };
     files.sort();
     files
 }
@@ -470,7 +489,54 @@ mod format_tests {
         fs::write(outside.join("StartDungeonReply.json"), "{}").unwrap();
         let link = root.join("escape");
         if link_directory(&outside, &link).is_ok() {
-            assert!(bounded_json_files(&root).is_empty());
+            assert!(capture_json_files(&root).is_empty());
+            fs::remove_dir(&link).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
+    }
+
+    #[test]
+    fn broad_capture_root_uses_only_decoded_json() {
+        let root = std::env::temp_dir().join(format!(
+            "enigma-wire-evidence-decoded-root-{}",
+            std::process::id()
+        ));
+        let decoded = root.join("pcap/decoded/common");
+        let config = root.join("part1/json_dump/configs/excel2json");
+        fs::create_dir_all(&decoded).unwrap();
+        fs::create_dir_all(&config).unwrap();
+        fs::write(decoded.join("GetFightReply.json"), "{}").unwrap();
+        fs::write(config.join("skill_effect.json"), "{}").unwrap();
+
+        assert_eq!(
+            capture_json_files(&root),
+            vec![decoded.join("GetFightReply.json").canonicalize().unwrap()]
+        );
+        assert_eq!(
+            capture_json_files(&decoded),
+            vec![decoded.join("GetFightReply.json").canonicalize().unwrap()]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn linked_decoded_directory_does_not_enable_static_fallback() {
+        let root = std::env::temp_dir().join(format!(
+            "enigma-wire-evidence-linked-decoded-root-{}",
+            std::process::id()
+        ));
+        let outside = std::env::temp_dir().join(format!(
+            "enigma-wire-evidence-linked-decoded-outside-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(root.join("skill_effect.json"), "{}").unwrap();
+        fs::write(outside.join("GetFightReply.json"), "{}").unwrap();
+        let link = root.join("decoded");
+        if link_directory(&outside, &link).is_ok() {
+            assert!(capture_json_files(&root).is_empty());
             fs::remove_dir(&link).unwrap();
         }
         fs::remove_dir_all(root).unwrap();
