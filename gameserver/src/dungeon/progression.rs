@@ -61,10 +61,9 @@ fn subtract_costs<T: Eq>(costs: &mut Vec<(T, i32)>, retained: &[(T, i32)]) {
 
 pub fn battle_star(runtime: &battle::Battle, battle_id: i32) -> Result<i32, AppError> {
     let tables = configs::get();
-    let battle = tables
-        .battle
-        .get(battle_id)
-        .ok_or_else(|| AppError::Custom(format!("missing battle config {battle_id}")))?;
+    let Some(battle) = tables.battle.get(battle_id) else {
+        return Ok(1);
+    };
     let base_star = successful_battle_base_star(&battle.advanced_condition);
     let advanced_star =
         advanced_condition_star(runtime, battle_id, &battle.advanced_condition, tables)?;
