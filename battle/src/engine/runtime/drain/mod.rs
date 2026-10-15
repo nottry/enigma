@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     rc::Rc,
 };
 
@@ -798,14 +798,9 @@ fn drain_queue_with_deferred(
                     .map(|(death, parent_path)| (death.transition(), parent_path))
                     .collect::<Vec<_>>();
                 let mut settlements = Vec::new();
-                let mut cleanup_teams = HashSet::new();
                 for (death, parent_path) in &deaths {
-                    if managers
-                        .buff
-                        .team_type(death.target_uid)
-                        .is_some_and(|team| cleanup_teams.insert(team))
-                        && let Some(cleanup) =
-                            queued_defeated_owner_buff_cleanup(managers, *death, parent_path)
+                    if let Some(cleanup) =
+                        queued_defeated_owner_buff_cleanup(managers, *death, parent_path)
                     {
                         settlements.push(cleanup);
                     }
@@ -2019,14 +2014,9 @@ fn drain_queue_with_deferred(
                     )
                 }));
                 let mut death_settlements = Vec::new();
-                let mut cleanup_teams = HashSet::new();
                 for death in non_action_deaths {
-                    if managers
-                        .buff
-                        .team_type(death.target_uid)
-                        .is_some_and(|team| cleanup_teams.insert(team))
-                        && let Some(cleanup) =
-                            queued_defeated_owner_buff_cleanup(managers, death, &event_scope)
+                    if let Some(cleanup) =
+                        queued_defeated_owner_buff_cleanup(managers, death, &event_scope)
                     {
                         death_settlements.push(cleanup);
                     }
