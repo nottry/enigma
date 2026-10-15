@@ -85,6 +85,7 @@ pub struct BuffRemoveResult {
     pub target_uid: i64,
     pub before_amount: i32,
     pub buff: BuffInfo,
+    pub effective: bool,
     pub config_effect: i32,
     pub delete_reason: Option<BuffDeleteReason>,
     pub depleted: bool,
@@ -145,6 +146,7 @@ impl BuffReplaceResult {
         let mut events = self
             .removed
             .iter()
+            .filter(|removed| removed.effective)
             .map(|removed| {
                 BattleEvent::BuffRemoved(BuffChangeEvent {
                     source_uid: removed.buff.from_uid.unwrap_or_default(),

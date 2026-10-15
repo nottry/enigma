@@ -73,6 +73,7 @@ pub enum RoundPhase {
     RoundStartCapacitySync,
     RoundStartSync,
     EntitySettlement,
+    EntityBuffCleanup,
     EntityCardCleanup,
     EntityEntrySetup,
 }

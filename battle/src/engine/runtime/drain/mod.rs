@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
 };
 
@@ -217,6 +217,33 @@ fn queued_defeated_owner_card_cleanup(
         frame_group: None,
         independent_parent_group: None,
         frame_owner: Some(FrameOwner::RoundPhase(RoundPhase::EntityCardCleanup)),
+        subscriber: None,
+        caster_frame: None,
+    })
+}
+
+fn queued_defeated_owner_buff_cleanup(
+    managers: &BattleManagers,
+    death: crate::engine::manager::hp::DeathTransition,
+    parent_path: &[usize],
+) -> Option<QueuedOp> {
+    let commands = managers
+        .buff
+        .defeated_entity_inactive_halo_cleanup(death.target_uid, &managers.hp);
+    (!commands.is_empty()).then(|| QueuedOp {
+        op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::BuffBatch(commands)),
+        trigger: SkillOpTrigger::Event(BattleEvent::EntityDied(
+            crate::engine::event::payload::EntityDiedEvent {
+                source_uid: death.source_uid,
+                target_uid: death.target_uid,
+            },
+        )),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: Some(parent_path.to_vec()),
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: Some(FrameOwner::RoundPhase(RoundPhase::EntityBuffCleanup)),
         subscriber: None,
         caster_frame: None,
     })
@@ -770,10 +797,20 @@ fn drain_queue_with_deferred(
                     .filter(|(death, _)| managers.hp.is_current_death(*death))
                     .map(|(death, parent_path)| (death.transition(), parent_path))
                     .collect::<Vec<_>>();
-                let mut settlements = deaths
-                    .iter()
-                    .map(|(death, parent_path)| queued_death_settlement(*death, parent_path))
-                    .collect::<Vec<_>>();
+                let mut settlements = Vec::new();
+                let mut cleanup_teams = HashSet::new();
+                for (death, parent_path) in &deaths {
+                    if managers
+                        .buff
+                        .team_type(death.target_uid)
+                        .is_some_and(|team| cleanup_teams.insert(team))
+                        && let Some(cleanup) =
+                            queued_defeated_owner_buff_cleanup(managers, *death, parent_path)
+                    {
+                        settlements.push(cleanup);
+                    }
+                    settlements.push(queued_death_settlement(*death, parent_path));
+                }
                 if let Some((death, parent_path)) = deaths.first() {
                     settlements.push(queued_terminal_settlement(
                         BattleEvent::EntityDied(crate::engine::event::payload::EntityDiedEvent {
@@ -908,11 +945,22 @@ fn drain_queue_with_deferred(
                         .is_some_and(|execution| execution.resumes_phase())
                     && let Some(deaths) = state.take_deaths(&frame_path)
                 {
-                    for death in deaths
+                    let deaths = deaths
                         .into_iter()
                         .filter(|death| managers.hp.is_current_death(*death))
                         .map(crate::engine::manager::hp::PendingDeath::transition)
-                    {
+                        .collect::<Vec<_>>();
+                    for death in deaths {
+                        drain_defeated_owner_buff_cleanup(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            death,
+                            &frame_path,
+                            &mut result,
+                            state,
+                        )?;
                         push_change(
                             &mut result.frames,
                             &frame_path,
@@ -1877,6 +1925,16 @@ fn drain_queue_with_deferred(
                     .flatten();
                 if settles_death_immediately && let Some(action_scope) = settlement_action_scope {
                     for death in &settled_deaths {
+                        drain_defeated_owner_buff_cleanup(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            death.transition(),
+                            action_scope,
+                            &mut result,
+                            state,
+                        )?;
                         push_change(
                             &mut result.frames,
                             action_scope,
@@ -1912,6 +1970,16 @@ fn drain_queue_with_deferred(
                         .map(crate::engine::manager::hp::PendingDeath::transition)
                         .collect::<Vec<_>>();
                     for death in &deaths {
+                        drain_defeated_owner_buff_cleanup(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            *death,
+                            action_scope,
+                            &mut result,
+                            state,
+                        )?;
                         push_change(
                             &mut result.frames,
                             action_scope,
@@ -1944,9 +2012,20 @@ fn drain_queue_with_deferred(
                         state.defender_card_cleanup_owner(),
                     )
                 }));
-                let death_settlements = non_action_deaths
-                    .into_iter()
-                    .map(|death| queued_death_settlement(death, &event_scope));
+                let mut death_settlements = Vec::new();
+                let mut cleanup_teams = HashSet::new();
+                for death in non_action_deaths {
+                    if managers
+                        .buff
+                        .team_type(death.target_uid)
+                        .is_some_and(|team| cleanup_teams.insert(team))
+                        && let Some(cleanup) =
+                            queued_defeated_owner_buff_cleanup(managers, death, &event_scope)
+                    {
+                        death_settlements.push(cleanup);
+                    }
+                    death_settlements.push(queued_death_settlement(death, &event_scope));
+                }
                 after_publish.extend(death_settlements);
                 if let Some(death) = terminal_death {
                     after_publish.push(queued_terminal_settlement(
@@ -2146,6 +2225,30 @@ fn drain_death_settlement_queue(
     let nested = drain_nested_queue(managers, pool, catalog, determinism, queue, result, state);
     state.leave_death_settlement();
     nested
+}
+
+fn drain_defeated_owner_buff_cleanup(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    death: crate::engine::manager::hp::DeathTransition,
+    parent_path: &[usize],
+    result: &mut DrainResult,
+    state: &mut DrainState,
+) -> Result<(), DrainError> {
+    let Some(cleanup) = queued_defeated_owner_buff_cleanup(managers, death, parent_path) else {
+        return Ok(());
+    };
+    drain_nested_queue(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        VecDeque::from([cleanup]),
+        result,
+        state,
+    )
 }
 
 fn commit_terminal(

@@ -111,6 +111,61 @@ impl BuffManager {
             .collect()
     }
 
+    pub(crate) fn defeated_entity_inactive_halo_cleanup(
+        &self,
+        defeated_uid: i64,
+        hp: &HpManager,
+    ) -> Vec<BuffCommand> {
+        let Some(team_type) = self.team_type(defeated_uid) else {
+            return Vec::new();
+        };
+        let mut inactive = self
+            .buffs
+            .iter()
+            .filter(|active| {
+                active.team_type == team_type
+                    && active.owner_uid != defeated_uid
+                    && hp.current(active.owner_uid) > 0
+                    && !active.effective
+                    && active.fanout_emitter_uid.is_some()
+                    && active.definition.as_ref().is_some_and(|definition| {
+                        definition.features().iter().any(|feature| {
+                            feature.kind
+                                == Some(
+                                    crate::engine::skill::buff_act::registry::BuffActKind::SlaveHalo,
+                                )
+                        })
+                    })
+            })
+            .filter_map(|active| Some((active.owner_uid, active.buff.uid?)))
+            .collect::<Vec<_>>();
+        inactive.sort_by_key(|(owner_uid, buff_uid)| {
+            (
+                self.entities
+                    .iter()
+                    .position(|entity| entity.uid == *owner_uid)
+                    .unwrap_or(usize::MAX),
+                *buff_uid,
+            )
+        });
+        inactive
+            .into_iter()
+            .map(|(target_uid, buff_uid)| {
+                BuffCommand::Remove(BuffRemove {
+                    origin: CommandOrigin {
+                        domain: crate::engine::skill::rule::RuleDomain::Lifecycle,
+                        key: crate::engine::skill::rule::DefinitionKey::new(
+                            0,
+                            "DefeatedEntityInactiveHaloCleanup",
+                        ),
+                    },
+                    target_uid,
+                    selector: BuffRemoveSelector::Uid(buff_uid),
+                })
+            })
+            .collect()
+    }
+
     pub(crate) fn seed(&mut self, fight: &Fight) {
         self.buffs.clear();
         self.entities.clear();

@@ -265,7 +265,11 @@ impl EffectPacket {
         }
         ActEffect {
             target_id: Some(change.target_uid),
-            effect_type: Some(EffectType::Buffdel as i32),
+            effect_type: Some(if change.effective {
+                EffectType::Buffdel as i32
+            } else {
+                EffectType::Buffdelnoeffect as i32
+            }),
             effect_num: Some(0),
             config_effect: Some(change.config_effect),
             buff_act_id: Some(0),

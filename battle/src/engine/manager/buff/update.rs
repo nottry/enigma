@@ -304,6 +304,7 @@ impl BuffManager {
             target_uid: owner_uid,
             before_amount,
             buff,
+            effective: active.effective,
             config_effect,
             delete_reason: None,
             depleted: false,
