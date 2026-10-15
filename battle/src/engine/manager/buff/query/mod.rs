@@ -652,6 +652,25 @@ impl BuffManager {
             .count() as i32
     }
 
+    pub fn visible_buff_status_type_count(&self, uid: i64, status_ids: &[i32]) -> i32 {
+        let mut type_ids = Vec::new();
+        for active in self.buffs.iter().filter(|active| {
+            active.effective
+                && active.owner_uid == uid
+                && active.definition.as_ref().is_some_and(|definition| {
+                    definition.is_visible()
+                        && status_ids
+                            .iter()
+                            .any(|status_id| definition.matches_type_category(*status_id))
+                })
+        }) {
+            if !type_ids.contains(&active.type_id) {
+                type_ids.push(active.type_id);
+            }
+        }
+        type_ids.len() as i32
+    }
+
     pub fn team_buff_status_type_count(&self, uids: &[i64], status_ids: &[i32]) -> i32 {
         let mut type_ids = Vec::new();
         for active in self.buffs.iter().filter(|active| {

@@ -849,6 +849,10 @@ impl BuffDefinition {
                 .any(|(include_type, _)| *include_type == type_id)
     }
 
+    pub(super) fn is_visible(&self) -> bool {
+        !self.is_no_show
+    }
+
     pub(super) fn syncs_single_stack_duration(&self) -> bool {
         self.act_common_params.is_empty()
             && self.has_features

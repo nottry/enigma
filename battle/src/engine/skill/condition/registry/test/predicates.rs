@@ -317,6 +317,38 @@ fn after_damage_status_threshold_checks_the_actor() {
 }
 
 #[test]
+fn active_skill_status_thresholds_preserve_strictness() {
+    for (opcode, type_name, compare) in [
+        (
+            42203,
+            "HasTypeBuffMoreThan",
+            crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
+        ),
+        (
+            43203,
+            "HasTypeBuffLessThan",
+            crate::engine::skill::condition::ConditionCompare::LessThan,
+        ),
+    ] {
+        assert_eq!(
+            parse(opcode, type_name, &["6".into(), "1,5".into()]),
+            Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
+                status_ids: vec![1, 5],
+                compare,
+                threshold: 6,
+            })
+        );
+        let definition = find_key(opcode, type_name).unwrap();
+        assert_eq!(definition.role, ConditionRole::Predicate);
+        assert!(definition.dependencies.is_empty());
+        assert_eq!(
+            definition.behavior_target_source,
+            BehaviorTargetSource::Resolved
+        );
+    }
+}
+
+#[test]
 fn post_hit_status_ceiling_is_inclusive() {
     assert_eq!(
         parse(
