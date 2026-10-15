@@ -1238,7 +1238,15 @@ fn run_round_start_before_duration(
         })
         .collect::<Vec<_>>();
     let mut result = drain::run(managers, pool, catalog, determinism, context, field_ops)?;
-    for &(stage, priority) in ROUND_START_BEFORE_DURATION_SETUP {
+    let setup = if team == 2
+        && crate::engine::fight::versions::round_start_setup_layout(managers.fight_version())
+            == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7)
+    {
+        ROUND_START_DEFENDER_BEFORE_DURATION_SETUP_V7
+    } else {
+        ROUND_START_BEFORE_DURATION_SETUP
+    };
+    for &(stage, priority) in setup {
         if stage == SetupStage::RoundStartCondition
             && priority == effect_time::ROUND_START_BEFORE_CONDITION_DURATION
         {

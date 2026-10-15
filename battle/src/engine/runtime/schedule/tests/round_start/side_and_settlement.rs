@@ -105,6 +105,77 @@ fn round_start_executes_each_team_at_its_own_turn_boundary() {
 }
 
 #[test]
+fn version_seven_defender_pre_ai_keeps_conditional_setup_without_replaying_round_start() {
+    let entity = |skill_ids| FightEntityInfo {
+        uid: Some(-1),
+        team_type: Some(2),
+        current_hp: Some(100),
+        ex_point: Some(0),
+        passive_skill: skill_ids,
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        defender: Some(FightTeam {
+            entitys: vec![entity(vec![50, 60])],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut round_start = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![10], Vec::new()),
+        TargetRequest::self_only(),
+    );
+    round_start.conditions = vec![ParsedCondition {
+        opcode: 100,
+        type_name: "None".to_owned(),
+        kind: ParsedConditionKind::None(NoneMode::RoundStart),
+        raw_args: Vec::new(),
+    }];
+    round_start.compiled_route = ConditionRoute::compile(&round_start.conditions);
+    let mut conditional = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+        TargetRequest::self_only(),
+    );
+    conditional.conditions = vec![ParsedCondition {
+        opcode: 750101,
+        type_name: "PlayerHasBuff".to_owned(),
+        kind: ParsedConditionKind::TeamBuffPresence {
+            team: 2,
+            present: false,
+            buff_id: 109320002,
+        },
+        raw_args: vec!["2".to_owned(), "0".to_owned(), "109320002".to_owned()],
+    }];
+    conditional.compiled_route = ConditionRoute::compile(&conditional.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 50,
+        slots: vec![round_start],
+    });
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 60,
+        slots: vec![conditional],
+    });
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    run_before_ai_round_start(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        2,
+        &[],
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(-1), 1);
+}
+
+#[test]
 fn defender_action_phase_runs_progress_reactions_before_ai() {
     let entity = |uid, team_type, skill_id| FightEntityInfo {
         uid: Some(uid),
