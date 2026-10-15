@@ -152,10 +152,10 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlo
     }
 
     let behavior = ParsedBehavior::from_spec(spec, behavior_args, behavior_values);
-    if has_registered_syntax
-        && !crate::engine::skill::behavior::registry::find(&behavior)
-            .and_then(|definition| definition.supports)
-            .is_some_and(|supports| supports(&behavior))
+    let supports = crate::engine::skill::behavior::registry::find(&behavior)
+        .and_then(|definition| definition.supports);
+    if supports.is_some_and(|supports| !supports(&behavior))
+        || (has_registered_syntax && supports.is_none())
     {
         return Err(SlotParseError::Behavior);
     }

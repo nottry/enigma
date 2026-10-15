@@ -613,6 +613,28 @@ fn slot_parser_rejects_partial_weighted_skill_groups() {
 }
 
 #[test]
+fn slot_parser_applies_registry_contract_to_numeric_behaviors() {
+    init_config();
+    let parse = |behavior| {
+        parse_slot(
+            config::configs::get(),
+            RawSlot {
+                behavior,
+                target: "103",
+                condition: "",
+                condition_target: "103",
+                logic_target: "103",
+                limit: 0,
+                round_limit: 0,
+            },
+        )
+    };
+
+    assert_eq!(parse("10001"), Err(SlotParseError::Behavior));
+    assert!(parse("10001#100").is_ok());
+}
+
+#[test]
 fn from_game_db_keeps_slot_round_limits() {
     init_config();
 
