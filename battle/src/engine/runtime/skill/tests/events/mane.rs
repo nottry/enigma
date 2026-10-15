@@ -190,3 +190,114 @@ fn committed_conduit_hit_satisfies_attack_conditions() {
         ));
     }
 }
+
+#[test]
+fn visible_status_threshold_runs_only_before_attacks() {
+    crate::test_support::init_config();
+    let status_buffs = [31450171, 31450143, 30250001, 31440116, 31450111]
+        .into_iter()
+        .enumerate()
+        .map(|(index, buff_id)| BuffInfo {
+            uid: Some(index as i64 + 1),
+            buff_id: Some(buff_id),
+            from_uid: Some(10),
+            ..Default::default()
+        })
+        .collect();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(1_000),
+                buffs: status_buffs,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let condition = ParsedCondition {
+        opcode: 42203,
+        type_name: "HasTypeBuffMoreThan".into(),
+        kind: crate::engine::skill::condition::registry::parse(
+            42203,
+            "HasTypeBuffMoreThan",
+            &["5".into(), "1,5".into()],
+        )
+        .unwrap(),
+        raw_args: vec!["5".into(), "1,5".into()],
+    };
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::new(1, "AddBuff", vec![103374322]),
+        TargetRequest::self_only(),
+    );
+    slot.conditions = vec![condition];
+    slot.compiled_route =
+        crate::engine::skill::rule::route::ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![slot],
+    });
+
+    let emit = |is_attack| {
+        let mut invocation: SkillInvocation = SkillRequest {
+            source_uid: 10,
+            skill_id: 100,
+        }
+        .into();
+        invocation.condition_key = Some(DefinitionKey::new(42203, "HasTypeBuffMoreThan"));
+        invocation.phase = Some(SkillPhase::Immediate);
+        let event =
+            BattleEvent::SkillEffectStarted(crate::engine::skill::action::SkillActionEvent {
+                source_uid: 10,
+                skill_id: 200,
+                target_uid: 10,
+                target_uids: vec![10],
+                attacked_target_uids: vec![10],
+                phase: SkillPhase::Immediate,
+                skill_slot: 1,
+                is_attack,
+                rank: 1,
+                skill_type: 1,
+                effect_tag: 1,
+                assassinate: false,
+                ignore_riposte: false,
+                damage_amount: 0,
+                kill_count: 0,
+                crit_count: 0,
+                guard_break_count: 0,
+                additional_moxie: 0,
+                extra_skill_kind: 0,
+                mode: SkillExecutionMode::Active,
+                teammate_injury_count: 0,
+                teammate_injury_count_not_reset: 0,
+                team_injury_count_round: 0,
+                card_enchants: Vec::new(),
+                buff_additions: Vec::new(),
+            });
+        emit_all_ops(
+            invocation,
+            &managers,
+            &pool,
+            &catalog,
+            &mut RoundDeterminism::default(),
+            TargetContext {
+                active_skill_id: 200,
+                active_skill_is_attack: is_attack,
+                ..Default::default()
+            },
+            &SkillOpTrigger::Event(event),
+        )
+        .unwrap()
+    };
+
+    assert!(emit(false).is_empty());
+    assert!(emit(true).iter().any(|op| matches!(
+        op,
+        RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant)))
+            if grant.buff_id == 103374322 && grant.target_uid == 10
+    )));
+}
