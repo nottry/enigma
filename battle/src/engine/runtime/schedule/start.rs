@@ -826,6 +826,10 @@ pub fn run_start(
             let initial_deck_num = setup.deck_num;
             let supplemental =
                 determinism.draw_cards(&setup.draw_pile, hand_size.saturating_sub(free_deal_count));
+            let normal_deck_draws = supplemental
+                .iter()
+                .filter(|card| !card_mechanic.is_device_card(managers, card))
+                .count();
             append(
                 &mut result,
                 drain::run(
@@ -856,6 +860,7 @@ pub fn run_start(
                                         key: DefinitionKey::new(0, "OpeningDraw"),
                                     },
                                     cards: supplemental,
+                                    normal_deck_draws,
                                 },
                             ),
                         ))],

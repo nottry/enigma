@@ -834,8 +834,18 @@ impl CardManager {
         self.deck.consume_draw_card(card)
     }
 
-    pub(crate) fn deal_opening_cards(&mut self, cards: &[CardInfo]) -> bool {
-        self.deck.deal_from_draw_pile(cards)
+    pub(crate) fn deal_opening_cards(
+        &mut self,
+        cards: &[CardInfo],
+        normal_deck_draws: usize,
+    ) -> bool {
+        if normal_deck_draws > cards.len() || !self.deck.deal_from_draw_pile(cards) {
+            return false;
+        }
+        self.deck_num = self
+            .deck_num
+            .saturating_sub(i32::try_from(normal_deck_draws).unwrap_or(i32::MAX));
+        true
     }
 
     pub fn move_card(&mut self, from_index: usize, to_index: usize) -> bool {
