@@ -38,8 +38,7 @@ pub async fn complete_level(
     level_id: i32,
 ) -> Result<()> {
     let row = get_or_create_chapter(pool, user_id, chapter).await?;
-    let mut pass_level_ids =
-        serde_json::from_str::<Vec<i32>>(&row.pass_level_ids).unwrap_or_default();
+    let mut pass_level_ids = serde_json::from_str::<Vec<i32>>(&row.pass_level_ids)?;
     if !pass_level_ids.contains(&level_id) {
         pass_level_ids.push(level_id);
         save_json_field(pool, user_id, chapter, "pass_level_ids", &pass_level_ids).await?;
