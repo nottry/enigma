@@ -74,7 +74,7 @@ impl SkillEffectSlot {
                     .map(|definition| definition.publication)
                     .unwrap_or(PublicationPhase::AfterPublish);
                 let timing = registry::find_key(trigger.key.opcode, trigger.key.type_name)
-                    .map(|definition| definition.reaction_timing)
+                    .map(|definition| definition.reaction_timing.resolve(Default::default()))
                     .unwrap_or_default();
                 SubscriptionKey::at_phase(trigger.event, trigger.key, trigger.phase)
                     .with_publication(publication)
@@ -89,7 +89,7 @@ impl SkillEffectSlot {
             for &event in definition.reactivation_events {
                 let key = SubscriptionKey::new(event, definition.key)
                     .with_publication(definition.publication)
-                    .with_timing(definition.reaction_timing);
+                    .with_timing(definition.reaction_timing.resolve(Default::default()));
                 if !subscriptions.contains(&key) {
                     subscriptions.push(key);
                 }

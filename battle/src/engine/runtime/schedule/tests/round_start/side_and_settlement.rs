@@ -105,6 +105,81 @@ fn round_start_executes_each_team_at_its_own_turn_boundary() {
 }
 
 #[test]
+fn defender_action_phase_runs_progress_reactions_before_ai() {
+    let entity = |uid, team_type, skill_id| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        current_hp: Some(100),
+        ex_point: Some(0),
+        passive_skill: vec![skill_id],
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 40)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 2, 50)],
+            ..Default::default()
+        }),
+        progress_list: vec![sonettobuf::FightProgressInfo {
+            id: Some(8),
+            max: Some(100),
+            value: Some(100),
+            show_id: Some(1),
+            skill_id: Some(1),
+        }],
+        ..Default::default()
+    };
+    let mut slot = SkillEffectSlot::new(
+        ParsedBehavior::from_spec(BehaviorSpec::new(20002, "AddExPoint"), vec![1], Vec::new()),
+        TargetRequest::self_only(),
+    );
+    slot.conditions = vec![ParsedCondition {
+        opcode: 1010301,
+        type_name: "ProgressValue".to_owned(),
+        kind: ParsedConditionKind::FightProgressValue {
+            progress_id: 8,
+            compare_code: 3,
+            threshold: 100,
+        },
+        raw_args: vec!["8".to_owned(), "3".to_owned(), "100".to_owned()],
+    }];
+    slot.compiled_route = ConditionRoute::compile(&slot.conditions);
+    let mut catalog = SkillEffectCatalog::default();
+    for skill_id in [40, 50] {
+        catalog.insert(ParsedSkillEffect {
+            skill_id,
+            slots: vec![slot.clone()],
+        });
+    }
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let result = run_before_ai_round_start(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        2,
+        &[],
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(10), 0);
+    assert_eq!(managers.ex_point.get(-1), 1);
+    assert!(
+        result
+            .events
+            .iter()
+            .any(|event| { event.kind() == EventKind::DefenderActionPhaseStart })
+    );
+}
+
+#[test]
 fn defender_round_start_late_applies_configured_buffs_before_ai_and_filters_owners() {
     init_config();
     let entity = |uid, current_hp| FightEntityInfo {
@@ -192,6 +267,7 @@ fn defender_round_start_late_applies_configured_buffs_before_ai_and_filters_owne
             skill_id: 999,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 

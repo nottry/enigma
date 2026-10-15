@@ -18,6 +18,31 @@ impl ConduitManager {
                 self.initialized.push(team);
                 Ok(ConduitChange::Initialized(area))
             }
+            ConduitCommand::ReconcileDefeatedDevices {
+                team,
+                defeated_uids,
+            } => {
+                let area = self
+                    .areas
+                    .get_mut(&team)
+                    .ok_or(ConduitError::MissingArea(team))?;
+                let missing_uid = defeated_uids
+                    .iter()
+                    .copied()
+                    .find(|uid| !area.devices.iter().any(|device| device.uid == *uid));
+                if defeated_uids.is_empty() || missing_uid.is_some() {
+                    return Err(ConduitError::MissingDevice(missing_uid.unwrap_or_default()));
+                }
+                area.devices
+                    .retain(|device| !defeated_uids.contains(&device.uid));
+                for uid in &defeated_uids {
+                    self.running.remove(uid);
+                    self.uses_this_round.remove(uid);
+                }
+                self.pending_activations
+                    .retain(|(source_uid, _), _| !defeated_uids.contains(source_uid));
+                Ok(ConduitChange::RosterRefreshed(area.clone()))
+            }
             ConduitCommand::SelectGroup { source_uid, group } => {
                 let team = self.select_group(source_uid, group)?;
                 Ok(ConduitChange::GroupSelected {
@@ -78,6 +103,13 @@ impl ConduitManager {
                         .areas
                         .get_mut(&team)
                         .ok_or(ConduitError::MissingArea(team))?;
+                    if !area.powers.iter().any(|power| power.id == skill.cost_type) {
+                        area.powers.push(ConduitPower {
+                            id: skill.cost_type,
+                            value: 0,
+                        });
+                        area.powers.sort_by_key(|power| power.id);
+                    }
                     for (power_id, amount) in
                         [(skill.cost_type, specific_spent), (0, generic_spent)]
                     {
@@ -210,20 +242,18 @@ impl ConduitManager {
                     .areas
                     .get_mut(&change.team)
                     .ok_or(ConduitError::MissingArea(change.team))?;
-                let power = match area
+                if !area.powers.iter().any(|power| power.id == change.power_id) {
+                    area.powers.push(ConduitPower {
+                        id: change.power_id,
+                        value: 0,
+                    });
+                    area.powers.sort_by_key(|power| power.id);
+                }
+                let power = area
                     .powers
                     .iter_mut()
                     .find(|power| power.id == change.power_id)
-                {
-                    Some(power) => power,
-                    None => {
-                        area.powers.push(ConduitPower {
-                            id: change.power_id,
-                            value: 0,
-                        });
-                        area.powers.last_mut().expect("a Conduit power was added")
-                    }
-                };
+                    .expect("the Conduit power was added");
                 let before = power.value;
                 power.value = power.value.saturating_add(change.delta).max(0);
                 Ok(ConduitChange::PowerChanged {
@@ -272,11 +302,16 @@ impl ConduitManager {
                 skill_id,
                 power_ids,
             } => {
+                let pending = self
+                    .pending_activations
+                    .get_mut(&(source_uid, skill_id))
+                    .ok_or(ConduitError::MissingActivation(skill_id))?;
                 let area = self
                     .areas
                     .get_mut(&team)
                     .ok_or(ConduitError::MissingArea(team))?;
                 let mut spent = 0i32;
+                let mut spent_by_power = Vec::with_capacity(power_ids.len());
                 for power_id in &power_ids {
                     let value = area
                         .powers
@@ -286,17 +321,21 @@ impl ConduitManager {
                         .unwrap_or_default()
                         .max(0);
                     spent = spent.saturating_add(value);
+                    spent_by_power.push((*power_id, value));
                     self.consumed_this_round
                         .entry((team, *power_id))
                         .and_modify(|consumed| *consumed = consumed.saturating_add(value))
                         .or_insert(value);
                 }
+                pending.event.power_id = 0;
+                pending.event.activation_cost = spent;
+                pending.event.spent = spent;
                 Ok(ConduitChange::PowersCleared {
                     origin,
                     source_uid,
                     team,
                     skill_id,
-                    power_ids,
+                    spent_by_power,
                     spent,
                 })
             }

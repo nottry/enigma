@@ -229,7 +229,7 @@ fn opening_setup_applies_the_configured_fourth_ally_limit_before_dealing() {
         ..Default::default()
     };
     let opening = [
-        31070111, 31280121, 31070121, 31430121, 31430111, 31280111, 31446011, 31446011, 31070111,
+        31070111, 31280121, 31070121, 31430121, 31430111, 31280111, 31070111, 31446011, 31446011,
         31070121, 31430111,
     ]
     .into_iter()
@@ -266,7 +266,7 @@ fn opening_setup_applies_the_configured_fourth_ally_limit_before_dealing() {
     );
     assert_eq!(dealt, opening);
     assert_eq!(managers.card.normal_hand_len(), 11);
-    assert_eq!(managers.card.deck_num(), 48);
+    assert_eq!(managers.card.deck_num(), 46);
     let steps = crate::engine::packet::timeline::project(&start.frames).unwrap();
     assert_eq!(
         steps
@@ -278,7 +278,7 @@ fn opening_setup_applies_the_configured_fourth_ally_limit_before_dealing() {
             })
             .filter_map(|effect| effect.effect_num)
             .collect::<Vec<_>>(),
-        vec![48, 48, 48]
+        vec![48, 46, 46]
     );
 }
 

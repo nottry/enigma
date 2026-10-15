@@ -55,6 +55,7 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
         &catalog,
         &mut determinism,
         TargetContext::default(),
+        Vec::new(),
     )
     .unwrap();
     assert_eq!(
@@ -108,6 +109,165 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
             sonettobuf::effect_type_enum::EffectType::Smallroundend as i32,
         ]
     );
+}
+
+#[test]
+fn defeated_conduit_devices_refresh_only_after_terminal_commitment() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3149),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    model_id: Some(3134),
+                    current_hp: Some(100),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers.hp.lose(10, 100, -1);
+    let mut determinism = RoundDeterminism::default();
+    let catalog = SkillEffectCatalog::default();
+
+    let active = run_terminal_conduit_roster_refresh(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        TargetContext::default(),
+    )
+    .unwrap();
+    assert!(active.frames.is_empty());
+    assert_eq!(managers.conduit.selected_group(10), Some(1));
+
+    assert!(managers.commit_terminal(crate::engine::round::outcome::BattleOutcome::Defeat));
+    let terminal = run_terminal_conduit_roster_refresh(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        TargetContext::default(),
+    )
+    .unwrap();
+    assert_eq!(managers.conduit.selected_group(10), None);
+    let steps = crate::engine::packet::timeline::project(&terminal.frames).unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(
+        steps[0].act_effect[0].effect_type,
+        Some(sonettobuf::effect_type_enum::EffectType::Initdevice as i32)
+    );
+}
+
+#[test]
+fn final_settlement_keeps_buff_and_skill_reactions_in_one_event_frame() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(1_000),
+                passive_skill: vec![302501432],
+                buffs: vec![
+                    BuffInfo {
+                        uid: Some(20),
+                        buff_id: Some(435621),
+                        from_uid: Some(10),
+                        layer: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        uid: Some(21),
+                        buff_id: Some(8011),
+                        from_uid: Some(10),
+                        layer: Some(1),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_buff(
+            crate::engine::manager::buff::BuffCommand::AccumulateActValue(
+                crate::engine::manager::buff::BuffAccumulateActValue {
+                    origin: CommandOrigin {
+                        domain: RuleDomain::BuffAct,
+                        key: DefinitionKey::new(1019, "LostHpCountAddBuff"),
+                    },
+                    target_uid: 10,
+                    buff_uid: 20,
+                    act_id: 1019,
+                    delta: 1,
+                },
+            ),
+        )
+        .unwrap();
+
+    let result = run_round_end_final_settlement(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        Vec::new(),
+    )
+    .unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+
+    fn contains_effect(step: &sonettobuf::FightStep, effect_type: i32, target_uid: i64) -> bool {
+        step.act_effect.iter().any(|effect| {
+            effect.effect_type == Some(effect_type) && effect.target_id == Some(target_uid)
+                || effect
+                    .fight_step
+                    .as_ref()
+                    .is_some_and(|child| contains_effect(child, effect_type, target_uid))
+        })
+    }
+
+    fn contains_skill(step: &sonettobuf::FightStep, skill_id: i32) -> bool {
+        step.act_id == Some(skill_id)
+            || step.act_effect.iter().any(|effect| {
+                effect
+                    .fight_step
+                    .as_ref()
+                    .is_some_and(|child| contains_skill(child, skill_id))
+            })
+    }
+
+    assert_eq!(steps.len(), 1);
+    assert!(contains_effect(
+        &steps[0],
+        sonettobuf::effect_type_enum::EffectType::Buffadd as i32,
+        10,
+    ));
+    assert!(contains_effect(&steps[0], 111, 10));
+    assert!(!contains_skill(&steps[0], 302501432));
 }
 
 #[test]
@@ -303,6 +463,7 @@ fn defender_after_settlement_runs_its_registered_passive_skill() {
             current_round: 1,
             ..Default::default()
         },
+        Vec::new(),
     )
     .unwrap();
 

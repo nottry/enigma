@@ -755,6 +755,7 @@ fn target_attacked_passive_and_be_attacked_buff_act_share_one_hit_payload() {
         target_uid: -1,
         skill_id: 100,
         amount: 50,
+        resolved_damage: 50,
         shield_absorbed: 0,
         career_restraint: false,
         damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,

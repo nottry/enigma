@@ -12,7 +12,7 @@ use crate::engine::{
             ExPointRecordSynchronizationAction, SynchronizationDefinition,
         },
         gauge::{GaugeCommand, GaugeOperation},
-        hp::{DamageEffectKind, HpCommand, HpDamage, HurtDamageFromType, HurtInfoData},
+        hp::{DamageEffectKind, HpCommand, HpDamage, HpLoss, HurtDamageFromType, HurtInfoData},
     },
     skill::rule::{DefinitionKey, RuleDomain},
 };

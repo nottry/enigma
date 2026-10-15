@@ -36,6 +36,27 @@ fn lookup_requires_the_exact_opcode_type_pair() {
 }
 
 #[test]
+fn consume_buff_reset_device_listens_to_allies_and_targets_its_owner() {
+    let definition = find_key(60308, "ConsumeBuffResetDevice").unwrap();
+
+    assert_eq!(definition.required_event, Some(EventKind::AllyAction));
+    assert_eq!(definition.target_emission_mode, TargetEmissionMode::Owner);
+    assert!(definition.destination);
+}
+
+#[test]
+fn lethal_lost_life_settles_death_immediately() {
+    assert_eq!(
+        find_key(30006, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::Immediate)
+    );
+    assert_eq!(
+        find_key(30005, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::ActionBoundary)
+    );
+}
+
+#[test]
 fn ezio_behaviors_accept_only_their_configured_shapes() {
     let behavior = |opcode, type_name, raw_args: &[&str]| {
         ParsedBehavior::from_spec(
@@ -730,26 +751,41 @@ fn add_team_energy_is_parent_owned_only_during_setup() {
 
     assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }
 
 #[test]
-fn conduit_ex_point_is_parent_owned_only_during_setup() {
+fn conduit_ex_point_is_parent_owned_for_setup_and_final_settlement() {
     let definition = find_key(60292, "AddDeviceExPoint").unwrap();
 
-    assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner,
+        OutputOwner::SetupOrFinalSettlementParent
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition
+            .output_owner
+            .resolve(Some(EventKind::RoundEndFinalSettlement), false),
+        OutputOwner::Parent
+    );
+    assert_eq!(
+        definition
+            .output_owner
+            .resolve(Some(EventKind::SkillAction), false),
+        OutputOwner::Skill
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }

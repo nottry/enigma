@@ -8,6 +8,7 @@ pub mod heat_scale;
 pub mod impromptu;
 pub mod lingering_glow;
 pub mod magic_circle;
+pub mod monster_change;
 pub mod nuo_di_ka;
 pub mod pulsing_field;
 pub mod shadow_cloak;

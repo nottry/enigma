@@ -2,7 +2,10 @@
 
 use super::*;
 use crate::engine::{
-    damage::{AttackPlan, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm},
+    damage::{
+        AttackPlan, DamageFormula, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm,
+        MinimumDamage,
+    },
     manager::BattleManagers,
     skill::{
         behavior::classify::BehaviorSpec,

@@ -236,6 +236,7 @@ pub enum BuffActKind {
     HaloBase,
     HeatScaleUseSkill,
     HealCritFix,
+    HurtToProgress,
     Injury,
     InjuryBank,
     InjuryLogback,
@@ -245,6 +246,7 @@ pub enum BuffActKind {
     AttrFixFromInjuryBank,
     AbsorbHurt,
     LayerMasterHalo,
+    LockHp,
     LostHpAddExtraBloodPoolValue,
     LostHpCountAddBuff,
     LostHpToFakeHp,
@@ -890,6 +892,9 @@ buff_act_definitions! {
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(743, "ReboundBasedOnDamage"), &[]));
     (795, "None") => TargetingTag,
         effect_time_subscription: false, supports: |_| true, state_consumer: true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(795, "None"), &[EffectType::None as i32]));
+    (796, "LockHp") => LockHp,
+        effect_time_subscription: false, supports: super::lock_hp::supports, state_consumer: true,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(796, "LockHp"), &[EffectType::Lockhp as i32]));
     (725, "AddToTarget") => AddToTarget,
         runtime: |context| super::add_to_target::rule_ops(context.managers, context.subscriber, context.event?, context.catalog, context.pool),
         supports: |_| true;
@@ -1032,6 +1037,7 @@ buff_act_definitions! {
         supports: |_| true, wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(806, "ExPointOverflowBank"), &[EffectType::Expointoverflowbank as i32]));
     (1149, "DeviceExPointOverflowBank") => DeviceExPointOverflowBank,
         events: [EventKind::ExPointChanged, EventKind::PostActionRefill],
+        publications: [EventKind::ExPointOverflow => BeforePublish],
         scoped_runtime: |context| super::device_ex_point_overflow_bank::rule_ops(context.managers, context.subscriber, context.event?),
         supports: |args| matches!(args, [capacity] if *capacity > 0),
         initial_state: ZeroInteger,
@@ -1116,7 +1122,7 @@ buff_act_definitions! {
         publication: BeforePublish, frame: CausingFrame,
         transaction: super::each_change_attr_one_way::transaction_rule_ops,
         supports: super::each_change_attr_one_way::supports,
-        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1131, "EachChangeAttrOneWay"), &[]));
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(1131, "EachChangeAttrOneWay"), &[EffectType::None as i32]));
     (836, "ContractCastChannel") => ContractCastChannel,
         transactions: [EventKind::BuffAdded],
         publication: BeforePublish, frame: CausingFrame,
@@ -1318,6 +1324,11 @@ buff_act_definitions! {
         runtime: |context| super::real_damage_kill::rule_ops(context.managers, context.pool, context.subscriber),
         supports: super::real_damage_kill::supports, initial_state: SourceAttackThreshold,
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1028, "RealDamageKill"), &[]));
+    (1148, "HurtToProgress") => HurtToProgress,
+        event: EventKind::BeAttacked, publication: BeforePublish, frame: CausingFrame,
+        runtime: |context| super::hurt_to_progress::rule_ops(context.subscriber, context.event?),
+        supports: super::hurt_to_progress::supports,
+        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1148, "HurtToProgress"), &[EffectType::None as i32]));
     (1029, "AddAttrByOtherBuffLayer") => AddAttrByOtherBuffLayer,
         effect_time_subscription: false,
         supports: super::add_attr_by_other_buff_layer::supports, state_consumer: true,
@@ -1387,7 +1398,7 @@ buff_act_definitions! {
         wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(1049, "CrystalNotifySelect"), &[EffectType::None as i32]));
     (10030, "TwinsNotifySelect") => ConduitCardSelection, effect_time_subscription: false,
         supports: super::conduit_select::supports, state_consumer: true, initial_state: ConduitCardSelection,
-        wire: (super::wire::BuffActWireDefinition::all(DefinitionKey::new(10030, "TwinsNotifySelect"), &[]));
+        wire: (super::wire::BuffActWireDefinition::add(DefinitionKey::new(10030, "TwinsNotifySelect"), &[EffectType::None as i32]));
     (1050, "HeatScaleUseSkill") => HeatScaleUseSkill,
         scoped_runtime: |context| Some(super::heat_scale_use_skill::rule_ops(context.managers, context.catalog, context.subscriber)),
         supports: |_| true, references: references_for_feature, initial_state: HeatScale,

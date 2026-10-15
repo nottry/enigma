@@ -1034,7 +1034,10 @@ fn queued_reaction_pass(
                     )
                     .or(reentry_target),
                 }),
-                subscriber: Some(SubscriberContext::new(subscriber.owner_uid)),
+                subscriber: Some(SubscriberContext::for_skill(
+                    subscriber.owner_uid,
+                    subscriber.skill_id,
+                )),
                 caster_frame: None,
             })
         })

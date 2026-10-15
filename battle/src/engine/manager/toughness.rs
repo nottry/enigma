@@ -49,6 +49,13 @@ pub struct ToughnessRecovery {
     pub team_type: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToughnessReset {
+    pub target_uid: i64,
+    pub before: Option<ToughnessState>,
+    pub after: Option<ToughnessState>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ToughnessManager {
     states: HashMap<i64, ToughnessState>,
@@ -254,6 +261,19 @@ impl ToughnessManager {
         entity.toughness_value = Some(state.value);
         entity.toughness_point = Some(state.point);
         entity.is_broken = Some(state.broken);
+    }
+
+    pub(crate) fn settle_transform_reset(
+        &mut self,
+        target_uid: i64,
+        before: Option<ToughnessState>,
+    ) -> ToughnessReset {
+        self.recovery_penalties.remove(&target_uid);
+        ToughnessReset {
+            target_uid,
+            before,
+            after: self.get(target_uid),
+        }
     }
 }
 

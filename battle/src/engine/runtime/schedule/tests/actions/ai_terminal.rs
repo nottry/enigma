@@ -1,4 +1,8 @@
 use super::*;
+use crate::engine::{
+    runtime::skill::SkillExecution,
+    skill::action::{SkillExecutionMode, SkillInvocation, SkillRequest, SkillTarget},
+};
 
 fn contains_effect(step: &sonettobuf::FightStep, effect_type: i32, target_uid: i64) -> bool {
     step.act_effect.iter().any(|effect| {
@@ -22,6 +26,15 @@ fn skill_contains_effect(
                 skill_contains_effect(child, skill_id, effect_type, target_uid)
             })
         })
+}
+
+fn find_skill(step: &sonettobuf::FightStep, skill_id: i32) -> Option<&sonettobuf::FightStep> {
+    (step.act_id == Some(skill_id)).then_some(step).or_else(|| {
+        step.act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+            .find_map(|child| find_skill(child, skill_id))
+    })
 }
 
 #[test]
@@ -63,10 +76,11 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
             skill_id: 116330112,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
     let skill = steps
         .iter()
         .find(|step| step.act_id == Some(116330112))
@@ -76,7 +90,43 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
 }
 
 #[test]
-fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resource() {
+fn ai_action_phase_consumes_the_current_queue() {
+    let fight = Fight::default();
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestAiQueue"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-2),
+                    skill_id: Some(100),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+
+    run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [],
+        &[],
+    )
+    .unwrap();
+
+    assert!(managers.card.ai_queue().is_empty());
+}
+
+#[test]
+fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
     init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -98,8 +148,6 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
                 FightEntityInfo {
                     uid: Some(-2),
                     current_hp: Some(100),
-                    ex_point: Some(5),
-                    ex_skill: Some(999),
                     team_type: Some(-1),
                     ..Default::default()
                 },
@@ -110,11 +158,14 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
     };
     let pool = TargetPool::from_fight(&fight);
     let mut managers = BattleManagers::seeded(&fight);
-    let mut catalog = SkillEffectCatalog::default();
-    catalog.insert(ParsedSkillEffect {
-        skill_id: 999,
-        slots: Vec::new(),
-    });
+    let catalog = SkillEffectCatalog::default();
+    let promotions = [crate::engine::fight::reserve::Promotion {
+        defeated_uid: -1,
+        entering_uid: -2,
+        position: 1,
+        team_type: 2,
+        entering: FightEntityInfo::default(),
+    }];
 
     let result = run_ai_actions(
         &fight,
@@ -123,24 +174,36 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        [
-            AiSkillChoice {
-                source_uid: -1,
-                skill_id: 100,
-                target_uid: 10,
-            },
-            AiSkillChoice {
-                source_uid: -2,
-                skill_id: 999,
-                target_uid: 10,
-            },
-        ],
+        [AiSkillChoice {
+            source_uid: -1,
+            skill_id: 100,
+            target_uid: 10,
+        }],
+        &promotions,
     )
     .unwrap();
 
-    assert_eq!(managers.ex_point.get(-1), 1);
+    assert_eq!(managers.ex_point.get(-1), 0);
     assert_eq!(managers.ex_point.get(-2), 0);
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let AiActionResult {
+        output,
+        invalidated_card_rewards,
+    } = result;
+    let invalidated_steps = crate::engine::packet::timeline::project(&output.frames).unwrap();
+    let rewards = run_after_ai_round_end(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        invalidated_card_rewards,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(-1), 0);
+    assert_eq!(managers.ex_point.get(-2), 1);
+    let mut steps = invalidated_steps;
+    steps.extend(crate::engine::packet::timeline::project(&rewards.frames).unwrap());
     assert_eq!(
         steps[0].act_effect[0].effect_type,
         Some(sonettobuf::effect_type_enum::EffectType::Cardinvalid as i32)
@@ -148,18 +211,34 @@ fn ai_actions_invalidate_dead_card_owners_and_grant_committed_basic_card_resourc
     assert_eq!(steps[0].act_effect[0].effect_num, Some(1));
     assert_eq!(steps[0].from_id, Some(-1));
     assert_eq!(steps[0].act_effect[0].config_effect, Some(0));
-    assert_eq!(
-        steps[1].act_effect[0].effect_type,
-        Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
-    );
-    assert_eq!(steps[1].act_effect[0].effect_num, Some(1));
-    let skill = steps.iter().find(|step| step.act_id == Some(999)).unwrap();
-    assert_eq!(skill.card_index, Some(2));
-    assert_eq!(skill.to_id, Some(10));
-    assert!(skill.act_effect.iter().any(|effect| {
-        effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
-            && effect.effect_num == Some(-5)
-    }));
+    let invalid = steps
+        .iter()
+        .position(|step| step.from_id == Some(-1))
+        .unwrap();
+    let small_round_end = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Smallroundend as i32)
+        })
+        .unwrap();
+    let reward = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
+        })
+        .unwrap();
+    let clear = steps
+        .iter()
+        .position(|step| {
+            step.act_effect[0].effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Clearuniversalcard as i32)
+        })
+        .unwrap();
+    assert!(invalid < small_round_end && small_round_end < reward && reward < clear);
+    assert_eq!(steps[reward].act_effect[0].effect_num, Some(1));
+    assert_eq!(steps[reward].act_effect[0].target_id, Some(-2));
 }
 
 #[test]
@@ -217,11 +296,12 @@ fn ai_actions_invalidate_a_queued_ultimate_after_its_resource_is_lost() {
             skill_id: 40231731,
             target_uid: 10,
         }],
+        &[],
     )
     .unwrap();
 
     assert_eq!(managers.ex_point.get(-1), 0);
-    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].from_id, Some(-1));
     assert!(!steps.iter().any(|step| step.act_id == Some(40231731)));
@@ -603,9 +683,283 @@ fn action_queue_stops_when_the_configured_win_target_dies() {
                 target_uid: -4,
             },
         ],
+        &[],
     )
     .unwrap();
 
     assert_eq!(managers.hp.current(-1), 0);
     assert_eq!(managers.hp.current(-4), 1_000);
+}
+
+#[test]
+fn lethal_skill_cost_settles_before_damage_and_stops_later_behaviors() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(10),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [119381126], []);
+
+    let result = run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [AiSkillChoice {
+            source_uid: -1,
+            skill_id: 119381126,
+            target_uid: 10,
+        }],
+        &[],
+    )
+    .unwrap();
+
+    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find_map(|step| find_skill(step, 119381126))
+        .unwrap();
+    let death = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Dead as i32)
+                && effect.target_id == Some(-1)
+        })
+        .unwrap();
+    let damage = skill
+        .act_effect
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect.effect_type,
+                Some(kind)
+                    if kind == sonettobuf::effect_type_enum::EffectType::Damage as i32
+                        || kind == sonettobuf::effect_type_enum::EffectType::Crit as i32
+            ) && effect.target_id == Some(10)
+        })
+        .unwrap();
+
+    assert!(death < damage);
+    assert!(!skill.act_effect.iter().any(|effect| {
+        effect
+            .buff
+            .as_ref()
+            .and_then(|buff| buff.buff_id)
+            .is_some_and(|buff_id| matches!(buff_id, 4101 | 5112))
+    }));
+}
+
+#[test]
+fn prior_source_death_does_not_suppress_after_damage_behaviors() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(10_000),
+                attr: Some(HeroAttribute {
+                    hp: Some(10_000),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(0),
+                attr: Some(HeroAttribute {
+                    hp: Some(1_000),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [119381126], []);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: -1,
+        skill_id: 119381126,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    invocation.phase = Some(crate::engine::skill::action::SkillPhase::AfterDamage);
+    invocation.target = SkillTarget::Explicit(10);
+    let mut execution = SkillExecution::new(TargetContext::default());
+    execution.record_targets([10]);
+    execution.record_attacks([10]);
+
+    let emission = crate::engine::runtime::skill::emit_ops(
+        invocation,
+        &managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        &mut execution,
+        &crate::engine::runtime::skill::SkillOpTrigger::Active,
+    )
+    .unwrap();
+
+    assert!(emission.ops.iter().any(|emission| matches!(
+        &emission.op,
+        RuleOp::Command(BattleCommand::Buff(BuffCommand::Grant(grant)))
+            if matches!(grant.buff_id, 4101 | 5112)
+    )));
+}
+
+fn scheduled_enemy_turn() -> AiTurnPlan {
+    AiTurnPlan::new(
+        Some(vec![
+            AiSkillChoice {
+                source_uid: -7,
+                skill_id: 251401,
+                target_uid: 10,
+            },
+            AiSkillChoice {
+                source_uid: -7,
+                skill_id: 251402,
+                target_uid: 10,
+            },
+            AiSkillChoice {
+                source_uid: -8,
+                skill_id: 251403,
+                target_uid: 10,
+            },
+        ]),
+        &[],
+    )
+}
+
+fn managers_with_scheduled_enemy_card() -> BattleManagers {
+    init_config();
+    let entity =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(251417, -7, 1, 2).unwrap();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::SetAiQueue(
+            crate::engine::manager::card::CardSetAiQueue {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "AiTurnPlanTest"),
+                },
+                cards: vec![CardInfo {
+                    uid: Some(-7),
+                    skill_id: Some(251401),
+                    target_uid: Some(10),
+                    ..Default::default()
+                }],
+            },
+        ))
+        .unwrap();
+    managers
+}
+
+#[test]
+fn card_invalidation_cancels_only_the_matching_scheduled_enemy() {
+    let mut managers = managers_with_scheduled_enemy_card();
+    let changes = managers
+        .execute_card(CardCommand::InvalidateAiOwner(
+            crate::engine::manager::card::CardInvalidateAiOwner {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "AiTurnPlanTest"),
+                },
+                owner_uid: -7,
+                team_type: 2,
+            },
+        ))
+        .unwrap();
+    let mut plan = scheduled_enemy_turn();
+    plan.observe(&DrainResult {
+        outcomes: vec![RuleOutcome::Card(Box::new(changes))],
+        ..Default::default()
+    });
+
+    assert_eq!(
+        plan.into_choices(),
+        vec![AiSkillChoice {
+            source_uid: -8,
+            skill_id: 251403,
+            target_uid: 10,
+        }]
+    );
+}
+
+#[test]
+fn monster_change_invalidation_cancels_only_the_matching_scheduled_enemy() {
+    let mut managers = managers_with_scheduled_enemy_card();
+    let changes = crate::engine::mechanic::monster_change::execute(
+        &mut managers,
+        crate::engine::mechanic::monster_change::MonsterChangeCommand {
+            entity: crate::engine::manager::entity::EntityCommand {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(40006, "MonsterChange"),
+                },
+                source_uid: -7,
+                target_uid: -7,
+                operation: crate::engine::manager::entity::EntityOperation::Transform {
+                    model_id: 251407,
+                    parameters: [1_000, 1],
+                },
+            },
+        },
+    )
+    .unwrap();
+    let mut plan = scheduled_enemy_turn();
+    plan.observe(&DrainResult {
+        outcomes: vec![RuleOutcome::MonsterChange(Box::new(changes))],
+        ..Default::default()
+    });
+
+    assert_eq!(
+        plan.into_choices(),
+        vec![AiSkillChoice {
+            source_uid: -8,
+            skill_id: 251403,
+            target_uid: 10,
+        }]
+    );
 }

@@ -25,6 +25,12 @@ pub enum BuffAddedScope {
     Team,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConduitActivationScope {
+    Owner,
+    Team,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedConditionKind {
     Any(Vec<Vec<ParsedCondition>>),
@@ -201,6 +207,7 @@ pub enum ParsedConditionKind {
     },
     PerConduitCurrentCost {
         threshold: i32,
+        scope: ConduitActivationScope,
     },
     PerConduitCounter {
         kind: crate::engine::manager::conduit::ConduitCounterKind,
@@ -254,6 +261,11 @@ pub enum ParsedConditionKind {
     PerTargetCareerCount {
         careers: Vec<i32>,
         threshold: i32,
+    },
+    PerTeamCareerCount {
+        career: i32,
+        divisor: i32,
+        opposing_team: bool,
     },
     TeamCareerCount {
         careers: Vec<i32>,

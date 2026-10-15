@@ -68,6 +68,7 @@ fn shared_damage_reaction_transfers_the_number_of_share_recipients() {
             target_uid: 10,
             skill_id: 1,
             amount: 100,
+            resolved_damage: 100,
             shield_absorbed: 0,
             career_restraint: false,
             damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,

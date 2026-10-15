@@ -35,6 +35,7 @@ enum TargetRule {
     RelativeAllies { before: bool, include_source: bool },
     AlliesWithBattleTag,
     AlliesWithMonsterLabel(i32),
+    AlliesWithCareer(i32),
     Runtime,
     SynchronizationTarget,
     SingleOrRandomEnemy,
@@ -288,6 +289,12 @@ impl TargetResolver {
             TargetRule::AlliesWithMonsterLabel(label) => {
                 entities_with_monster_label(pool.allies(source_uid), label)
             }
+            TargetRule::AlliesWithCareer(career) => pool
+                .allies(source_uid)
+                .iter()
+                .filter(|entity| entity.has_career(career))
+                .map(|entity| entity.uid)
+                .collect(),
             TargetRule::Runtime => runtime_target(context),
             TargetRule::SelectedTarget => selected_target(pool, source_uid, context),
             TargetRule::SynchronizationTarget => runtime_target(context),
@@ -585,6 +592,7 @@ pub fn targets_enemy(code: i32) -> Option<bool> {
         | TargetRule::RelativeAllies { .. }
         | TargetRule::AlliesWithBattleTag
         | TargetRule::AlliesWithMonsterLabel(_)
+        | TargetRule::AlliesWithCareer(_)
         | TargetRule::AlliesWithStatus
         | TargetRule::AlliesWithoutStatus => Some(false),
         TargetRule::SingleOrRandomEnemy
@@ -662,6 +670,7 @@ fn target_rule(code: i32) -> Option<TargetRule> {
         1008 => TargetRule::AlliesWithMonsterLabel(8),
         1009 => TargetRule::AlliesWithMonsterLabel(9),
         1010 => TargetRule::AlliesWithMonsterLabel(10),
+        3101..=3106 => TargetRule::AlliesWithCareer(code - 3100),
         1 => TargetRule::SelectedTarget,
         203 => TargetRule::EventSource,
         204 | 205 | 233 | 303 | 1001 | 1002 => TargetRule::Runtime,

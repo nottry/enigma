@@ -11,6 +11,7 @@ use crate::engine::{
         rule::output::{BattleCommand, RuleOp},
     },
 };
+use sonettobuf::BuffActInfo;
 
 pub fn supports(args: &[i32]) -> bool {
     matches!(
@@ -28,6 +29,34 @@ pub fn supports(args: &[i32]) -> bool {
                 )
             ) && *rate >= 0 && *cap >= 0
     )
+}
+
+pub(crate) fn definition_snapshot(
+    managers: &BattleManagers,
+    buff_id: i32,
+    source_uid: i64,
+) -> Option<Vec<BuffActInfo>> {
+    let act_info = managers
+        .buff
+        .definition_features(buff_id)
+        .into_iter()
+        .filter(|feature| buff_act::is_kind(feature, BuffActKind::EachChangeAttrOneWay))
+        .filter_map(|feature| {
+            let [act_id, raw_attr, rate, cap] = feature.values.as_slice() else {
+                return None;
+            };
+            let attr = AttrId::from_raw(*raw_attr)?;
+            let value = (i64::from(managers.origin_attribute(source_uid, attr)) * i64::from(*rate)
+                / 1000)
+                .clamp(0, i64::from(*cap)) as i32;
+            Some(BuffActInfo {
+                act_id: Some(*act_id),
+                param: Vec::new(),
+                str_param: Some(format!("{raw_attr}#{value}")),
+            })
+        })
+        .collect::<Vec<_>>();
+    (!act_info.is_empty()).then_some(act_info)
 }
 
 fn snapshot_value(managers: &BattleManagers, feature: &ActiveBuffFeature) -> Option<(AttrId, i32)> {

@@ -1,8 +1,10 @@
 use crate::engine::{
+    entity::passive::PassiveSourceKind,
     event::{kind::EventKind, subscription::SubscriptionKey},
     manager::BattleManagers,
     skill::{
         buff_act,
+        condition::registry as condition_registry,
         effect::{SkillEffectCatalog, SkillEffectSlot},
         rule::{DefinitionKey, SetupStage, route::RouteError},
         target::{TargetEntity, TargetPool},
@@ -413,6 +415,7 @@ fn collect_event_skills(
                 catalog,
                 events,
                 &subscriptions,
+                managers.entity.passive_source(owner_uid, skill_id),
             )?;
         }
     }
@@ -424,6 +427,7 @@ fn collect_event_skills(
             catalog,
             events,
             &subscriptions,
+            managers.entity.passive_source(owner_uid, skill_id),
         )?;
     }
     Ok(skills)
@@ -436,6 +440,7 @@ fn push_skill_subscribers(
     catalog: &SkillEffectCatalog,
     events: &[EventKind],
     subscriptions: &impl Fn(i32) -> Result<Vec<(Option<usize>, SubscriptionKey)>, RouteError>,
+    passive_source: PassiveSourceKind,
 ) -> Result<(), SubscriberError> {
     for &skill_id in skill_ids {
         if catalog.get(skill_id).is_none() {
@@ -446,10 +451,15 @@ fn push_skill_subscribers(
         }
         let keys = subscriptions(skill_id)
             .map_err(|route| SubscriberError::UncompiledRoute { skill_id, route })?;
-        for (slot_index, key) in keys
+        for (slot_index, mut key) in keys
             .into_iter()
             .filter(|(_, key)| events.contains(&key.event))
         {
+            if let Some(definition) =
+                condition_registry::find_key(key.definition.opcode, key.definition.type_name)
+            {
+                key = key.with_timing(definition.reaction_timing.resolve(passive_source));
+            }
             let subscriber = SkillSubscriber {
                 owner_uid,
                 skill_id,
@@ -462,6 +472,33 @@ fn push_skill_subscribers(
         }
     }
     Ok(())
+}
+
+pub(crate) fn for_compiled_skill_event(
+    managers: &BattleManagers,
+    catalog: &SkillEffectCatalog,
+    owner_uid: i64,
+    skill_id: i32,
+    event: EventKind,
+) -> Result<Vec<SkillSubscriber>, SubscriberError> {
+    let mut subscribers = Vec::new();
+    push_skill_subscribers(
+        &mut subscribers,
+        owner_uid,
+        &[skill_id],
+        catalog,
+        &[event],
+        &|skill_id| {
+            catalog.compiled_subscription_lanes(skill_id).map(|lanes| {
+                lanes
+                    .into_iter()
+                    .map(|(slot, key)| (Some(slot), key))
+                    .collect()
+            })
+        },
+        managers.entity.passive_source(owner_uid, skill_id),
+    )?;
+    Ok(subscribers)
 }
 
 #[cfg(test)]

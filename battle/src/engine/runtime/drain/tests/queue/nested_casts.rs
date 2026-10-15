@@ -1,6 +1,77 @@
 use super::*;
 
 #[test]
+fn self_destructing_attack_finishes_its_damage_phase() {
+    crate::test_support::init_config();
+    let entity = |uid, hp, attack| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(hp),
+        attr: Some(HeroAttribute {
+            hp: Some(hp),
+            attack: Some(attack),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        battle_id: Some(1),
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 10_000, 0)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 100, 1_000)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut catalog = SkillEffectCatalog::default();
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 100,
+        slots: vec![SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(30006, "LostLife"),
+                vec![0, AttrId::CurrentHp as i32, 1_000],
+                Vec::new(),
+            ),
+            TargetRequest {
+                code: crate::engine::skill::target::request::SOURCE_TARGET_CODE,
+                raw: Vec::new(),
+            },
+        )],
+    });
+    catalog.insert_damage_rate(100, 1_000);
+    catalog.insert_logic_target(100, 202);
+    let mut invocation: SkillInvocation = SkillRequest {
+        source_uid: -1,
+        skill_id: 100,
+    }
+    .into();
+    invocation.mode = SkillExecutionMode::Active;
+    invocation.target = SkillTarget::Explicit(-1);
+
+    run_action(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext {
+            battle_id: 1,
+            ..Default::default()
+        },
+        [],
+        invocation,
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 0);
+    assert_eq!(managers.hp.current(10), 9_000);
+    assert!(managers.terminal_outcome().is_some());
+}
+
+#[test]
 fn each_gash_type_on_the_main_target_casts_sparta_kick_again() {
     crate::test_support::init_config();
     let entity = |uid| FightEntityInfo {

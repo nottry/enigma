@@ -108,6 +108,42 @@ impl BuffManager {
                 }
                 (grant.origin, BuffPlanAction::Grant(Box::new(plan)))
             }
+            BuffCommand::GrantSourceRelative(stateful) => {
+                let grant = stateful.grant;
+                let (input, force_normal_uid) = match stateful.relation {
+                    Some(BuffGrantRelation::Child) => (
+                        GrantInput::ChildInstance {
+                            layer: grant.amount.unwrap_or_default(),
+                            layer_specified: grant.amount.is_some(),
+                        },
+                        false,
+                    ),
+                    Some(BuffGrantRelation::Normal) => (
+                        grant.amount.map_or(GrantInput::Default, GrantInput::Layer),
+                        true,
+                    ),
+                    None => (
+                        grant.amount.map_or(GrantInput::Default, GrantInput::Layer),
+                        false,
+                    ),
+                };
+                let mut plan = self.plan_grant_with_source_attack(
+                    hp,
+                    GrantRequest {
+                        source_uid: grant.source_uid,
+                        target_uid: grant.target_uid,
+                        buff_id: grant.buff_id,
+                        input,
+                        occurrences: grant.occurrences,
+                        child_uid_reservations: grant.child_uid_reservations,
+                        force_normal_uid,
+                    },
+                    inputs,
+                )?;
+                plan.initial_act_info = Some(stateful.act_info);
+                plan.initial_act_info_markers = Some(Vec::new());
+                (grant.origin, BuffPlanAction::Grant(Box::new(plan)))
+            }
             BuffCommand::GrantUsingChildUid(grant) => (
                 grant.origin,
                 BuffPlanAction::Grant(Box::new(self.plan_grant_with_source_attack(
@@ -939,7 +975,10 @@ impl BuffManager {
             Some(LayerRefreshPlan::Update { .. })
         ) && (policy.uid.reserve_on_layer_refresh
             || partially_capped_layer_refresh
-            || halo_refresh))
+            || halo_refresh
+            || (self.shared_uid_lane
+                && definition.is_stackable_type()
+                && definition.uses_child_uid())))
             || (action == GrantAction::RefreshLayer
                 && matches!(layer_refresh, Some(LayerRefreshPlan::NoChange))
                 && (halo_refresh

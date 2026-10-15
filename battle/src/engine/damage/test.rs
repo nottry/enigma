@@ -12,7 +12,7 @@ fn settlement_calculates_once_and_emits_one_hp_command() {
         defense: 200,
         defense_multiplier: 1_000,
         penetration: 0,
-        minimum: 100,
+        minimum: MinimumDamage::Absolute(100),
         base_rate: 1_000,
         added_rate: 0,
         career: 1_000,
@@ -72,7 +72,7 @@ fn trace_preserves_fractional_damage_until_final_settlement() {
         defense: 567,
         defense_multiplier: 1_000,
         penetration: 0,
-        minimum: 192,
+        minimum: MinimumDamage::Absolute(192),
         base_rate: 1_300,
         added_rate: 0,
         career: 1_000,
@@ -118,7 +118,7 @@ fn critical_multiplier_preserves_conversion_remainder_until_settlement() {
             defense: 700,
             defense_multiplier: 1_000,
             penetration: 0,
-            minimum: 186,
+            minimum: MinimumDamage::Absolute(186),
             base_rate: 11_112,
             added_rate: 0,
             career: 1_000,
@@ -148,7 +148,7 @@ fn critical_damage_uses_the_capture_proven_minimum_multiplier() {
             defense: 1_200,
             defense_multiplier: 1_000,
             penetration: 0,
-            minimum: 221,
+            minimum: MinimumDamage::Absolute(221),
             base_rate: 300,
             added_rate: 0,
             career: 1_300,
@@ -192,7 +192,7 @@ fn career_advantage_applies_only_to_the_configured_base_rate() {
         defense: 0,
         defense_multiplier: 1_000,
         penetration: 0,
-        minimum: 100,
+        minimum: MinimumDamage::Absolute(100),
         base_rate: 1_000,
         added_rate: 1_000,
         career: 1_300,
@@ -221,7 +221,7 @@ fn genesis_uses_the_same_pipeline_and_explicitly_skips_defense() {
         defense: 999,
         defense_multiplier: 999,
         penetration: 999,
-        minimum: 999,
+        minimum: MinimumDamage::Absolute(999),
         base_rate: 200,
         added_rate: 0,
         career: 1_000,
@@ -259,7 +259,7 @@ fn defense_trace_keeps_modifier_and_penetration_divisions_separate() {
         defense: 1_000,
         defense_multiplier: 800,
         penetration: 250,
-        minimum: 200,
+        minimum: MinimumDamage::Absolute(200),
         base_rate: 1_000,
         added_rate: 0,
         career: 1_000,
@@ -296,7 +296,7 @@ fn version_seven_preserves_effective_defense_until_final_settlement() {
         defense,
         defense_multiplier: 1_000,
         penetration: 920,
-        minimum: 198,
+        minimum: MinimumDamage::Absolute(198),
         base_rate: 18_700,
         added_rate: 0,
         career,
@@ -330,7 +330,7 @@ fn defense_attribute_rate_rounds_to_the_nearest_point() {
         defense: 736,
         defense_multiplier: 800,
         penetration: 0,
-        minimum: 206,
+        minimum: MinimumDamage::Absolute(206),
         base_rate: 1_000,
         added_rate: 0,
         career: 1_000,
@@ -364,7 +364,7 @@ fn defense_clamps_to_the_configured_minimum_damage() {
         defense: 500,
         defense_multiplier: 1_000,
         penetration: 0,
-        minimum: 10,
+        minimum: MinimumDamage::Absolute(10),
         base_rate: 1_000,
         added_rate: 0,
         career: 1_000,
@@ -384,6 +384,53 @@ fn defense_clamps_to_the_configured_minimum_damage() {
 }
 
 #[test]
+fn version_seven_preserves_fractional_minimum_damage_until_settlement() {
+    let input = DamageFormulaInput {
+        kind: DamageKind::Mental,
+        attack: 894,
+        defense: 827,
+        defense_multiplier: 1_000,
+        penetration: 0,
+        minimum: MinimumDamage::AttackTenth,
+        base_rate: 2_000,
+        added_rate: 0,
+        career: 1_000,
+        regular: 841,
+        attack_local: 1_000,
+        might: 1_000,
+        action: 1_000,
+        genesis: 1_000,
+        final_rate: 1_000,
+        poison_multiplier: None,
+        crit_multiplier: 1_318,
+        is_crit: false,
+    };
+
+    let legacy = calculate_with_trace_for_version(input, 6);
+    assert!(matches!(
+        legacy.defense,
+        DefenseTrace::Applied {
+            minimum: 89,
+            minimum_numerator: 89_000,
+            minimum_denominator: 1_000,
+            ..
+        }
+    ));
+    assert_eq!(legacy.amount, 149);
+    let current = calculate_with_trace_for_version(input, 7);
+    assert!(matches!(
+        current.defense,
+        DefenseTrace::Applied {
+            minimum: 89,
+            minimum_numerator: 89_400,
+            minimum_denominator: 1_000,
+            ..
+        }
+    ));
+    assert_eq!(current.amount, 150);
+}
+
+#[test]
 fn captured_defense_matrix_preserves_hp_replacement_formula() {
     for (defense, expected) in [(448, 449), (869, 297)] {
         let input = DamageFormulaInput {
@@ -392,7 +439,7 @@ fn captured_defense_matrix_preserves_hp_replacement_formula() {
             defense,
             defense_multiplier: 1_000,
             penetration: 0,
-            minimum: 169,
+            minimum: MinimumDamage::Absolute(169),
             base_rate: 1_200,
             added_rate: 0,
             career: 1_000,
@@ -426,7 +473,7 @@ fn captured_direct_hits_keep_fractional_precision() {
                 defense,
                 defense_multiplier: 1_000,
                 penetration: 0,
-                minimum: attack / 10,
+                minimum: MinimumDamage::Absolute(attack / 10),
                 base_rate: rate,
                 added_rate: 0,
                 career,

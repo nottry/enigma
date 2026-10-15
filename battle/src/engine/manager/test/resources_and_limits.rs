@@ -1,6 +1,89 @@
 use super::*;
 
 #[test]
+fn lock_hp_caps_damage_and_hp_loss_at_the_configured_max_hp_floor() {
+    crate::test_support::init_config();
+    let target = |uid, buff_uid| {
+        let mut target =
+            crate::engine::fight::defender::Defender::build_monster_with_uid(119383111, uid, 1, 2)
+                .unwrap();
+        target.current_hp = Some(27_082);
+        target.attr.as_mut().unwrap().hp = Some(27_082);
+        target.base_attr.as_mut().unwrap().hp = Some(27_082);
+        target.buffs.push(BuffInfo {
+            uid: Some(buff_uid),
+            buff_id: Some(119381136),
+            from_uid: Some(uid),
+            count: Some(1),
+            layer: Some(1),
+            duration: Some(1),
+            ..Default::default()
+        });
+        target
+    };
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![target(-1, 1), target(-2, 2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let changes = managers
+        .execute_hp(HpCommand::Damage(HpDamage {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(-1, "ConfiguredDamage"),
+            },
+            source_uid: 10,
+            target_uid: -1,
+            amount: 52_056,
+            config_effect: -1,
+            effect_kind: DamageEffectKind::Critical,
+            assassinate: false,
+            ignore_riposte: false,
+            hurt: HurtInfoData {
+                from_uid: 10,
+                is_crit: true,
+                career_restraint: true,
+                reduce_hp: 0,
+                effect_id: 0,
+                skill_id: 0,
+                damage_from: HurtDamageFromType::Skill,
+                buff_act_id: 0,
+                buff_uid: 0,
+                hurt_effect_type: 0,
+                display_amount: None,
+            },
+        }))
+        .unwrap();
+
+    assert_eq!(changes.damage.unwrap().amount, 26_812);
+    assert_eq!(changes.applied_damage(), 26_812);
+    assert_eq!(managers.hp.current(-1), 270);
+    assert!(!changes.caused_death());
+
+    let changes = managers
+        .execute_hp(HpCommand::Lose(HpLoss {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(-2, "ConfiguredHpLoss"),
+            },
+            source_uid: 10,
+            target_uid: -2,
+            amount: 52_056,
+            config_effect: -1,
+            hurt: None,
+        }))
+        .unwrap();
+
+    assert_eq!(changes.applied_damage(), 26_812);
+    assert_eq!(managers.hp.current(-2), 270);
+    assert!(!changes.caused_death());
+}
+
+#[test]
 fn summoned_monster_snapshot_includes_its_configured_moxie_maximum() {
     crate::test_support::init_config();
     let fight = Fight {
@@ -136,10 +219,50 @@ fn transform_projects_active_primary_attribute_buffs_without_rewriting_the_base(
 
     let attr = changes.entity.attr.unwrap();
     let base_attr = changes.entity.base_attr.unwrap();
+    assert_eq!(changes.entity.ex_point_max, Some(0));
     assert_eq!(attr.defense, Some(800));
     assert_eq!(attr.mdefense, Some(589));
     assert_eq!(base_attr.defense, Some(1_000));
     assert_eq!(base_attr.mdefense, Some(736));
+}
+
+#[test]
+fn transform_reset_mode_removes_carried_buffs_from_manager_state() {
+    crate::test_support::init_config();
+    let mut original =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(251417, -7, 1, 2).unwrap();
+    original.buffs.push(BuffInfo {
+        buff_id: Some(229103),
+        uid: Some(100_007),
+        from_uid: Some(-7),
+        ..Default::default()
+    });
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![original],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let changes = managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(40006, "MonsterChange"),
+            },
+            source_uid: -7,
+            target_uid: -7,
+            operation: crate::engine::manager::entity::EntityOperation::Transform {
+                model_id: 251407,
+                parameters: [1000, 1],
+            },
+        })
+        .unwrap();
+
+    assert!(changes.entity.buffs.is_empty());
+    assert!(!managers.buff.has_buff_id(-7, 229103));
 }
 
 #[test]
@@ -235,9 +358,10 @@ fn ex_point_info_uses_current_roster_in_encounter_order() {
         ..Default::default()
     };
     let mut managers = BattleManagers::seeded(&fight);
+    let catalog = managers.catalog();
     managers
         .entity
-        .replace_team_roster(2, &[entity(-3)], &[entity(-2)]);
+        .replace_team_roster(catalog, 2, &[entity(-3)], &[entity(-2)]);
     managers.sync_entities(&mut fight);
 
     let uids = managers

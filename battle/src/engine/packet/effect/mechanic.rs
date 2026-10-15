@@ -127,18 +127,23 @@ impl EffectPacket {
         )
     }
 
-    pub fn conduit_powers_cleared(source_uid: i64, team: i32, config_effect: i32) -> ActEffect {
-        ActEffect {
-            target_id: Some(source_uid),
-            effect_type: Some(EffectType::Devicepowerclear as i32),
-            effect_num: Some(0),
-            config_effect: Some(config_effect),
-            buff_act_id: Some(0),
-            reserve_id: Some(0),
-            team_type: Some(team),
-            effect_num1: Some(0),
-            ..Default::default()
-        }
+    pub fn conduit_powers_consumed(team: i32, spent_by_power: &[(i32, i32)]) -> Vec<ActEffect> {
+        spent_by_power
+            .iter()
+            .filter(|(_, spent)| *spent > 0)
+            .map(|(power_id, spent)| ActEffect {
+                target_id: Some(0),
+                effect_type: Some(EffectType::Devicepowerchange as i32),
+                effect_num: Some(-1),
+                config_effect: Some(0),
+                buff_act_id: Some(0),
+                reserve_id: Some(0),
+                reserve_str: Some(format!("{power_id}#-{spent}")),
+                team_type: Some(team),
+                effect_num1: Some(0),
+                ..Default::default()
+            })
+            .collect()
     }
 
     pub fn conduit_powers_reset(team: i32) -> ActEffect {

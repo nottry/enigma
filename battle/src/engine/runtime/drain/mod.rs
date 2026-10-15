@@ -148,6 +148,7 @@ struct QueuedOp {
 #[derive(Clone)]
 struct SubscriberContext {
     owner_uid: i64,
+    skill_id: Option<i32>,
     group: Option<Rc<RefCell<SubscriberDeathGroup>>>,
 }
 
@@ -155,6 +156,15 @@ impl SubscriberContext {
     fn new(owner_uid: i64) -> Self {
         Self {
             owner_uid,
+            skill_id: None,
+            group: None,
+        }
+    }
+
+    fn for_skill(owner_uid: i64, skill_id: i32) -> Self {
+        Self {
+            owner_uid,
+            skill_id: Some(skill_id),
             group: None,
         }
     }
@@ -175,7 +185,11 @@ fn queued_defeated_owner_card_cleanup(
     let team_type = pool
         .team_type(death.target_uid)
         .or_else(|| managers.buff.team_type(death.target_uid))?;
-    if !owner.queues_in_drain(team_type) {
+    if !owner.queues_in_drain(team_type)
+        || managers
+            .entity
+            .has_pending_reserve_promotion(death.target_uid, &managers.hp)
+    {
         return None;
     }
     Some(QueuedOp {
@@ -676,7 +690,13 @@ fn drain_queue_with_deferred(
 
         // Previous operations may have changed HP, buffs, entities, or resources.
         // Target resolution must see those committed manager values.
-        let current_pool = base_pool.runtime_view(managers);
+        let continuing_source = match (&op, &trigger, frame_path.as_ref()) {
+            (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
+                Some(invocation.plan.source_uid)
+            }
+            _ => None,
+        };
+        let current_pool = base_pool.runtime_view_including(managers, continuing_source);
         let pool = &current_pool;
 
         // Frame groups keep independent reactions under one semantic owner while
@@ -774,6 +794,7 @@ fn drain_queue_with_deferred(
                 if matches!(trigger, SkillOpTrigger::Active)
                     && frame_path.is_none()
                     && managers.terminal_outcome().is_some()
+                    && !invocation.mode.finishes_selected_conduit_phase()
                 {
                     cancel_invocation_progress(managers, state, None, &invocation);
                     continue;
@@ -789,7 +810,8 @@ fn drain_queue_with_deferred(
                     );
                 if matches!(trigger, SkillOpTrigger::Active)
                     && base_pool.team_type(invocation.plan.source_uid).is_some()
-                    && ((base_pool.entity(invocation.plan.source_uid).is_some()
+                    && ((frame_path.is_none()
+                        && base_pool.entity(invocation.plan.source_uid).is_some()
                         && pool.entity(invocation.plan.source_uid).is_none())
                         || attack_has_no_target)
                 {
@@ -845,6 +867,21 @@ fn drain_queue_with_deferred(
                     }),
                     &trigger,
                 );
+                if matches!(trigger, SkillOpTrigger::Event(_))
+                    && let Some(action_path) = active_skill_scope_path(&result.frames, &frame_path)
+                    && let FrameOwner::Skill {
+                        source_uid,
+                        skill_id,
+                        ..
+                    } = owner_at_path(&result.frames, &frame_path)
+                {
+                    state.action_skill_reaction_frame(
+                        &action_path,
+                        *source_uid,
+                        *skill_id,
+                        &frame_path,
+                    );
+                }
                 if !skill_from_buff_act && let Some(group) = &frame_group {
                     *group.borrow_mut() = Some(frame_path.clone());
                 }
@@ -991,6 +1028,17 @@ fn drain_queue_with_deferred(
                         frame_owner,
                     } = emission;
                     let op = attach_buff_grant_relation(op, consequence);
+                    if let RuleOp::SkillLifecycle(
+                        crate::engine::skill::action::SkillLifecycle::ActionCompleted(event),
+                    ) = &op
+                        && let Some(completion) = take_conduit_activation_completion(
+                            queue,
+                            event.source_uid,
+                            event.skill_id,
+                        )
+                    {
+                        outputs.push(completion);
+                    }
                     match op {
                         RuleOp::Skill(child) => {
                             let after_current_action = child.start.waits_for_current_action();
@@ -1039,7 +1087,31 @@ fn drain_queue_with_deferred(
                                 op: command,
                                 trigger: trigger.clone(),
                                 skill_execution: None,
-                                frame_path: Some(output_frame_path(owner, &frame_path)),
+                                frame_path: Some(if owner
+                                    == crate::engine::skill::behavior::registry::OutputOwner::ActionSkillReaction
+                                {
+                                    let action_path = active_skill_scope_path(
+                                        &result.frames,
+                                        &frame_path,
+                                    )
+                                    .ok_or(DrainError::MissingActiveSkillContext)?;
+                                    let FrameOwner::Skill {
+                                        source_uid,
+                                        skill_id,
+                                        ..
+                                    } = owner_at_path(&result.frames, &frame_path)
+                                    else {
+                                        return Err(DrainError::MissingActiveSkillContext);
+                                    };
+                                    state.action_skill_reaction_frame(
+                                        &action_path,
+                                        *source_uid,
+                                        *skill_id,
+                                        &frame_path,
+                                    )
+                                } else {
+                                    output_frame_path(owner, &frame_path)
+                                }),
                                 parent_path: None,
                                 frame_group: None,
                                 independent_parent_group: None,
@@ -1237,6 +1309,29 @@ fn drain_queue_with_deferred(
                 // This is the single durable commit point for non-skill RuleOps.
                 // The returned outcome describes committed changes and follow-ups.
                 let mut outcome = execute_rule_op_with(managers, &mut bus, determinism, command)?;
+                let transformed = match &outcome {
+                    RuleOutcome::Entity(changes)
+                        if matches!(
+                            changes.operation,
+                            crate::engine::manager::entity::EntityOperation::Transform { .. }
+                        ) =>
+                    {
+                        Some(changes.as_ref())
+                    }
+                    RuleOutcome::MonsterChange(changes) => Some(&changes.entity),
+                    _ => None,
+                };
+                if let Some(changes) = transformed {
+                    let current_pool = base_pool.runtime_view(managers);
+                    let active_skills =
+                        crate::engine::skill::subscriber::active_skills(&current_pool, managers);
+                    state.retire_replaced_subscriber_casts(
+                        changes.target_uid,
+                        active_skills.iter().filter_map(|(owner_uid, skill_id)| {
+                            (*owner_uid == changes.target_uid).then_some(*skill_id)
+                        }),
+                    );
+                }
                 if let RuleOutcome::ActiveSkillTargetsModified(additional_count) = outcome {
                     let action_scope = action_scope
                         .clone()
@@ -1302,8 +1397,13 @@ fn drain_queue_with_deferred(
                 let fanout_output_owner = if entry_halo_fanout || current_skill.is_none() {
                     crate::engine::skill::behavior::registry::OutputOwner::Skill
                 } else {
-                    crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        .resolve(matches!(trigger, SkillOpTrigger::Event(_)), false)
+                    crate::engine::skill::behavior::registry::OutputOwner::CausingEvent.resolve(
+                        match trigger {
+                            SkillOpTrigger::Event(ref event) => Some(event.kind()),
+                            _ => None,
+                        },
+                        false,
+                    )
                 };
 
                 // Managers publish semantic events through the bus. Reactions are
@@ -1352,6 +1452,7 @@ fn drain_queue_with_deferred(
                     }));
                 }
 
+                let action_scope = active_skill_scope_path(&result.frames, &frame_path);
                 let has_active_continuation = queue.iter().any(|queued| {
                     matches!(&queued.trigger, SkillOpTrigger::Active)
                         && queued.frame_path.as_ref() == Some(&frame_path)
@@ -1363,9 +1464,36 @@ fn drain_queue_with_deferred(
                     && has_active_continuation;
                 if defer_hits {
                     // Multi-part active hits share one HitPassives boundary. Hold
-                    // primary hits and their own HP loss; unrelated events remain
-                    // immediately visible.
+                    // primary hits and their own HP loss. Their BeforePublish
+                    // buff acts still belong before this HP outcome.
                     let (immediate, deferred) = split_active_hit_event_groups(event_groups);
+                    let hit_buff_acts = dispatch_event_groups(
+                        pool,
+                        managers,
+                        catalog,
+                        determinism,
+                        state,
+                        &deferred,
+                        &event_scope,
+                        &frame_path,
+                        action_scope.as_deref(),
+                        &entry_halo_scope,
+                        current_skill,
+                        true,
+                        context.current_round > 0,
+                        crate::engine::event::subscription::PublicationPhase::BeforePublish,
+                        None,
+                        Some(ReactionLane::BuffActs),
+                    )?;
+                    drain_nested_queue(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        hit_buff_acts.into_ordered().into(),
+                        &mut result,
+                        state,
+                    )?;
                     pending_hits
                         .entry(frame_path.clone())
                         .or_default()
@@ -1376,7 +1504,6 @@ fn drain_queue_with_deferred(
 
                 // BeforePublish reactions run before this outcome is recorded in
                 // its semantic frame. Their own manager commits use nested drains.
-                let action_scope = active_skill_scope_path(&result.frames, &frame_path);
                 let mut before_reactions = dispatch_event_groups(
                     pool,
                     managers,
@@ -1450,24 +1577,6 @@ fn drain_queue_with_deferred(
                     .flatten();
                 if let Some(hit_event_groups) = released_hit_events.as_ref() {
                     let hit_events = flatten_event_groups(hit_event_groups);
-                    let hit_buff_acts = dispatch_event_groups(
-                        pool,
-                        managers,
-                        catalog,
-                        determinism,
-                        state,
-                        hit_event_groups,
-                        &event_scope,
-                        &frame_path,
-                        action_scope.as_deref(),
-                        &entry_halo_scope,
-                        current_skill,
-                        true,
-                        context.current_round > 0,
-                        crate::engine::event::subscription::PublicationPhase::BeforePublish,
-                        None,
-                        Some(ReactionLane::BuffActs),
-                    )?;
                     let hit_skills = dispatch_event_groups(
                         pool,
                         managers,
@@ -1488,15 +1597,6 @@ fn drain_queue_with_deferred(
                     )?;
                     result.events.extend(hit_events.iter().cloned());
                     pending_hit_skills = hit_skills;
-                    drain_nested_queue(
-                        managers,
-                        pool,
-                        catalog,
-                        determinism,
-                        hit_buff_acts.into_ordered().into(),
-                        &mut result,
-                        state,
-                    )?;
                 }
                 if !before_reactions.before_publish.is_empty() {
                     drain_nested_queue(
@@ -1524,6 +1624,7 @@ fn drain_queue_with_deferred(
 
                 // Once pre-publication work is complete, record the authoritative
                 // outcome and any buff fanout beneath their semantic owners.
+                let settles_death_immediately = outcome.settles_death_immediately();
                 let pending_deaths = outcome.take_deaths();
                 let redeal_hand = match &outcome {
                     RuleOutcome::Card(changes)
@@ -1542,11 +1643,23 @@ fn drain_queue_with_deferred(
                     push_cue(&mut result.frames, RoundCue::RedealHandSync { cards });
                 }
                 for (owner, change) in outcome.owned_changes() {
-                    push_change(
-                        &mut result.frames,
-                        &output_frame_path(owner, &frame_path),
-                        change,
-                    );
+                    if owner
+                        == crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
+                    {
+                        let nested = push_child(
+                            &mut result.frames,
+                            &frame_path,
+                            FrameOwner::LifecycleMechanic,
+                            frame_trigger(&trigger),
+                        );
+                        push_change(&mut result.frames, &nested, change);
+                    } else {
+                        push_change(
+                            &mut result.frames,
+                            &output_frame_path(owner, &frame_path),
+                            change,
+                        );
+                    }
                 }
                 for fanout in fanout {
                     let fanout_parent = output_frame_path(fanout_output_owner, &event_scope);
@@ -1737,13 +1850,41 @@ fn drain_queue_with_deferred(
                     .into_iter()
                     .filter(|death| managers.hp.is_current_death(*death))
                     .collect::<Vec<_>>();
+                if settles_death_immediately
+                    && let Some(source_uid) = current_skill.map(|skill| skill.0)
+                    && settled_deaths
+                        .iter()
+                        .any(|death| death.transition().target_uid == source_uid)
+                    && let Some(execution) = queue
+                        .iter_mut()
+                        .find(|queued| {
+                            matches!(queued.trigger, SkillOpTrigger::Active)
+                                && queued.frame_path.as_ref() == Some(&frame_path)
+                                && matches!(queued.op, RuleOp::Skill(_))
+                        })
+                        .and_then(|queued| queued.skill_execution.as_mut())
+                {
+                    execution.record_immediate_source_death();
+                }
                 let mut terminal_death = settled_deaths.first().map(|death| death.transition());
                 let mut cleanup_deaths = Vec::new();
                 let mut non_action_deaths = Vec::new();
-                let active_action_scope = action_scope.as_ref().filter(|path| {
+                let settlement_action_scope = action_scope.as_ref().filter(|path| {
                     matches!(trigger, SkillOpTrigger::Active) || state.action_in_progress(path)
                 });
-                if let Some(action_scope) = active_action_scope {
+                let active_action_scope = (!settles_death_immediately)
+                    .then_some(settlement_action_scope)
+                    .flatten();
+                if settles_death_immediately && let Some(action_scope) = settlement_action_scope {
+                    for death in &settled_deaths {
+                        push_change(
+                            &mut result.frames,
+                            action_scope,
+                            crate::engine::runtime::change::BattleChange::Death(death.transition()),
+                        );
+                    }
+                    cleanup_deaths.extend(settled_deaths.iter().map(|death| death.transition()));
+                } else if let Some(action_scope) = active_action_scope {
                     state.record_deaths(action_scope.clone(), settled_deaths.iter().copied());
                 } else {
                     cleanup_deaths.extend(settled_deaths.iter().map(|death| death.transition()));
@@ -1791,7 +1932,7 @@ fn drain_queue_with_deferred(
                 {
                     execution.record_kills(settled_deaths.len() as i32);
                 }
-                let cleanup_parent_path = active_action_scope
+                let cleanup_parent_path = settlement_action_scope
                     .map(Vec::as_slice)
                     .unwrap_or(event_scope.as_slice());
                 after_publish.extend(cleanup_deaths.into_iter().filter_map(|death| {
@@ -1895,7 +2036,10 @@ fn drain_queue_with_deferred(
                             (Some(output_frame_path(owner, &frame_path)), None)
                         }
                         crate::engine::skill::behavior::registry::OutputOwner::CausingEvent
-                        | crate::engine::skill::behavior::registry::OutputOwner::SetupParent => {
+                        | crate::engine::skill::behavior::registry::OutputOwner::ActionSkillReaction
+                        | crate::engine::skill::behavior::registry::OutputOwner::NestedLifecycleMechanic
+                        | crate::engine::skill::behavior::registry::OutputOwner::SetupParent
+                        | crate::engine::skill::behavior::registry::OutputOwner::SetupOrFinalSettlementParent => {
                             unreachable!("manager follow-up owner must be resolved")
                         }
                     };
@@ -2082,6 +2226,18 @@ fn attach_relation(
                 relation: BuffGrantRelation::Normal,
             })
         }
+        BuffCommand::GrantSourceRelative(mut stateful)
+            if consequence == ConsequencePolicy::ChildBuffGrant =>
+        {
+            stateful.relation = Some(BuffGrantRelation::Child);
+            BuffCommand::GrantSourceRelative(stateful)
+        }
+        BuffCommand::GrantSourceRelative(mut stateful)
+            if consequence == ConsequencePolicy::NormalBuffGrant =>
+        {
+            stateful.relation = Some(BuffGrantRelation::Normal);
+            BuffCommand::GrantSourceRelative(stateful)
+        }
         other => other,
     }
 }
@@ -2094,7 +2250,11 @@ fn output_frame_path(
     match owner {
         OutputOwner::Skill => return current.to_vec(),
         OutputOwner::Parent => {}
-        OutputOwner::CausingEvent | OutputOwner::SetupParent => {
+        OutputOwner::CausingEvent
+        | OutputOwner::ActionSkillReaction
+        | OutputOwner::NestedLifecycleMechanic
+        | OutputOwner::SetupParent
+        | OutputOwner::SetupOrFinalSettlementParent => {
             unreachable!("conditional output ownership must be resolved before draining")
         }
     }
@@ -2139,6 +2299,27 @@ fn prepend(queue: &mut VecDeque<QueuedOp>, items: impl IntoIterator<Item = Queue
     for item in items.into_iter().rev() {
         queue.push_front(item);
     }
+}
+
+fn take_conduit_activation_completion(
+    queue: &mut VecDeque<QueuedOp>,
+    source_uid: i64,
+    skill_id: i32,
+) -> Option<QueuedOp> {
+    let index = queue.iter().position(|queued| {
+        matches!(
+            queued.op,
+            RuleOp::Command(
+                crate::engine::skill::rule::output::BattleCommand::Conduit(
+                    crate::engine::manager::conduit::ConduitCommand::CompleteActivation {
+                        source_uid: queued_source,
+                        skill_id: queued_skill,
+                    }
+                )
+            ) if queued_source == source_uid && queued_skill == skill_id
+        )
+    })?;
+    queue.remove(index)
 }
 
 // The reaction step inside an action that cast a held skill; the action's own casts have none.

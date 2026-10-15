@@ -192,6 +192,13 @@ fn condition_repeat_count(
         ParsedConditionKind::PerTargetCareerCount { careers, threshold } => Some(
             per_target_career_count(source_uid, careers, *threshold, pool),
         ),
+        ParsedConditionKind::PerTeamCareerCount {
+            career,
+            divisor,
+            opposing_team,
+        } => Some(
+            per_team_career_count(source_uid, *career, *opposing_team, pool) / (*divisor).max(1),
+        ),
         ParsedConditionKind::OtherAllyDamageTypeCount {
             damage_type,
             max_count,
@@ -968,6 +975,11 @@ fn condition_kind_matches(
         ParsedConditionKind::PerTargetCareerCount { careers, threshold } => {
             per_target_career_count(source_uid, careers, *threshold, pool) > 0
         }
+        ParsedConditionKind::PerTeamCareerCount {
+            career,
+            divisor,
+            opposing_team,
+        } => per_team_career_count(source_uid, *career, *opposing_team, pool) >= (*divisor).max(1),
         ParsedConditionKind::TeamCareerCount {
             careers,
             compare,
@@ -1456,6 +1468,23 @@ fn team_career_count(source_uid: i64, careers: &[i32], pool: &TargetPool) -> i32
     };
     team.iter()
         .filter(|entity| careers.iter().any(|career| entity.has_career(*career)))
+        .count() as i32
+}
+
+fn per_team_career_count(
+    source_uid: i64,
+    career: i32,
+    opposing_team: bool,
+    pool: &TargetPool,
+) -> i32 {
+    let source_is_attacker = pool.source_is_attacker(source_uid);
+    let team = if source_is_attacker != opposing_team {
+        &pool.attacker_main
+    } else {
+        &pool.defender_main
+    };
+    team.iter()
+        .filter(|entity| entity.has_career(career))
         .count() as i32
 }
 

@@ -1,4 +1,4 @@
-use sonettobuf::{FightTeam, HeroAttribute};
+use sonettobuf::{BuffInfo, FightTeam, HeroAttribute};
 
 use super::*;
 use crate::engine::skill::rule::{DefinitionKey, RuleDomain};
@@ -157,7 +157,7 @@ fn replacing_a_wave_roster_deactivates_the_previous_combatants() {
     };
     let mut manager = EntityManager::seed(&fight);
 
-    manager.replace_team_roster(2, &[entity(-3, 1)], &[entity(-4, -1)]);
+    manager.replace_team_roster(catalog(), 2, &[entity(-3, 1)], &[entity(-4, -1)]);
     manager.sync_to_fight(&mut fight);
 
     let defender = fight.defender.unwrap();
@@ -178,6 +178,75 @@ fn replacing_a_wave_roster_deactivates_the_previous_combatants() {
         vec![-4]
     );
     assert_eq!(defender.sp_entitys[0].uid, Some(-9));
+}
+
+#[test]
+fn pending_promotions_match_dead_mains_to_available_reserves_in_roster_order() {
+    let entity = |uid, hp, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(hp),
+        position: Some(position),
+        ..Default::default()
+    };
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 0, 1), entity(-2, 0, 2)],
+            sub_entitys: vec![entity(-3, 100, -1)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = EntityManager::seed(&fight);
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+
+    assert!(manager.has_pending_reserve_promotion(-1, &hp));
+    assert!(!manager.has_pending_reserve_promotion(-2, &hp));
+    assert_eq!(
+        manager
+            .promote_reserves(&hp)
+            .into_iter()
+            .map(|promotion| (promotion.defeated_uid, promotion.entering_uid))
+            .collect::<Vec<_>>(),
+        [(-1, -3)]
+    );
+}
+
+#[test]
+fn promoted_defeated_unit_moves_behind_the_remaining_reserves() {
+    let entity = |uid, hp, position| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(hp),
+        position: Some(position),
+        ..Default::default()
+    };
+    let mut fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 0, 1)],
+            sub_entitys: vec![entity(-2, 100, -1), entity(-3, 100, -2)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = EntityManager::seed(&fight);
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+
+    manager.promote_reserves(&hp);
+    manager.sync_to_fight(&mut fight);
+
+    let defender = fight.defender.unwrap();
+    assert_eq!(defender.entitys[0].uid, Some(-2));
+    assert_eq!(
+        defender
+            .sub_entitys
+            .iter()
+            .filter_map(|entity| entity.uid)
+            .collect::<Vec<_>>(),
+        [-3, -1]
+    );
 }
 
 #[test]
@@ -210,7 +279,7 @@ fn defeated_combatant_count_keeps_prior_waves_and_excludes_special_entities() {
 
     let next = entity(-3, 0, 1);
     hp.register(&next);
-    manager.replace_team_roster(2, std::slice::from_ref(&next), &[]);
+    manager.replace_team_roster(catalog(), 2, std::slice::from_ref(&next), &[]);
     manager.sync_to_fight(&mut fight);
 
     assert_eq!(manager.defeated_combatant_count(2, &hp), 2);
@@ -221,6 +290,12 @@ fn transform_replaces_identity_without_changing_uid_or_position() {
     crate::test_support::init_config();
     let mut original = Defender::build_monster_with_uid(251417, -7, 1, 2).unwrap();
     original.passive_skill.push(71004);
+    original.buffs.push(BuffInfo {
+        buff_id: Some(229103),
+        uid: Some(100_007),
+        from_uid: Some(-7),
+        ..Default::default()
+    });
     let mut fight = Fight {
         battle_id: Some(2514),
         defender: Some(FightTeam {
@@ -259,6 +334,7 @@ fn transform_replaces_identity_without_changing_uid_or_position() {
     assert!(changes.entity.passive_skill.contains(&1144005));
     assert!(!changes.entity.passive_skill.contains(&1144006));
     assert!(changes.entity.passive_skill.contains(&71004));
+    assert!(changes.entity.buffs.is_empty());
     assert_eq!(
         manager.passive_override(-7),
         Some(changes.entity.passive_skill.as_slice())

@@ -1,10 +1,6 @@
 use crate::engine::{
     entity::attr::AttrId,
-    manager::{
-        BattleManagers,
-        conduit::ConduitCommand,
-        ex_point::{ExPointCommand, ExPointSet},
-    },
+    manager::{BattleManagers, conduit::ConduitCommand},
     runtime::determinism::RoundDeterminism,
     skill::{
         action::{PostImmediateTargetBuffModifier, SkillModifiers, SkillRateModifier},
@@ -313,14 +309,6 @@ fn conduit_power_up_ops(
 
     let origin = super::command_origin(behavior)?;
     Some(vec![
-        RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Set(ExPointSet {
-            origin,
-            source_uid: context.source_uid,
-            target_uid: context.source_uid,
-            value: 0,
-            config_effect: behavior.spec.key.opcode,
-            effect_type: sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
-        }))),
         RuleOp::Command(BattleCommand::Conduit(ConduitCommand::ClearPowers {
             origin,
             source_uid: context.source_uid,

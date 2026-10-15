@@ -27,18 +27,34 @@ pub enum TargetEmissionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputOwner {
     Skill,
+    ActionSkillReaction,
+    NestedLifecycleMechanic,
     Parent,
     CausingEvent,
     SetupParent,
+    SetupOrFinalSettlementParent,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum DeathSettlement {
+    #[default]
+    ActionBoundary,
+    Immediate,
 }
 
 impl OutputOwner {
-    pub fn resolve(self, event_triggered: bool, setup_triggered: bool) -> Self {
+    pub fn resolve(self, event: Option<EventKind>, setup_triggered: bool) -> Self {
         match self {
-            Self::CausingEvent if event_triggered => Self::Parent,
+            Self::CausingEvent if event.is_some() => Self::Parent,
             Self::CausingEvent => Self::Skill,
             Self::SetupParent if setup_triggered => Self::Parent,
             Self::SetupParent => Self::Skill,
+            Self::SetupOrFinalSettlementParent
+                if setup_triggered || event == Some(EventKind::RoundEndFinalSettlement) =>
+            {
+                Self::Parent
+            }
+            Self::SetupOrFinalSettlementParent => Self::Skill,
             owner => owner,
         }
     }
@@ -92,6 +108,7 @@ pub struct BehaviorDefinition {
     pub target_emission_mode: TargetEmissionMode,
     pub output_owner: OutputOwner,
     pub output_owner_for: fn(&ParsedBehavior, &RuleOp, usize) -> Option<OutputOwner>,
+    pub death_settlement: DeathSettlement,
     pub references: fn(&ParsedBehavior) -> RuleReferences,
     pub card_play_role: CardPlayRole,
     pub condition_route_override: Option<ConditionRouteOverride>,
@@ -190,6 +207,7 @@ pub const fn definition<H: BehaviorHandler>(
         target_emission_mode: TargetEmissionMode::Each,
         output_owner: OutputOwner::Skill,
         output_owner_for: H::output_owner,
+        death_settlement: DeathSettlement::ActionBoundary,
         references: H::references,
         card_play_role: CardPlayRole::Action,
         condition_route_override: None,
@@ -329,6 +347,19 @@ pub const fn setup_parent_destination_definition<H: BehaviorHandler>(
     }
 }
 
+pub const fn setup_or_final_settlement_parent_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        destination: true,
+        output_owner: OutputOwner::SetupOrFinalSettlementParent,
+        ..definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
 pub const fn causing_event_destination_definition<H: BehaviorHandler>(
     opcode: i32,
     type_name: &'static str,
@@ -367,7 +398,19 @@ pub const fn destination_definition<H: BehaviorHandler>(
     }
 }
 
-pub const fn ally_action_destination_definition<H: BehaviorHandler>(
+pub const fn immediate_death_destination_definition<H: BehaviorHandler>(
+    opcode: i32,
+    type_name: &'static str,
+    kind: BehaviorKind,
+    phase: BehaviorPhase,
+) -> BehaviorDefinition {
+    BehaviorDefinition {
+        death_settlement: DeathSettlement::Immediate,
+        ..destination_definition::<H>(opcode, type_name, kind, phase)
+    }
+}
+
+pub const fn ally_action_owner_destination_definition<H: BehaviorHandler>(
     opcode: i32,
     type_name: &'static str,
     kind: BehaviorKind,
@@ -375,7 +418,7 @@ pub const fn ally_action_destination_definition<H: BehaviorHandler>(
 ) -> BehaviorDefinition {
     BehaviorDefinition {
         required_event: Some(EventKind::AllyAction),
-        ..destination_definition::<H>(opcode, type_name, kind, phase)
+        ..owner_destination_definition::<H>(opcode, type_name, kind, phase)
     }
 }
 
@@ -502,8 +545,11 @@ macro_rules! behavior_definitions {
     (@definition destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
-    (@definition ally_action_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
-        $crate::engine::skill::behavior::registry::ally_action_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    (@definition immediate_death_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::immediate_death_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
+    (@definition ally_action_owner_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::ally_action_owner_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
     (@definition settled_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::settled_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
@@ -525,6 +571,9 @@ macro_rules! behavior_definitions {
     };
     (@definition setup_parent_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::setup_parent_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
+    };
+    (@definition setup_or_final_settlement_parent_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
+        $crate::engine::skill::behavior::registry::setup_or_final_settlement_parent_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
     };
     (@definition causing_event_destination, $handler:ty, $opcode:expr, $type_name:literal, $kind:ident, $phase:ident) => {
         $crate::engine::skill::behavior::registry::causing_event_destination_definition::<$handler>($opcode, $type_name, $crate::engine::skill::behavior::classify::BehaviorKind::$kind, $crate::engine::skill::behavior::registry::BehaviorPhase::$phase)
@@ -585,10 +634,10 @@ behavior_definitions! {
     [60298] "AddMeiLeiErCharge" => super::resource::Handler, AddBuffOwnedCharge, Immediate, destination, super::resource::supports_buff_owned_charge;
     [60305] "ConsumeBuffMeiLeiEr" => super::resource::Handler, ConsumeBuffIntoChargeAndRewards, Immediate, destination, super::resource::supports_consume_buff_into_charge_and_rewards;
     [60291] "AddDevicePower" => super::resource::Handler, AddConduitPower, Immediate, destination, super::resource::supports_conduit_power;
-    [60292] "AddDeviceExPoint" => super::resource::Handler, AddConduitExPoint, Immediate, setup_parent_destination, super::resource::supports_ex_point_gain;
+    [60292] "AddDeviceExPoint" => super::resource::Handler, AddConduitExPoint, Immediate, setup_or_final_settlement_parent_destination, super::resource::supports_ex_point_gain;
     [60293] "SetDeviceSkillIndex" => super::resource::Handler, SetConduitSkillGroup, Immediate, destination, @route(ConditionRouteOverride::Trigger { key: DefinitionKey::new(19210, "HasBuffId"), event: EventKind::SkillAction, phase: Some(SkillPhase::AfterHit) }), super::resource::supports_conduit_skill_group;
     [60294] "StopDeviceSkill" => super::resource::Handler, StopConduitSkill, Immediate, destination, arguments::none;
-    [60308] "ConsumeBuffResetDevice" => super::resource::Handler, ConsumeBuffResetDevice, Immediate, ally_action_destination, super::resource::supports_consume_buff_reset_device;
+    [60308] "ConsumeBuffResetDevice" => super::resource::Handler, ConsumeBuffResetDevice, Immediate, ally_action_owner_destination, super::resource::supports_consume_buff_reset_device;
     [60297] "AddDeviceCounter" => super::resource::Handler, AddConduitCounter, Immediate, destination, super::resource::supports_conduit_counter;
     [100034] "StopDeviceSkill" => super::resource::Handler, StopConduitSkill, Immediate, destination, arguments::none;
     [60231] "RaspberryAddCount" => super::resource::Handler, RaspberryAddCount, Immediate, destination, super::resource::supports_raspberry_add_count;
@@ -758,7 +807,7 @@ behavior_definitions! {
     [60309] "FakeHpToHeal" => super::fake_hp::Handler, FakeHpToHeal, AfterDamage, destination;
     [20010] "Bloodlust" => crate::engine::damage::handler::Handler, Bloodlust, AfterDamage, destination, crate::engine::damage::handler::supports_bloodlust;
     [30005] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
-    [30006] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
+    [30006] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, immediate_death_destination, crate::engine::damage::handler::supports_lost_life;
     [30018] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
     [60288] "LostLife" => crate::engine::damage::handler::Handler, LostLife, Immediate, destination, crate::engine::damage::handler::supports_lost_life;
     [60310] "LostLife" => crate::engine::damage::handler::Handler, ToughnessOverflowDamage, Immediate, destination, crate::engine::damage::handler::supports_lost_life;

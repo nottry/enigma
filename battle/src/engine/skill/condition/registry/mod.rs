@@ -5,6 +5,7 @@ use super::{
     resource, target_identity, trigger,
 };
 use crate::engine::{
+    entity::passive::PassiveSourceKind,
     event::{
         kind::EventKind,
         subscription::{PublicationPhase, ReactionTiming},
@@ -132,6 +133,27 @@ pub enum ReactionMultiplicity {
     OncePerAction,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReactionTimingPolicy {
+    Fixed(ReactionTiming),
+    ByPassiveSource {
+        psychube: ReactionTiming,
+        fallback: ReactionTiming,
+    },
+}
+
+impl ReactionTimingPolicy {
+    pub const fn resolve(self, source: PassiveSourceKind) -> ReactionTiming {
+        match self {
+            Self::Fixed(timing) => timing,
+            Self::ByPassiveSource { psychube, fallback } => match source {
+                PassiveSourceKind::Psychube => psychube,
+                _ => fallback,
+            },
+        }
+    }
+}
+
 impl SkillActionTriggerPolicy {
     pub const fn child_skill_kind(self) -> Option<extra::ExtraSkillKind> {
         match self {
@@ -151,7 +173,7 @@ pub struct ConditionDefinition {
     pub role: ConditionRole,
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
-    pub reaction_timing: ReactionTiming,
+    pub reaction_timing: ReactionTimingPolicy,
     pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
@@ -176,7 +198,7 @@ pub struct ConditionMetadata {
     pub role: ConditionRole,
     pub dependencies: &'static [EventKind],
     pub publication: PublicationPhase,
-    pub reaction_timing: ReactionTiming,
+    pub reaction_timing: ReactionTimingPolicy,
     pub reaction_multiplicity: ReactionMultiplicity,
     pub consequence: ConsequencePolicy,
     pub behavior_ownership: BehaviorOwnership,
@@ -234,7 +256,7 @@ pub const fn predicate(dependencies: &'static [EventKind]) -> ConditionMetadata 
         role: ConditionRole::Predicate,
         dependencies,
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -260,7 +282,7 @@ pub const fn event_trigger(event: EventKind, phase: Option<SkillPhase>) -> Condi
         role: ConditionRole::Trigger { event, phase },
         dependencies: &[],
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -290,7 +312,7 @@ pub const fn setup_route(
         role: ConditionRole::Setup { stage, priority },
         dependencies,
         publication: PublicationPhase::AfterPublish,
-        reaction_timing: ReactionTiming::Immediate,
+        reaction_timing: ReactionTimingPolicy::Fixed(ReactionTiming::Immediate),
         reaction_multiplicity: ReactionMultiplicity::PerEvent,
         consequence: ConsequencePolicy::Default,
         behavior_ownership: BehaviorOwnership::Skill,
@@ -317,17 +339,25 @@ pub const fn before_publish(mut metadata: ConditionMetadata) -> ConditionMetadat
 }
 
 pub const fn after_skill(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterSkill;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterSkill);
     metadata
 }
 
 pub const fn after_shared_hit(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterSharedHit;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterSharedHit);
     metadata
 }
 
 pub const fn after_hit_skills(mut metadata: ConditionMetadata) -> ConditionMetadata {
-    metadata.reaction_timing = ReactionTiming::AfterHitSkills;
+    metadata.reaction_timing = ReactionTimingPolicy::Fixed(ReactionTiming::AfterHitSkills);
+    metadata
+}
+
+pub const fn psychube_after_action(mut metadata: ConditionMetadata) -> ConditionMetadata {
+    metadata.reaction_timing = ReactionTimingPolicy::ByPassiveSource {
+        psychube: ReactionTiming::AfterAction,
+        fallback: ReactionTiming::Immediate,
+    };
     metadata
 }
 
@@ -554,6 +584,7 @@ condition_definitions! {
     [19104] "HasBuffId" => buff::buff_present, filters_behavior_targets(setup_route(SetupStage::BuffSync, 0, &[]));
     [19105] "HasBuffId" => buff::buff_present, filters_behavior_targets(setup_route(SetupStage::AfterRoundStart, 0, &[]));
     [19106] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[]));
+    [19107] "HasBuffId" => buff::buff_present, filters_behavior_targets(event_trigger(EventKind::ActionQueueCommitted, None));
     [19021, 19201] "HasBuffId" => buff::buff_present, filters_behavior_targets(predicate(&[EventKind::BuffChanged]));
     [19204] "HasBuffId" => buff::buff_present, incoming_attack_modifier(filters_behavior_targets(predicate(&[EventKind::BuffChanged])));
     [19205] "HasBuffId" => buff::exact_buff_present, filters_behavior_targets(predicate(&[]));
@@ -679,19 +710,21 @@ condition_definitions! {
     [589] "PowerIncrChange" => resource::power_increase, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
     [749301] "PowerRatio" => resource::power_ratio, event_trigger(EventKind::SmallRoundEnd, None);
     [749209] "PowerRatio" => resource::power_ratio, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
-    [1010301] "ProgressValue" => resource::fight_progress_value, event_trigger(EventKind::SmallRoundEnd, None);
+    [1010301] "ProgressValue" => resource::fight_progress_value, reaction_targets_owner(event_trigger(EventKind::DefenderActionPhaseStart, None));
+    [1010012] "ProgressValue" => resource::fight_progress_value, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [710301] "PerHandCardHasSkillId" => card::hand_skill_presence, event_trigger(EventKind::SmallRoundEnd, None);
     [622304] "RoundUseSkillLevel" => card::round_used_minimum_rank, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [745304] "ExPointMax" => resource::ex_point_full, reaction_targets_owner(event_trigger(EventKind::RoundEndAfterSettlement, None));
     [571017] "LostPower" => resource::lost_power, reaction_targets_owner(event_trigger(EventKind::EurekaChanged, None));
-    [788210] "PerDeviceCurrCost" => resource::per_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
-    [788212] "PerDeviceCurrCost" => resource::per_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
+    [788210] "PerDeviceCurrCost" => resource::owner_conduit_current_cost, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
+    [788212] "PerDeviceCurrCost" => resource::team_conduit_current_cost, psychube_after_action(reaction_targets_causing_frame(event_trigger(EventKind::ConduitActivated, None)));
     [792208] "UseDeviceSkill" => none::unconditional_without_arguments, in_causing_frame(reaction_targets_owner(event_trigger(EventKind::ConduitActivated, None)));
     [792209] "UseDeviceSkill" => active_skill::device_hurt_skill, after_shared_hit(event_trigger(EventKind::TargetAttacked, None));
     [786203] "PerDeviceCounter" => conduit::counter, predicate(&[EventKind::ConduitActivated]);
     [787103] "DeviceExPoint" => conduit::ex_point, setup_route(SetupStage::RoundStart, 1, &[]);
     [787105] "DeviceExPoint" => conduit::ex_point, setup_route(SetupStage::AfterRoundStart, 0, &[]);
     [794103] "DeviceSkillIndex" => conduit::selected_group, setup_route(SetupStage::RoundStart, 1, &[]);
+    [794107] "DeviceSkillIndex" => conduit::selected_group, event_trigger(EventKind::ActionQueueCommitted, None);
     [794210] "DeviceSkillIndex" => conduit::selected_group, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [591, 592, 593] "None" => none::healed, event_trigger(EventKind::HpHealed, None);
     [613026, 613403] "PerTeamEntityExitCount" => lifecycle::team_entity_exited, event_trigger(EventKind::EntityDied, None);
@@ -736,6 +769,7 @@ condition_definitions! {
     [565104] "EnemyHighestTypeIdBuffCountMoreThan" => buff::enemy_highest_buff_type_at_least, predicate(&[]);
     [508208] "CareerCheck" => career::parse_career_check, predicate(&[]);
     [508212] "CareerCheck" => career::parse_career_check, event_trigger(EventKind::AllyAction, None);
+    [517010] "PerHasTargetCareer" => career::per_team_career_count, setup_route(SetupStage::OpeningSync, 0, &[]);
     [650002, 650102] "PerHasTargetCareerList" => career::parse_per_target_career_count, setup_route(SetupStage::EnterFight, 0, &[]);
     [621002] "CareerNatureHeroNum" => career::natural_ally_count, setup_route(SetupStage::EnterFight, 0, &[]);
     [562002] "CareerGroupHeroCountGE" => career::team_career_count_at_least, setup_route(SetupStage::EnterFight, 0, &[]);
@@ -841,6 +875,7 @@ condition_definitions! {
     [47204] "HurtNotRestraint" => parse::hurt_not_restrained, incoming_attack_modifier(predicate(&[]));
     [47209] "HurtNotRestraint" => parse::hurt_not_restrained, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53201] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
+    [53203] "HurtNumType" => parse::damage_target_count_kind, predicate(&[]);
     [53208] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterDamage));
     [53209] "HurtNumType" => parse::received_damage_target_count_kind, after_shared_hit(predicate(&[EventKind::TargetAttacked]));
     [53210] "HurtNumType" => parse::damage_target_count_kind, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
@@ -852,6 +887,7 @@ condition_definitions! {
     [538203] "EntityHurtMagic" => parse::mental_damage, predicate(&[]);
     [540203] "EntityHurtReal" => parse::reality_damage, predicate(&[]);
     [58201] "PerExPoint" => resource::per_ex_point, predicate(&[]);
+    [1] "LifeLess" => parse::hp_less, reaction_targets_owner(predicate(&[EventKind::HpLost]));
     [1103] "LifeLess" => parse::hp_less, setup_route(SetupStage::RoundStart, 1, &[]);
     [1104] "LifeLess" => parse::hp_less, setup_route(SetupStage::RoundStartLate, 0, &[]);
     [1105] "LifeLess" => parse::hp_less, setup_route(SetupStage::AfterRoundStart, 0, &[]);

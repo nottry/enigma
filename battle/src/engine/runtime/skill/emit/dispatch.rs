@@ -396,6 +396,14 @@ pub(in crate::engine::runtime) fn emit_ops(
         );
     }
     for (slot_index, slot) in effect.slots.iter().enumerate().skip(resume_slot) {
+        if execution.immediate_source_death()
+            && matches!(
+                active_phase,
+                Some(SkillPhase::AfterDamage | SkillPhase::HitPassives | SkillPhase::AfterHit)
+            )
+        {
+            continue;
+        }
         if invocation
             .condition_slot
             .is_some_and(|selected| selected != slot_index)
@@ -755,7 +763,10 @@ pub(in crate::engine::runtime) fn emit_ops(
                     let owner = (definition.output_owner_for)(&slot.behavior, &op, index)
                         .unwrap_or(definition.output_owner)
                         .resolve(
-                            matches!(trigger, SkillOpTrigger::Event(_)),
+                            match trigger {
+                                SkillOpTrigger::Event(event) => Some(event.kind()),
+                                _ => None,
+                            },
                             matches!(trigger, SkillOpTrigger::Setup { .. }),
                         );
                     SkillEmissionOp {

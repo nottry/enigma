@@ -160,7 +160,6 @@ fn apple_ultimate_settles_death_before_its_after_damage_heal() {
             sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
             sonettobuf::effect_type_enum::EffectType::Damage as i32,
             sonettobuf::effect_type_enum::EffectType::Dead as i32,
-            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
             sonettobuf::effect_type_enum::EffectType::Heal as i32,
         ]
     );

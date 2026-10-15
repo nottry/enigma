@@ -164,6 +164,19 @@ pub fn run_before_ai_round_start(
             )?,
         );
     }
+    let action_phase_reactions = drain::run_grouped_owner_event(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        BattleEvent::Kind(EventKind::DefenderActionPhaseStart),
+        &setup_owner_uids,
+        drain::ReactionLane::Skills,
+    )?;
+    if !action_phase_reactions.outcomes.is_empty() {
+        append(&mut result, action_phase_reactions);
+    }
     Ok(result)
 }
 
@@ -813,6 +826,10 @@ pub fn run_start(
             let initial_deck_num = setup.deck_num;
             let supplemental =
                 determinism.draw_cards(&setup.draw_pile, hand_size.saturating_sub(free_deal_count));
+            let normal_deck_draws = supplemental
+                .iter()
+                .filter(|card| !card_mechanic.is_device_card(managers, card))
+                .count();
             append(
                 &mut result,
                 drain::run(
@@ -843,6 +860,7 @@ pub fn run_start(
                                         key: DefinitionKey::new(0, "OpeningDraw"),
                                     },
                                     cards: supplemental,
+                                    normal_deck_draws,
                                 },
                             ),
                         ))],
@@ -1087,19 +1105,18 @@ pub fn run_start(
     let (initial_deck_num, setup_deck_num) =
         opening_deck_counts.expect("start schedule has one CardSetup stage");
     let mut setup_deck_counts = DrainResult::default();
-    push_cues(
-        &mut setup_deck_counts.frames,
-        [
-            RoundCue::DeckCount {
-                count: initial_deck_num,
-                team_type: 1,
-            },
-            RoundCue::DeckCount {
-                count: setup_deck_num,
-                team_type: 1,
-            },
-        ],
-    );
+    let mut deck_counts = Vec::new();
+    if initial_deck_num > 0 {
+        deck_counts.push(RoundCue::DeckCount {
+            count: initial_deck_num,
+            team_type: 1,
+        });
+    }
+    deck_counts.push(RoundCue::DeckCount {
+        count: setup_deck_num,
+        team_type: 1,
+    });
+    push_cues(&mut setup_deck_counts.frames, deck_counts);
     append_round_phase(&mut opening_refill, setup_deck_counts);
     append(&mut result, opening_refill);
     let owner_uids = pool

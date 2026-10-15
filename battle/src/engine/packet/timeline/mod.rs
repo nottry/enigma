@@ -180,8 +180,15 @@ fn project_frame(
         FrameOwner::ConduitStopped {
             source_uid,
             device_index,
+            skill_position,
         } => Ok(Some(normalize_framed_step(
-            EffectPacket::conduit_fight_step(*source_uid, 0, *device_index, 1, effects),
+            EffectPacket::conduit_fight_step(
+                *source_uid,
+                0,
+                *device_index,
+                *skill_position,
+                effects,
+            ),
         ))),
         FrameOwner::BuffAct {
             owner_uid,
@@ -201,10 +208,12 @@ fn project_frame(
             EffectPacket::effect_fight_step_action(*source_uid, *target_uid, 0, effects),
         ))),
         FrameOwner::SetupBuffAct { .. } => Ok(StepPacket::effect(effects)),
-        FrameOwner::SetupMechanic => Ok(StepPacket::effect(effects).map(|mut step| {
-            step.fake_timeline = Some(true);
-            step
-        })),
+        FrameOwner::SetupMechanic | FrameOwner::LifecycleMechanic => {
+            Ok(StepPacket::effect(effects).map(|mut step| {
+                step.fake_timeline = Some(true);
+                step
+            }))
+        }
         FrameOwner::SetupSide(_)
         | FrameOwner::SetupEntity { .. }
         | FrameOwner::StageWave { .. }
@@ -679,6 +688,9 @@ fn project_change(
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::Initialized(
             area,
         )) => vec![EffectPacket::conduit_initialized(area)],
+        BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::RosterRefreshed(
+            area,
+        )) => vec![EffectPacket::conduit_initialized(area)],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::GroupSelected {
             source_uid,
             team,
@@ -778,15 +790,10 @@ fn project_change(
             *after,
         )],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersCleared {
-            origin,
-            source_uid,
             team,
+            spent_by_power,
             ..
-        }) => vec![EffectPacket::conduit_powers_cleared(
-            *source_uid,
-            *team,
-            origin.key.opcode,
-        )],
+        }) => EffectPacket::conduit_powers_consumed(*team, spent_by_power),
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersReset {
             team,
         }) => vec![EffectPacket::conduit_powers_reset(*team)],
@@ -837,6 +844,19 @@ fn project_change(
             .map(|removal| EffectPacket::remove_entity_cards(removal.owner_uid, removal.team_type))
             .into_iter()
             .collect(),
+        BattleChange::Card(changes) if changes.kind == CardChangeKind::AiCardsInvalidated => {
+            changes
+                .ai_invalidations
+                .iter()
+                .map(|invalidated| {
+                    CardPacket::card_invalid(
+                        invalidated.card_index,
+                        invalidated.team_type,
+                        invalidated.config_effect,
+                    )
+                })
+                .collect()
+        }
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Moved => Vec::new(),
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Dissolved => changes
             .operation
@@ -1245,6 +1265,9 @@ fn project_change(
                 )]
             }
         },
+        BattleChange::ToughnessReset(change) => {
+            vec![EffectPacket::toughness_reset(*change)]
+        }
         BattleChange::ToughnessRecovered(change) => {
             vec![EffectPacket::toughness_recover(*change)]
         }

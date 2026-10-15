@@ -1,6 +1,105 @@
 use super::*;
 
 #[test]
+fn source_relative_buff_keeps_emit_time_snapshot_across_queued_targets() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    team_type: Some(1),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    team_type: Some(1),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers.attribute.override_ex(
+        10,
+        &sonettobuf::HeroExAttribute {
+            cri_dmg: Some(2_000),
+            ..Default::default()
+        },
+    );
+    let behavior = ParsedBehavior::new(1, "AddBuff", vec![31440116]);
+    let emit =
+        |managers: &BattleManagers, target_uid, transfer_count, behavior: &ParsedBehavior| {
+            let mut determinism = RoundDeterminism::default();
+            let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+            let mut target = crate::engine::skill::target::TargetContext::default();
+            let ops = super::super::super::rule_ops(
+                BehaviorOpContext {
+                    source_uid: 10,
+                    source_team: 1,
+                    target_uid,
+                    active_skill_id: 31441121,
+                    transfer_count,
+                    event: None,
+                    managers,
+                    pool: &pool,
+                    determinism: &mut determinism,
+                    modifiers: &mut modifiers,
+                    target: &mut target,
+                },
+                behavior,
+            )
+            .unwrap();
+            let [RuleOp::Command(BattleCommand::Buff(command))] = ops.as_slice() else {
+                panic!("expected one buff command");
+            };
+            command.clone()
+        };
+
+    let source_grant = emit(&managers, 10, 1, &behavior);
+    let ally_grant = emit(&managers, 11, 1, &behavior);
+    let repeated = emit(&managers, 11, 3, &behavior);
+    assert!(matches!(
+        repeated,
+        BuffCommand::GrantSourceRelative(crate::engine::manager::buff::SourceRelativeBuffGrant {
+            grant: BuffGrant { occurrences: 3, .. },
+            ..
+        })
+    ));
+    assert!(matches!(
+        emit(
+            &managers,
+            11,
+            1,
+            &ParsedBehavior::new(2, "AddBuffPowerUse", vec![31440116]),
+        ),
+        BuffCommand::GrantSourceRelative(_)
+    ));
+    managers.execute_buff(source_grant).unwrap();
+    assert_eq!(
+        managers.origin_attribute(10, crate::engine::entity::attr::AttrId::CriticalDmg),
+        2_600
+    );
+
+    let ally = managers.execute_buff(ally_grant).unwrap();
+    assert_eq!(
+        ally.change
+            .added
+            .as_ref()
+            .unwrap()
+            .buff
+            .act_info
+            .iter()
+            .filter_map(|info| info.str_param.as_deref())
+            .collect::<Vec<_>>(),
+        ["203#600"]
+    );
+}
+
+#[test]
 fn layer_copy_uses_the_buff_limit_and_preserves_main_target_overflow() {
     crate::test_support::init_config();
     let fight = Fight {
