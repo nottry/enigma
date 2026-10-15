@@ -119,19 +119,14 @@ pub fn hp_loss_state_update(
     if state.buff_uid != feature.buff_uid {
         return None;
     }
-    let lethal = amount >= managers.hp.current(feature.owner_uid);
-    let next = if lethal {
-        state.current
-    } else {
-        let maximum_hp = managers.hp.max(feature.owner_uid);
-        if maximum_hp <= 0 {
-            return Some(Vec::new());
-        }
-        let added = (i64::from(amount) * i64::from(state.maximum) / i64::from(maximum_hp))
-            .clamp(0, i64::from(i32::MAX)) as i32;
-        state.current.saturating_add(added).min(state.maximum)
-    };
-    if !lethal && next == state.current {
+    let maximum_hp = managers.hp.max(feature.owner_uid);
+    if maximum_hp <= 0 {
+        return Some(Vec::new());
+    }
+    let added = (i64::from(amount) * i64::from(state.maximum) / i64::from(maximum_hp))
+        .clamp(0, i64::from(i32::MAX)) as i32;
+    let next = state.current.saturating_add(added).min(state.maximum);
+    if next == state.current {
         return Some(Vec::new());
     }
     let mut buff = managers
@@ -315,24 +310,6 @@ mod tests {
         let managers = BattleManagers::seeded(&fight(8_000));
         let updates = hp_loss_state_update(&managers, &feature(&managers), 2_786).unwrap();
         assert_eq!(updates[0].marker.params, [8_108, 8_108]);
-    }
-
-    #[test]
-    fn lethal_hp_loss_republishes_unchanged_remembrance() {
-        crate::test_support::init_config();
-        let managers = BattleManagers::seeded(&fight(0));
-        let updates = hp_loss_state_update(&managers, &feature(&managers), 10_903)
-            .expect("Remembrance state is valid");
-
-        assert!(matches!(
-            updates.as_slice(),
-            [super::super::HpLossStateUpdate {
-                command: BuffCommand::SetInternalState(BuffSetState {
-                    act_info: Some(info), ..
-                }),
-                marker: BuffActInfoMarkerResult { params, .. }
-            }] if info[0].param == [0, 8_108] && params == &[0, 8_108]
-        ));
     }
 
     #[test]
