@@ -158,6 +158,57 @@ fn entity_settlement_uses_attacker_and_defender_roster_order() {
 }
 
 #[test]
+fn entity_settlement_advances_after_settlement_durations_after_reactions() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(103374114),
+                    layer: Some(2),
+                    duration: Some(2),
+                    from_uid: Some(10),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+
+    let result = run_entity_settlement(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[10],
+        SettlementSide::Attacker,
+    )
+    .unwrap();
+
+    assert_eq!(managers.buff.snapshot(10, 20).unwrap().duration, Some(1));
+    assert!(result.output.outcomes.iter().any(|outcome| {
+        matches!(
+            outcome,
+            RuleOutcome::Buff(change)
+                if change.origin.key.opcode
+                    == crate::engine::skill::buff_act::effect_time::ROUND_END_AFTER_SETTLEMENT
+                    && change.change.refreshed.iter().any(|refresh| {
+                        refresh.after.buff_id == Some(103374114)
+                            && refresh.after.duration == Some(1)
+                    })
+        )
+    }));
+}
+
+#[test]
 fn entity_settlement_buff_presence_fires_once_only_for_the_matching_owner() {
     init_config();
     let entity = |uid, buffs| FightEntityInfo {
