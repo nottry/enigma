@@ -1,4 +1,4 @@
-use super::parse::{RawSlot, parse_slot};
+use super::parse::{RawSlot, SlotParseError, parse_slot};
 use super::*;
 use crate::test_support::init_config;
 
@@ -373,10 +373,41 @@ fn parses_hash_cells_as_opcode_and_args() {
 
 #[test]
 fn parses_target_code_and_raw_args() {
-    let target = parse_target("103#7");
+    let target = parse_target("103#7").unwrap();
 
     assert_eq!(target.code, 103);
     assert_eq!(target.raw, vec![7]);
+    assert_eq!(parse_target(""), Some(TargetRequest::default()));
+    for raw in ["bad", "bad#103", "103#bad", "103##7", "103#"] {
+        assert_eq!(parse_target(raw), None, "{raw}");
+    }
+}
+
+#[test]
+fn slot_parser_rejects_malformed_targets() {
+    init_config();
+    let parse = |target, condition_target, logic_target| {
+        parse_slot(
+            config::configs::get(),
+            RawSlot {
+                behavior: "60225#530000751:100&530000752:25",
+                target,
+                condition: "",
+                condition_target,
+                logic_target,
+                limit: 0,
+                round_limit: 0,
+            },
+        )
+    };
+
+    for result in [
+        parse("bad", "103", "103"),
+        parse("103", "bad", "103"),
+        parse("999", "", "bad"),
+    ] {
+        assert_eq!(result, Err(SlotParseError::Target("bad".to_owned())));
+    }
 }
 
 #[test]
@@ -573,9 +604,12 @@ fn slot_parser_rejects_partial_weighted_skill_groups() {
         )
     };
 
-    assert!(parse("60225#530000751:100&530000752:25").is_some());
-    assert!(parse("60225#530000751:100&bad").is_none());
-    assert!(parse("60225#-530000751:100").is_none());
+    assert!(parse("60225#530000751:100&530000752:25").is_ok());
+    assert_eq!(
+        parse("60225#530000751:100&bad"),
+        Err(SlotParseError::Behavior)
+    );
+    assert_eq!(parse("60225#-530000751:100"), Err(SlotParseError::Behavior));
 }
 
 #[test]

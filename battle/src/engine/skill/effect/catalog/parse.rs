@@ -74,6 +74,17 @@ pub(super) fn rule_issue(db: &GameDB, effect_id: i32, slot: u8, raw: &str) -> Ru
     }
 }
 
+pub(super) fn target_issue(effect_id: i32, slot: u8, raw: String) -> RuleIssue {
+    RuleIssue {
+        effect_id,
+        slot,
+        opcode: None,
+        type_name: None,
+        raw,
+        reason: RuleIssueReason::MalformedTarget,
+    }
+}
+
 /// Returns the process-wide catalog used by config-backed tests and tools.
 pub fn global() -> &'static SkillEffectCatalog {
     use std::sync::OnceLock;
@@ -93,7 +104,13 @@ pub(super) struct RawSlot<'a> {
     pub(super) round_limit: i32,
 }
 
-pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Option<SkillEffectSlot> {
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum SlotParseError {
+    Behavior,
+    Target(String),
+}
+
+pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlot, SlotParseError> {
     let RawSlot {
         behavior,
         target,
@@ -104,13 +121,20 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Option<SkillEffectSlo
         round_limit,
     } = raw;
     let mut behavior_values = parse_parts(behavior);
-    let opcode = behavior_values.first()?.parse().ok()?;
+    let opcode = behavior_values
+        .first()
+        .ok_or(SlotParseError::Behavior)?
+        .parse()
+        .map_err(|_| SlotParseError::Behavior)?;
     behavior_values.remove(0);
-    let behavior_row = db.skill_behavior.get(opcode)?;
+    let behavior_row = db
+        .skill_behavior
+        .get(opcode)
+        .ok_or(SlotParseError::Behavior)?;
     let spec = BehaviorSpec::new(opcode, behavior_row.r#type.clone());
 
     if spec.kind == BehaviorKind::Unknown {
-        return None;
+        return Err(SlotParseError::Behavior);
     }
 
     let mut behavior_args = Vec::new();
@@ -133,7 +157,7 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Option<SkillEffectSlo
             .and_then(|definition| definition.supports)
             .is_some_and(|supports| supports(&behavior))
     {
-        return None;
+        return Err(SlotParseError::Behavior);
     }
 
     let conditions = parse_conditions(db, condition);
@@ -151,16 +175,19 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Option<SkillEffectSlo
         &conditions,
         &behavior.spec,
     );
-    let condition_target = parse_target(condition_target);
-    let parsed_target = parse_target(target);
+    let condition_target = parse_target(condition_target)
+        .ok_or_else(|| SlotParseError::Target(condition_target.to_owned()))?;
+    let parsed_target =
+        parse_target(target).ok_or_else(|| SlotParseError::Target(target.to_owned()))?;
     let target_from_condition = parsed_target.code == 999;
     let target = match parsed_target {
         target if target.code == 999 && condition_target.code != 0 => condition_target.clone(),
-        target if target.code == 999 => parse_target(logic_target),
+        target if target.code == 999 => parse_target(logic_target)
+            .ok_or_else(|| SlotParseError::Target(logic_target.to_owned()))?,
         target => target,
     };
 
-    Some(SkillEffectSlot {
+    Ok(SkillEffectSlot {
         behavior,
         conditions,
         compiled_route,
@@ -172,14 +199,18 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Option<SkillEffectSlo
     })
 }
 
-pub(super) fn parse_target(raw: &str) -> TargetRequest {
-    let mut values = parse_i32_list(raw);
-    let code = values.first().copied().unwrap_or_default();
-    if !values.is_empty() {
-        values.remove(0);
+pub(super) fn parse_target(raw: &str) -> Option<TargetRequest> {
+    if raw.trim().is_empty() {
+        return Some(TargetRequest::default());
     }
-
-    TargetRequest { code, raw: values }
+    let mut values = raw
+        .split('#')
+        .map(str::trim)
+        .map(str::parse::<i32>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let code = values.remove(0);
+    Some(TargetRequest { code, raw: values })
 }
 
 pub(super) fn parse_i32_list(raw: &str) -> Vec<i32> {
