@@ -156,8 +156,7 @@ pub(super) async fn buy_double_bonus(
         .await?
         .filter(|state| state.turnback_id == turnback_id)
         .ok_or(AppError::InvalidRequest)?;
-    let claimed_ids =
-        serde_json::from_str::<Vec<i32>>(&state.has_get_task_bonus).unwrap_or_default();
+    let claimed_ids = state.claimed_task_bonus_ids()?;
     let mut rewards = reward::RewardSet::default();
     if turnback::mark_buy_double_bonus_in_transaction(&mut tx, player_id, turnback_id).await?
         && let Some(row) = tables.turnback.get(turnback_id)
@@ -230,14 +229,14 @@ async fn claim_turnback_bonus_ids(
     };
     if state.turnback_id != turnback_id {
         return Ok((
-            serde_json::from_str(&state.has_get_task_bonus).unwrap_or_default(),
+            state.claimed_task_bonus_ids()?,
             Vec::new(),
             state.buy_double_bonus,
         ));
     }
 
-    let mut claimed = serde_json::from_str::<Vec<i32>>(&state.has_get_task_bonus)
-        .unwrap_or_default()
+    let mut claimed = state
+        .claimed_task_bonus_ids()?
         .into_iter()
         .collect::<std::collections::BTreeSet<_>>();
     let before = claimed.clone();
@@ -314,4 +313,56 @@ async fn rewarded_reply_in_transaction<T>(
         rewards,
         material_changes,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[tokio::test]
+    async fn malformed_claim_history_is_not_replaced() {
+        let data_dir = format!("{}/../data/excel2json", env!("CARGO_MANIFEST_DIR"));
+        let _ = config::init(&data_dir);
+        let tables = config::configs::get();
+        let bonus = tables.turnback_task_bonus.iter().next().unwrap();
+        let db = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        database::run_migrations(&db).await.unwrap();
+        sqlx::query(
+            "INSERT INTO users (id, username, created_at, updated_at)
+             VALUES (41, 'turnback-corrupt', 0, 0)",
+        )
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO user_turnback_state
+                (user_id, turnback_id, bonus_point, has_get_task_bonus)
+             VALUES (?, ?, ?, '{')",
+        )
+        .bind(41_i64)
+        .bind(bonus.turnback_id)
+        .bind(bonus.need_point)
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let mut tx = db.begin().await.unwrap();
+        let result =
+            claim_turnback_bonus_ids(&mut tx, 41, bonus.turnback_id, [bonus.id], tables).await;
+        assert!(matches!(result, Err(AppError::Serde(_))));
+        tx.rollback().await.unwrap();
+
+        let stored: String = sqlx::query_scalar(
+            "SELECT has_get_task_bonus FROM user_turnback_state WHERE user_id = 41",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert_eq!(stored, "{");
+    }
 }
