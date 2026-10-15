@@ -536,6 +536,11 @@ pub async fn on_fight_end_fight(
         let is_abort = msg.is_abort.unwrap_or(false);
         let compose_handled = tower_compose::matches_battle(active);
         let won = active.is_victory();
+        let act229_star = if !is_abort && won && active.act229_context.is_some() {
+            Some(active.star()?)
+        } else {
+            None
+        };
 
         if !is_abort
             && won
@@ -573,10 +578,7 @@ pub async fn on_fight_end_fight(
             dungeon::finish_fight_instance(ctx.state.db, player_id, fight_id).await?;
         }
 
-        if !is_abort
-            && won
-            && let Some(context) = active.act229_context
-        {
+        if let (Some(context), Some(star)) = (active.act229_context, act229_star) {
             act229_finish = Some(
                 ctx.player()?
                     .activity
@@ -585,7 +587,7 @@ pub async fn on_fight_end_fight(
                         context.activity_id,
                         context.stage_id,
                         active.current_round(),
-                        active.star()?,
+                        star,
                         &active.act229_heroes(),
                     )
                     .await?,
