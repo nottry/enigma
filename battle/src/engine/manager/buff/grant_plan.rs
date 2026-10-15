@@ -491,7 +491,7 @@ impl BuffManager {
                     HaloScope::AlliedTeam | HaloScope::OtherAllies => entity.team_type == team_type,
                     HaloScope::OpposingTeam => entity.team_type != team_type,
                 })
-                .filter(|entity| hp.current(entity.uid) > 0)
+                .filter(|entity| carrier.kind == HaloKind::Base || hp.current(entity.uid) > 0)
                 .filter(|entity| include_owner || entity.uid != emitter_uid)
             {
                 if self.has_fanout_buff(target.uid, fanout_buff_id, emitter_uid) {

@@ -439,7 +439,7 @@ fn base_halo_regrant_refreshes_the_same_team_instances() {
 }
 
 #[test]
-fn base_halo_regrant_refreshes_a_defeated_child_still_in_the_active_roster() {
+fn base_halo_grant_and_regrant_include_defeated_active_roster_children() {
     crate::test_support::init_config();
     let entity = |uid, current_hp| FightEntityInfo {
         uid: Some(uid),
@@ -450,7 +450,7 @@ fn base_halo_regrant_refreshes_a_defeated_child_still_in_the_active_roster() {
     let mut fight = Fight {
         version: Some(7),
         defender: Some(FightTeam {
-            entitys: vec![entity(-1, 100), entity(-2, 100), entity(-3, 100)],
+            entitys: vec![entity(-1, 100), entity(-2, 0), entity(-3, 0)],
             ..Default::default()
         }),
         ..Default::default()
@@ -474,7 +474,16 @@ fn base_halo_regrant_refreshes_a_defeated_child_still_in_the_active_roster() {
         })
     };
 
-    manager.execute(&hp, grant()).unwrap();
+    let initial = manager.execute(&hp, grant()).unwrap();
+    assert_eq!(
+        initial
+            .fanout
+            .iter()
+            .flat_map(|fanout| &fanout.added)
+            .map(|added| added.target_uid)
+            .collect::<Vec<_>>(),
+        vec![-2, -3]
+    );
     fight.defender.as_mut().unwrap().entitys = vec![entity(-1, 100), entity(-2, 0)];
     manager.sync_roster(&fight);
     hp.seed(&fight);
