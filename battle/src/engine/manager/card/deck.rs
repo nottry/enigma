@@ -354,6 +354,23 @@ impl CardDeck {
         }
     }
 
+    pub(super) fn persist_temporary(&mut self, indices: &[usize]) -> bool {
+        if indices.is_empty()
+            || indices.iter().any(|index| {
+                self.hand
+                    .get(*index)
+                    .is_none_or(|card| !card.temp_card.unwrap_or_default())
+            })
+            || indices.iter().copied().collect::<HashSet<_>>().len() != indices.len()
+        {
+            return false;
+        }
+        for index in indices {
+            self.hand[*index].temp_card = Some(false);
+        }
+        true
+    }
+
     pub fn compose(&mut self, indices: &[usize], result: CardInfo) -> Option<CardInfo> {
         let mut indices = indices.to_vec();
         indices.sort_unstable();

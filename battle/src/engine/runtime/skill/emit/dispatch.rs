@@ -525,17 +525,21 @@ pub(in crate::engine::runtime) fn emit_ops(
             }
             _ => continue,
         };
-        if condition_key.is_some_and(|condition_key| {
-            crate::engine::skill::condition::registry::find_key(
-                condition_key.opcode,
-                condition_key.type_name,
-            )
-            .is_some_and(|definition| {
-                definition
-                    .skill_action_trigger
-                    .rejects_extra_skill(execution.context.extra_skill_kind)
+        if condition_key
+            .and_then(|condition_key| {
+                crate::engine::skill::condition::registry::find_key(
+                    condition_key.opcode,
+                    condition_key.type_name,
+                )
             })
-        }) {
+            .is_some_and(|definition| {
+                definition.skill_action_trigger.requires_attack()
+                    && !execution.context.active_skill_is_attack
+                    || definition
+                        .skill_action_trigger
+                        .rejects_extra_skill(execution.context.extra_skill_kind)
+            })
+        {
             continue;
         }
         if condition_key.is_some_and(|condition_key| {

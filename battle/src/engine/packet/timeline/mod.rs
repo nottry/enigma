@@ -1129,6 +1129,9 @@ fn project_change(
         BattleChange::Card(changes) if changes.kind == CardChangeKind::TemporaryExpired => {
             Vec::new()
         }
+        BattleChange::Card(changes) if changes.kind == CardChangeKind::TemporaryPersisted => {
+            Vec::new()
+        }
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Drawn => {
             vec![CardPacket::cards_push(changes.after.clone(), 1)]
         }

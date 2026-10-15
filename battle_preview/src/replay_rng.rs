@@ -74,14 +74,7 @@ pub fn seed_round_determinism(
     round: &FightRound,
 ) {
     // The deal after actions draws teamACards2; the round-start refill then draws teamACards1.
-    runtime.seed_card_draws(
-        round
-            .team_a_cards2
-            .iter()
-            .chain(&round.team_a_cards1)
-            .cloned()
-            .collect(),
-    );
+    runtime.seed_card_draws(captured_round_draws(round));
     runtime.seed_crystal_cards(
         round
             .before_cards1
@@ -101,6 +94,51 @@ pub fn seed_round_determinism(
     ));
     let (hidden, additional, indirect_heals) = crit_choices(config::configs::get(), round);
     runtime.seed_crits(hidden, additional, indirect_heals);
+}
+
+fn captured_round_draws(round: &FightRound) -> Vec<CardInfo> {
+    fn visit(step: &FightStep, hand: &mut Option<Vec<CardInfo>>) {
+        for effect in &step.act_effect {
+            if effect.effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Cardspush as i32)
+            {
+                *hand = Some(effect.card_info_list.clone());
+            }
+            if let Some(nested) = effect.fight_step.as_ref() {
+                visit(nested, hand);
+            }
+        }
+    }
+
+    let mut before_refill = None;
+    for step in &round.fight_step {
+        visit(step, &mut before_refill);
+    }
+    let mut existing_temporary = before_refill
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|card| card.temp_card.unwrap_or_default())
+        .collect::<Vec<_>>();
+    let after_actions = round.team_a_cards2.iter().filter(|card| {
+        let Some(index) = existing_temporary
+            .iter()
+            .position(|existing| existing.uid == card.uid && existing.skill_id == card.skill_id)
+        else {
+            return !card.temp_card.unwrap_or_default();
+        };
+        existing_temporary.remove(index);
+        false
+    });
+
+    after_actions
+        .chain(
+            round
+                .team_a_cards1
+                .iter()
+                .filter(|card| !card.temp_card.unwrap_or_default()),
+        )
+        .cloned()
+        .collect()
 }
 
 fn moxie_reduction_resistance_choices(
@@ -834,6 +872,37 @@ mod tests {
         assert_eq!(
             determinism.take_start_decks(),
             Some((ai, normal.clone(), normal, 0))
+        );
+    }
+
+    #[test]
+    fn round_rng_import_excludes_only_existing_temporary_cards() {
+        let after_actions = card(10, 101, false);
+        let temporary = card(10, 999, true);
+        let normalized_temporary = card(10, 999, false);
+        let round_start = card(10, 102, false);
+
+        assert_eq!(
+            captured_round_draws(&FightRound {
+                fight_step: vec![FightStep {
+                    act_effect: vec![sonettobuf::ActEffect {
+                        effect_type: Some(
+                            sonettobuf::effect_type_enum::EffectType::Cardspush as i32,
+                        ),
+                        card_info_list: vec![temporary],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                team_a_cards2: vec![
+                    normalized_temporary.clone(),
+                    normalized_temporary.clone(),
+                    after_actions.clone(),
+                ],
+                team_a_cards1: vec![round_start.clone()],
+                ..Default::default()
+            }),
+            vec![normalized_temporary, after_actions, round_start]
         );
     }
 

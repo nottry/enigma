@@ -10,6 +10,45 @@ pub(super) struct OpeningRefillSeed {
     pub(super) draws: Vec<sonettobuf::CardInfo>,
 }
 
+pub fn run_device_card_persistence(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+) -> Result<DrainResult, DrainError> {
+    let indices = managers
+        .card
+        .hand()
+        .iter()
+        .enumerate()
+        .filter_map(|(index, card)| {
+            (card.temp_card.unwrap_or_default()
+                && crate::engine::mechanic::card::CardMechanic.is_device_card(managers, card))
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        return Ok(DrainResult::default());
+    }
+    drain::run(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        [RuleOp::Command(BattleCommand::Card(
+            CardCommand::PersistTemporary(CardPersistTemporary {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "DeviceCardPersistence"),
+                },
+                indices,
+            }),
+        ))],
+    )
+}
+
 /// Refills the normal hand deficit, then resolves composition and replacement rules.
 pub fn run_round_refill(
     managers: &mut BattleManagers,

@@ -338,14 +338,29 @@ fn active_skill_status_thresholds_preserve_strictness() {
                 threshold: 6,
             })
         );
-        let definition = find_key(opcode, type_name).unwrap();
-        assert_eq!(definition.role, ConditionRole::Predicate);
-        assert!(definition.dependencies.is_empty());
         assert_eq!(
-            definition.behavior_target_source,
+            find_key(opcode, type_name).unwrap().behavior_target_source,
             BehaviorTargetSource::Resolved
         );
     }
+
+    assert_eq!(
+        find_key(42203, "HasTypeBuffMoreThan").unwrap().role,
+        ConditionRole::Trigger {
+            event: EventKind::SkillEffectStarted,
+            phase: Some(SkillPhase::Immediate),
+        }
+    );
+    assert!(
+        find_key(42203, "HasTypeBuffMoreThan")
+            .unwrap()
+            .skill_action_trigger
+            .requires_attack()
+    );
+    assert_eq!(
+        find_key(43203, "HasTypeBuffLessThan").unwrap().role,
+        ConditionRole::Predicate
+    );
 }
 
 #[test]

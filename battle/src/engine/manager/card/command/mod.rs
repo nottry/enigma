@@ -116,6 +116,12 @@ pub struct CardMarkTemporary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardPersistTemporary {
+    pub origin: CommandOrigin,
+    pub indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardEnergyAllocation {
     pub origin: CommandOrigin,
     pub energies: Vec<i32>,
@@ -375,6 +381,7 @@ pub enum CardCommand {
     ChangeToTemporary(CardChangeToTemporary),
     EnchantHand(CardEnchantHand),
     MarkTemporary(CardMarkTemporary),
+    PersistTemporary(CardPersistTemporary),
     ExpireTemporary {
         origin: CommandOrigin,
     },
@@ -467,6 +474,7 @@ pub enum CardChangeKind {
     PrecastAdded,
     TemporaryChanged,
     Enchanted,
+    TemporaryPersisted,
     TemporaryExpired,
     Played,
     Drawn,
@@ -895,6 +903,19 @@ pub(super) fn execute(
             (
                 Some(change.origin),
                 CardChangeKind::TemporaryChanged,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+        }
+        CardCommand::PersistTemporary(change) => {
+            if !manager.persist_temporary(&change.indices) {
+                return Err(CardCommandError::InvalidCommand);
+            }
+            (
+                Some(change.origin),
+                CardChangeKind::TemporaryPersisted,
                 None,
                 None,
                 Vec::new(),

@@ -774,7 +774,9 @@ impl BuffManager {
         } else {
             typed_count_repeat(&definition, args.layer, args.layer_specified, args.count)
         };
-        let action = if !semantic_grant_allowed {
+        let action = if !semantic_grant_allowed
+            || (unconditional && definition.shares_timed_stack_cap() && stack_layer <= 0)
+        {
             GrantAction::KeepExisting
         } else if unconditional {
             GrantAction::Add
@@ -783,7 +785,8 @@ impl BuffManager {
         } else if resisted {
             GrantAction::Resist
         } else {
-            let action = self.resolve_grant_action(route, &definition, &policy, args, repeat);
+            let action =
+                self.resolve_grant_action(route, &definition, &policy, args, repeat, stack_layer);
             if matches!(request.input, GrantInput::ChildUid { .. })
                 && action == GrantAction::ReplaceExisting
             {

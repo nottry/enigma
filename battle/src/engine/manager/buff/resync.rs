@@ -15,13 +15,50 @@ impl BuffManager {
         let buff_id = buff.buff_id.filter(|id| *id > 0).ok_or_else(|| {
             format!("captured buff uid={buff_uid} on target {target_uid} has no valid buff id")
         })?;
+        let mut changed = false;
+        if let Ok(policy) = BuffPolicy::configured(self.catalog().game_data(), buff_id)
+            && policy.on_duplicate != DuplicateGrant::AddSeparateCopy
+        {
+            let stale_uids = self
+                .buffs
+                .iter()
+                .filter(|active| {
+                    active.owner_uid == target_uid
+                        && active.buff.uid != Some(buff_uid)
+                        && match policy.match_existing {
+                            ExistingBuffMatch::SameId => active.buff.buff_id == Some(buff_id),
+                            ExistingBuffMatch::SameIdAndDuration => {
+                                active.buff.buff_id == Some(buff_id)
+                                    && active.buff.duration == buff.duration
+                            }
+                            ExistingBuffMatch::SharedTypeFamily => {
+                                active.type_id == policy.effective_type_id
+                                    && active
+                                        .definition
+                                        .as_ref()
+                                        .is_some_and(BuffDefinition::matches_type_family)
+                            }
+                        }
+                })
+                .filter_map(|active| active.buff.uid)
+                .collect::<Vec<_>>();
+            changed = !stale_uids.is_empty();
+            self.buffs.retain(|active| {
+                !stale_uids
+                    .iter()
+                    .any(|uid| active.owner_uid == target_uid && active.buff.uid == Some(*uid))
+            });
+            for stale_uid in stale_uids {
+                self.remove_act_states(stale_uid);
+            }
+        }
         if let Some(index) = self
             .buffs
             .iter()
             .position(|active| active.owner_uid == target_uid && active.buff.uid == Some(buff_uid))
         {
             if self.buffs[index].buff == buff {
-                return Ok(false);
+                return Ok(changed);
             }
             let semantic_identity_changed = self.buffs[index].buff.buff_id != Some(buff_id)
                 || self.buffs[index].buff.from_uid != buff.from_uid;
@@ -99,6 +136,10 @@ mod tests {
     use sonettobuf::{FightEntityInfo, FightTeam};
 
     fn manager(target_buff: Option<BuffInfo>) -> BuffManager {
+        manager_with_buffs(target_buff.into_iter().collect())
+    }
+
+    fn manager_with_buffs(target_buffs: Vec<BuffInfo>) -> BuffManager {
         crate::test_support::init_config();
         let mut manager = BuffManager::default();
         manager.seed(&Fight {
@@ -118,7 +159,7 @@ mod tests {
                     FightEntityInfo {
                         uid: Some(20),
                         team_type: Some(1),
-                        buffs: target_buff.into_iter().collect(),
+                        buffs: target_buffs,
                         ..Default::default()
                     },
                 ],
@@ -170,5 +211,89 @@ mod tests {
         assert_eq!(manager.grant_value(1, 1127), Some(140));
         assert_eq!(manager.buff_id_amount(20, 31050111), 0);
         assert_eq!(manager.buff_id_amount(20, 31430131), 1);
+    }
+
+    #[test]
+    fn observed_single_copy_replaces_the_generated_uid() {
+        let mut manager = manager(Some(BuffInfo {
+            uid: Some(1),
+            buff_id: Some(109320111),
+            from_uid: Some(20),
+            layer: Some(1),
+            ..Default::default()
+        }));
+
+        assert!(
+            manager
+                .resync_observed_present(
+                    20,
+                    BuffInfo {
+                        uid: Some(2),
+                        buff_id: Some(109320111),
+                        from_uid: Some(20),
+                        layer: Some(2),
+                        ..Default::default()
+                    }
+                )
+                .unwrap()
+        );
+
+        assert!(manager.snapshot(20, 1).is_none());
+        assert_eq!(manager.snapshot(20, 2).unwrap().layer, Some(2));
+        assert_eq!(manager.buff_id_amount(20, 109320111), 2);
+    }
+
+    #[test]
+    fn observed_single_copy_removes_a_duplicate_beside_the_known_uid() {
+        let buff = |uid, layer| BuffInfo {
+            uid: Some(uid),
+            buff_id: Some(109320111),
+            from_uid: Some(20),
+            layer: Some(layer),
+            ..Default::default()
+        };
+        let mut manager = manager_with_buffs(vec![buff(1, 1), buff(2, 1)]);
+
+        assert!(manager.resync_observed_present(20, buff(2, 2)).unwrap());
+
+        assert!(manager.snapshot(20, 1).is_none());
+        assert_eq!(manager.snapshot(20, 2).unwrap().layer, Some(2));
+        assert_eq!(manager.buff_id_amount(20, 109320111), 2);
+    }
+
+    #[test]
+    fn observed_stale_duplicate_reports_reconciliation() {
+        let buff = |uid| BuffInfo {
+            uid: Some(uid),
+            buff_id: Some(109320111),
+            from_uid: Some(20),
+            layer: Some(1),
+            ..Default::default()
+        };
+        let mut manager = manager_with_buffs(vec![buff(1), buff(2)]);
+
+        assert!(manager.resync_observed_present(20, buff(2)).unwrap());
+
+        assert!(manager.snapshot(20, 1).is_none());
+        assert!(manager.snapshot(20, 2).is_some());
+    }
+
+    #[test]
+    fn observed_timed_layer_keeps_a_different_duration_copy() {
+        let buff = |uid, duration| BuffInfo {
+            uid: Some(uid),
+            buff_id: Some(7111),
+            from_uid: Some(20),
+            layer: Some(1),
+            duration: Some(duration),
+            ..Default::default()
+        };
+        let mut manager = manager_with_buffs(vec![buff(1, 1), buff(2, 2)]);
+
+        assert!(manager.resync_observed_present(20, buff(3, 1)).unwrap());
+
+        assert!(manager.snapshot(20, 1).is_none());
+        assert!(manager.snapshot(20, 2).is_some());
+        assert!(manager.snapshot(20, 3).is_some());
     }
 }
