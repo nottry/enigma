@@ -658,6 +658,21 @@ fn condition_kind_matches(
                 .sum();
             compare_value(amount, *compare, *threshold)
         }),
+        ParsedConditionKind::VisibleStackedStatusTypeCount {
+            status_ids,
+            compare,
+            threshold,
+        } => managers.is_some_and(|managers| {
+            let amount = condition_targets
+                .iter()
+                .map(|uid| {
+                    managers
+                        .buff
+                        .visible_stacked_status_type_count(*uid, status_ids)
+                })
+                .sum();
+            compare_value(amount, *compare, *threshold)
+        }),
         ParsedConditionKind::PerTeamBuffStatusTypeCount {
             status_ids,
             divisor,

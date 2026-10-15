@@ -318,26 +318,26 @@ fn after_damage_status_threshold_checks_the_actor() {
 
 #[test]
 fn active_skill_status_thresholds_preserve_strictness() {
-    for (opcode, type_name, compare) in [
-        (
-            42203,
-            "HasTypeBuffMoreThan",
-            crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
-        ),
-        (
-            43203,
-            "HasTypeBuffLessThan",
-            crate::engine::skill::condition::ConditionCompare::LessThan,
-        ),
+    assert_eq!(
+        parse(42203, "HasTypeBuffMoreThan", &["6".into(), "1,5".into()]),
+        Some(ParsedConditionKind::VisibleStackedStatusTypeCount {
+            status_ids: vec![1, 5],
+            compare: crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
+            threshold: 6,
+        })
+    );
+    assert_eq!(
+        parse(43203, "HasTypeBuffLessThan", &["6".into(), "1,5".into()]),
+        Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
+            status_ids: vec![1, 5],
+            compare: crate::engine::skill::condition::ConditionCompare::LessThan,
+            threshold: 6,
+        })
+    );
+    for (opcode, type_name) in [
+        (42203, "HasTypeBuffMoreThan"),
+        (43203, "HasTypeBuffLessThan"),
     ] {
-        assert_eq!(
-            parse(opcode, type_name, &["6".into(), "1,5".into()]),
-            Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
-                status_ids: vec![1, 5],
-                compare,
-                threshold: 6,
-            })
-        );
         assert_eq!(
             find_key(opcode, type_name).unwrap().behavior_target_source,
             BehaviorTargetSource::Resolved

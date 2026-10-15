@@ -527,7 +527,7 @@ fn visible_status_threshold_still_collects_attack_skill_rate() {
         skill_id: 100,
         slots: vec![slot],
     });
-    let buffs = [31450171, 31450143, 30250001, 31440116, 31450111]
+    let mut buffs = [31450171, 31450143, 31440116, 31450111]
         .into_iter()
         .enumerate()
         .map(|(index, buff_id)| BuffInfo {
@@ -536,7 +536,14 @@ fn visible_status_threshold_still_collects_attack_skill_rate() {
             from_uid: Some(10),
             ..Default::default()
         })
-        .collect();
+        .collect::<Vec<_>>();
+    buffs.push(BuffInfo {
+        uid: Some(5),
+        buff_id: Some(103374114),
+        from_uid: Some(-2),
+        layer: Some(2),
+        ..Default::default()
+    });
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![FightEntityInfo {

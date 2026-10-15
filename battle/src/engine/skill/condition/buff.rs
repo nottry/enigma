@@ -312,6 +312,18 @@ pub fn visible_buff_status_types_at_least(
     })
 }
 
+pub fn visible_stacked_status_types_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::VisibleStackedStatusTypeCount {
+        status_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::GreaterThanOrEqual,
+        threshold: raw_args.first()?.parse().ok()?,
+    })
+}
+
 pub fn visible_buff_status_types_less_than(
     _: i32,
     _: &str,
