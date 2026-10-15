@@ -10,6 +10,7 @@ use crate::engine::{
             CARD_ENERGY_CLEAR_ORIGIN, CARD_PLAY_ORIGIN, CardCommand, CardInvalidatePlayed,
             CardRefillOne, CardRefreshAiQueue, CardSetAiQueue, CardSetup,
         },
+        entity::RosterLane,
         eureka::{EurekaChange, EurekaCommand, PowerType},
         ex_point::{ExPointChange, ExPointCommand},
     },
@@ -279,12 +280,6 @@ fn append_to_event(items: &mut Vec<FrameItem>, frame: SemanticFrame, event: &Bat
     }
 }
 
-#[derive(Default)]
-pub struct AiActionResult {
-    pub(crate) output: DrainResult,
-    pub(crate) invalidated_card_rewards: Vec<InvalidatedAiCardReward>,
-}
-
 pub(crate) struct AiTurnPlan {
     choices: Vec<AiSkillChoice>,
 }
@@ -338,12 +333,6 @@ impl AiTurnPlan {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct InvalidatedAiCardReward {
-    owner_uid: i64,
-    delta: i32,
-}
-
 /// Executes registered AI choices through the same skill and manager pipeline.
 #[allow(clippy::too_many_arguments)]
 pub fn run_ai_actions(
@@ -355,10 +344,10 @@ pub fn run_ai_actions(
     context: TargetContext,
     choices: impl IntoIterator<Item = AiSkillChoice>,
     promotions: &[crate::engine::fight::reserve::Promotion],
-) -> Result<AiActionResult, DrainError> {
-    let mut result = AiActionResult::default();
+) -> Result<DrainResult, DrainError> {
+    let mut result = DrainResult::default();
     append(
-        &mut result.output,
+        &mut result,
         drain::run_command_group(
             managers,
             pool,
@@ -385,9 +374,13 @@ pub fn run_ai_actions(
             let resource_owner_uid = promotions
                 .iter()
                 .find(|promotion| promotion.defeated_uid == choice.source_uid)
-                .map_or(choice.source_uid, |promotion| promotion.entering_uid);
+                .map(|promotion| promotion.entering_uid)
+                .or_else(|| {
+                    (managers.entity.roster_lane(choice.source_uid) != Some(RosterLane::Replaced))
+                        .then_some(choice.source_uid)
+                });
             push_attributed_cue(
-                &mut result.output.frames,
+                &mut result.frames,
                 choice.source_uid,
                 RoundCue::CardInvalid {
                     card_index,
@@ -405,24 +398,33 @@ pub fn run_ai_actions(
                     entity,
                 )
             });
-            if let Some(delta) = card_play_resource_delta(
-                managers,
-                resource_owner_uid,
-                catalog.grants_resource_on_card_play(choice.skill_id),
-                is_ultimate,
-            ) {
-                result
-                    .invalidated_card_rewards
-                    .push(InvalidatedAiCardReward {
-                        owner_uid: resource_owner_uid,
-                        delta,
-                    });
+            if let Some((resource_owner_uid, delta)) = resource_owner_uid.and_then(|owner_uid| {
+                card_play_resource_delta(
+                    managers,
+                    owner_uid,
+                    catalog.grants_resource_on_card_play(choice.skill_id),
+                    is_ultimate,
+                )
+                .map(|delta| (owner_uid, delta))
+            }) {
+                append(
+                    &mut result,
+                    run_card_composition_rewards(
+                        managers,
+                        pool,
+                        catalog,
+                        determinism,
+                        context,
+                        CARD_PLAY_ORIGIN,
+                        [(resource_owner_uid, delta)],
+                    )?,
+                );
             }
             continue;
         }
         if card_skill_is_blocked(managers, catalog, choice.source_uid, choice.skill_id) {
             push_attributed_cue(
-                &mut result.output.frames,
+                &mut result.frames,
                 choice.source_uid,
                 RoundCue::CardInvalid {
                     card_index,
@@ -444,7 +446,7 @@ pub fn run_ai_actions(
             && !crate::engine::mechanic::card::CardMechanic.ultimate_ready(managers, entity)
         {
             push_attributed_cue(
-                &mut result.output.frames,
+                &mut result.frames,
                 choice.source_uid,
                 RoundCue::CardInvalid {
                     card_index,
@@ -472,7 +474,7 @@ pub fn run_ai_actions(
                 crate::engine::skill::action::SkillTarget::Explicit(choice.target_uid);
         }
         append(
-            &mut result.output,
+            &mut result,
             run_active_action(
                 managers,
                 pool,
@@ -490,27 +492,6 @@ pub fn run_ai_actions(
         );
     }
     Ok(result)
-}
-
-fn run_invalidated_ai_card_rewards(
-    managers: &mut BattleManagers,
-    pool: &TargetPool,
-    catalog: &SkillEffectCatalog,
-    determinism: &mut RoundDeterminism,
-    context: TargetContext,
-    rewards: Vec<InvalidatedAiCardReward>,
-) -> Result<DrainResult, DrainError> {
-    run_card_composition_rewards(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        CARD_PLAY_ORIGIN,
-        rewards
-            .into_iter()
-            .map(|reward| (reward.owner_uid, reward.delta)),
-    )
 }
 
 pub fn run_no_action_round(

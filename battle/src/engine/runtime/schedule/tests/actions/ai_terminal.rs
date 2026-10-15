@@ -80,7 +80,7 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
     )
     .unwrap();
 
-    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
     let skill = steps
         .iter()
         .find(|step| step.act_id == Some(116330112))
@@ -126,7 +126,7 @@ fn ai_action_phase_consumes_the_current_queue() {
 }
 
 #[test]
-fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
+fn ai_actions_credit_a_promoted_replacement_when_the_card_is_invalidated() {
     init_config();
     let fight = Fight {
         attacker: Some(FightTeam {
@@ -184,26 +184,8 @@ fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
     .unwrap();
 
     assert_eq!(managers.ex_point.get(-1), 0);
-    assert_eq!(managers.ex_point.get(-2), 0);
-    let AiActionResult {
-        output,
-        invalidated_card_rewards,
-    } = result;
-    let invalidated_steps = crate::engine::packet::timeline::project(&output.frames).unwrap();
-    let rewards = run_after_ai_round_end(
-        &mut managers,
-        &pool,
-        &catalog,
-        &mut RoundDeterminism::default(),
-        TargetContext::default(),
-        invalidated_card_rewards,
-    )
-    .unwrap();
-
-    assert_eq!(managers.ex_point.get(-1), 0);
     assert_eq!(managers.ex_point.get(-2), 1);
-    let mut steps = invalidated_steps;
-    steps.extend(crate::engine::packet::timeline::project(&rewards.frames).unwrap());
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
     assert_eq!(
         steps[0].act_effect[0].effect_type,
         Some(sonettobuf::effect_type_enum::EffectType::Cardinvalid as i32)
@@ -215,13 +197,6 @@ fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
         .iter()
         .position(|step| step.from_id == Some(-1))
         .unwrap();
-    let small_round_end = steps
-        .iter()
-        .position(|step| {
-            step.act_effect[0].effect_type
-                == Some(sonettobuf::effect_type_enum::EffectType::Smallroundend as i32)
-        })
-        .unwrap();
     let reward = steps
         .iter()
         .position(|step| {
@@ -229,16 +204,99 @@ fn ai_actions_credit_a_promoted_replacement_for_an_invalidated_basic_card() {
                 == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
         })
         .unwrap();
-    let clear = steps
-        .iter()
-        .position(|step| {
-            step.act_effect[0].effect_type
-                == Some(sonettobuf::effect_type_enum::EffectType::Clearuniversalcard as i32)
-        })
-        .unwrap();
-    assert!(invalid < small_round_end && small_round_end < reward && reward < clear);
+    assert!(invalid < reward);
     assert_eq!(steps[reward].act_effect[0].effect_num, Some(1));
     assert_eq!(steps[reward].act_effect[0].target_id, Some(-2));
+}
+
+#[test]
+fn ai_actions_do_not_credit_a_defeated_combatant_replaced_by_a_summon() {
+    init_config();
+    let entity = |uid, position, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        position: Some(position),
+        current_hp: Some(current_hp),
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 100)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 1, 100), entity(-2, 2, 0), entity(-3, 3, 0)],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_entity(crate::engine::manager::entity::EntityCommand {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(60008, "Summon"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            operation: crate::engine::manager::entity::EntityOperation::SummonCombatant {
+                model_id: 30111003,
+                position: 2,
+            },
+        })
+        .unwrap();
+    let catalog = SkillEffectCatalog::from_roots(
+        config::configs::get(),
+        managers
+            .entity
+            .passive_skills(-4)
+            .into_iter()
+            .flatten()
+            .copied(),
+        std::iter::empty(),
+    );
+
+    let result = run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [
+            AiSkillChoice {
+                source_uid: -3,
+                skill_id: 100,
+                target_uid: 10,
+            },
+            AiSkillChoice {
+                source_uid: -2,
+                skill_id: 100,
+                target_uid: 10,
+            },
+        ],
+        &[],
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(-2), 0);
+    assert_eq!(managers.ex_point.get(-3), 1);
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let rewards = steps
+        .iter()
+        .flat_map(|step| &step.act_effect)
+        .filter(|effect| {
+            effect.effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Expointchange as i32)
+        })
+        .map(|effect| effect.target_id)
+        .collect::<Vec<_>>();
+    assert_eq!(rewards, [Some(-3)]);
 }
 
 #[test]
@@ -301,7 +359,7 @@ fn ai_actions_invalidate_a_queued_ultimate_after_its_resource_is_lost() {
     .unwrap();
 
     assert_eq!(managers.ex_point.get(-1), 0);
-    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
     assert_eq!(steps.len(), 1);
     assert_eq!(steps[0].from_id, Some(-1));
     assert!(!steps.iter().any(|step| step.act_id == Some(40231731)));
@@ -742,7 +800,7 @@ fn lethal_skill_cost_settles_before_damage_and_stops_later_behaviors() {
     )
     .unwrap();
 
-    let steps = crate::engine::packet::timeline::project(&result.output.frames).unwrap();
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
     let skill = steps
         .iter()
         .find_map(|step| find_skill(step, 119381126))
