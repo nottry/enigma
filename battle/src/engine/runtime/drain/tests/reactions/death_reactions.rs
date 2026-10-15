@@ -44,6 +44,48 @@ fn allied_death_condition_fires_for_the_surviving_owner() {
 }
 
 #[test]
+fn exact_dead_condition_fires_for_the_defeated_owner() {
+    crate::test_support::init_config();
+
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                passive_skill: vec![211203],
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    managers.hp.lose(10, 100, -1);
+
+    run_event(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        BattleEvent::EntityDied(crate::engine::event::payload::EntityDiedEvent {
+            source_uid: -1,
+            target_uid: 10,
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(managers.buff.buff_id_amount(10, 2112031), 1);
+}
+
+#[test]
 fn self_death_condition_only_fires_for_the_defeated_owner() {
     crate::test_support::init_config();
 
