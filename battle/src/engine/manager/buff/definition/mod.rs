@@ -708,6 +708,10 @@ impl BuffDefinition {
             .any(|kind| self.has_include_type(kind))
     }
 
+    pub(super) fn shares_timed_stack_cap(&self) -> bool {
+        self.duration > 0 && self.has_include_type(BuffIncludeType::Stacked)
+    }
+
     pub(super) fn reserves_child_on_layer_refresh(&self) -> bool {
         self.status != BuffStatus::Special
             || self.is_layer_type()
