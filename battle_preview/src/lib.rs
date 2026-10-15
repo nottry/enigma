@@ -44,8 +44,70 @@ pub fn preview_output_text(
 
 pub fn comparable_json(mut value: serde_json::Value) -> serde_json::Value {
     normalize_live_json(&mut value);
+    strip_client_ignored_enemy_card_cleanup_steps(&mut value);
     prune_empty_json(&mut value);
     value
+}
+
+fn strip_client_ignored_enemy_card_cleanup_steps(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(steps) = map
+                .get_mut("fightStep")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                steps.retain(|step| !client_ignored_enemy_card_cleanup_step(step));
+            }
+            for value in map.values_mut() {
+                strip_client_ignored_enemy_card_cleanup_steps(value);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                strip_client_ignored_enemy_card_cleanup_steps(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn client_ignored_enemy_card_cleanup_step(value: &serde_json::Value) -> bool {
+    use sonettobuf::fight_step::ActType;
+
+    if value.get("actType").and_then(serde_json::Value::as_i64)
+        != Some(i64::from(ActType::Effect as i32))
+        || ["actId", "fromId", "toId"]
+            .into_iter()
+            .any(|field| value.get(field).and_then(serde_json::Value::as_i64) != Some(0))
+    {
+        return false;
+    }
+    let Some(effects) = value
+        .get("actEffect")
+        .and_then(serde_json::Value::as_array)
+        .filter(|effects| !effects.is_empty())
+    else {
+        return false;
+    };
+    effects.iter().all(client_ignored_enemy_card_cleanup_effect)
+}
+
+fn client_ignored_enemy_card_cleanup_effect(value: &serde_json::Value) -> bool {
+    use sonettobuf::effect_type_enum::EffectType;
+
+    let Some(effect_type) = value.get("effectType").and_then(serde_json::Value::as_i64) else {
+        return false;
+    };
+    if [EffectType::Cardremove2, EffectType::Removeentitycards]
+        .into_iter()
+        .any(|kind| effect_type == i64::from(kind as i32))
+    {
+        return value.get("teamType").and_then(serde_json::Value::as_i64) == Some(2);
+    }
+    effect_type == i64::from(EffectType::Fightstep as i32)
+        && value
+            .get("fightStep")
+            .is_some_and(client_ignored_enemy_card_cleanup_step)
 }
 
 /// Canonical values used for parity checks, independent of capture presentation.
@@ -507,6 +569,97 @@ mod tests {
             first_diff_path(&generated, &captured, ""),
             Some("/fight/captureOnly".to_owned())
         );
+    }
+
+    #[test]
+    fn canonical_comparison_ignores_dedicated_enemy_card_cleanup_steps() {
+        use sonettobuf::effect_type_enum::EffectType;
+        use sonettobuf::fight_step::ActType;
+
+        fn step(
+            act_type: ActType,
+            act_id: i64,
+            from_id: i64,
+            to_id: i64,
+            effects: Vec<serde_json::Value>,
+        ) -> serde_json::Value {
+            json!({
+                "actType": act_type as i32,
+                "actId": act_id,
+                "fromId": from_id,
+                "toId": to_id,
+                "actEffect": effects
+            })
+        }
+        fn cleanup(effect_type: EffectType, team_type: i32) -> serde_json::Value {
+            json!({ "effectType": effect_type as i32, "teamType": team_type })
+        }
+        fn round(steps: Vec<serde_json::Value>) -> serde_json::Value {
+            json!({ "round": { "fightStep": steps } })
+        }
+
+        let deck_count = step(
+            ActType::Effect,
+            0,
+            0,
+            0,
+            vec![cleanup(EffectType::Carddecknum, 1)],
+        );
+        let generated = json!({ "round": { "fightStep": [deck_count.clone()] } });
+        let nested_cleanup = |effect_type| {
+            json!({
+                "effectType": EffectType::Fightstep as i32,
+                "fightStep": step(
+                    ActType::Effect,
+                    0,
+                    0,
+                    0,
+                    vec![cleanup(effect_type, 2)]
+                )
+            })
+        };
+        let captured = round(vec![
+            step(
+                ActType::Effect,
+                0,
+                0,
+                0,
+                vec![
+                    nested_cleanup(EffectType::Cardremove2),
+                    nested_cleanup(EffectType::Removeentitycards),
+                ],
+            ),
+            deck_count,
+        ]);
+
+        let (generated, captured) = canonical_comparison(generated, captured);
+        assert_eq!(generated, captured);
+
+        let enemy_cleanup = || cleanup(EffectType::Cardremove2, 2);
+        for preserved in [
+            step(
+                ActType::Effect,
+                0,
+                0,
+                0,
+                vec![cleanup(EffectType::Cardremove2, 1)],
+            ),
+            step(ActType::Skill, 123, -1, -2, vec![enemy_cleanup()]),
+            step(ActType::Effect, 123, 0, 0, vec![enemy_cleanup()]),
+            step(ActType::Effect, 0, 123, 0, vec![enemy_cleanup()]),
+            step(ActType::Effect, 0, 0, 123, vec![enemy_cleanup()]),
+            step(
+                ActType::Effect,
+                0,
+                0,
+                0,
+                vec![enemy_cleanup(), cleanup(EffectType::Carddecknum, 1)],
+            ),
+        ] {
+            let (generated, preserved) =
+                canonical_comparison(round(Vec::new()), round(vec![preserved]));
+            assert_ne!(generated, preserved);
+        }
     }
 
     #[test]
