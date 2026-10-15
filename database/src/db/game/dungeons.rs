@@ -897,6 +897,10 @@ fn chapter_type_daily_limit(value: &str, chapter_type: i32) -> Result<Option<i32
         let count = count
             .parse::<i32>()
             .with_context(|| format!("invalid count in chapter daily limit entry {entry:?}"))?;
+        ensure!(
+            count >= 0,
+            "negative count in chapter daily limit entry {entry:?}"
+        );
         if kind == chapter_type {
             return Ok(Some(count));
         }
@@ -913,7 +917,7 @@ mod chapter_daily_limit_tests {
         assert_eq!(chapter_type_daily_limit("6#2|7#3", 6).unwrap(), Some(2));
         assert_eq!(chapter_type_daily_limit("6#2|7#3", 8).unwrap(), None);
 
-        for malformed in ["6", "bad#2", "6#bad", "6#2#3"] {
+        for malformed in ["6", "bad#2", "6#bad", "6#2#3", "6#-1"] {
             assert!(chapter_type_daily_limit(malformed, 6).is_err());
         }
     }
