@@ -119,14 +119,47 @@ pub(crate) fn calculate_with_trace_for_version_and_remainder(
     fight_version: i32,
     critical_multiplier_remainder: i32,
 ) -> DamageTrace {
+    calculate_with_trace_for_policy_and_remainder(
+        input,
+        fight_version,
+        critical_multiplier_remainder,
+        false,
+    )
+}
+
+pub(crate) fn calculate_with_trace_for_formula_and_remainder(
+    input: DamageFormulaInput,
+    fight_version: i32,
+    critical_multiplier_remainder: i32,
+    formula: super::DamageFormula,
+) -> DamageTrace {
+    calculate_with_trace_for_policy_and_remainder(
+        input,
+        fight_version,
+        critical_multiplier_remainder,
+        formula.rules().truncates_signed_defense_rate_delta,
+    )
+}
+
+fn calculate_with_trace_for_policy_and_remainder(
+    input: DamageFormulaInput,
+    fight_version: i32,
+    critical_multiplier_remainder: i32,
+    truncates_signed_defense_rate_delta: bool,
+) -> DamageTrace {
     let preserve_effective_defense = fight_version == 7;
     let (defense, post_defense_fraction) = match input.kind {
         kind @ (DamageKind::Reality | DamageKind::Mental) => {
             let defense_multiplier = input.defense_multiplier.max(0);
             let penetration = input.penetration.clamp(0, 1000);
-            let modified_defense =
-                ((i64::from(input.defense.max(0)) * i64::from(defense_multiplier) + 500) / 1000)
-                    .min(i64::from(i32::MAX)) as i32;
+            let base_defense = i64::from(input.defense.max(0));
+            let modified_defense = if fight_version == 7 && truncates_signed_defense_rate_delta {
+                let defense_delta = base_defense * i64::from(defense_multiplier - 1_000) / 1_000;
+                base_defense + defense_delta
+            } else {
+                (base_defense * i64::from(defense_multiplier) + 500) / 1_000
+            }
+            .clamp(0, i64::from(i32::MAX)) as i32;
             let effective_numerator = i128::from(modified_defense) * i128::from(1000 - penetration);
             let effective_defense = (effective_numerator / 1000).min(i128::from(i32::MAX)) as i32;
             let minimum = input.minimum.floor(input.attack);

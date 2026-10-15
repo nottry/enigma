@@ -323,12 +323,56 @@ fn version_seven_preserves_effective_defense_until_final_settlement() {
 }
 
 #[test]
-fn defense_attribute_rate_rounds_to_the_nearest_point() {
-    let trace = calculate_with_trace(DamageFormulaInput {
+fn version_seven_defense_attribute_rate_truncates_the_signed_delta() {
+    for (defense, multiplier, legacy, current) in [(422, 600, 253, 254), (893, 1_200, 1_072, 1_071)]
+    {
+        let input = DamageFormulaInput {
+            kind: DamageKind::Mental,
+            attack: 2_065,
+            defense,
+            defense_multiplier: multiplier,
+            penetration: 0,
+            minimum: MinimumDamage::Absolute(206),
+            base_rate: 1_000,
+            added_rate: 0,
+            career: 1_000,
+            regular: 1_000,
+            attack_local: 1_000,
+            might: 1_000,
+            action: 1_000,
+            genesis: 1_000,
+            final_rate: 1_000,
+            poison_multiplier: None,
+            crit_multiplier: 1_000,
+            is_crit: false,
+        };
+
+        for (version, expected) in [(6, legacy), (7, current)] {
+            let trace = pipeline::calculate_with_trace_for_formula_and_remainder(
+                input,
+                version,
+                0,
+                DamageFormula::StandardSkill,
+            );
+            assert!(matches!(
+                trace.defense,
+                DefenseTrace::Applied {
+                    modified_defense,
+                    effective_defense,
+                    ..
+                } if modified_defense == expected && effective_defense == expected
+            ));
+        }
+    }
+}
+
+#[test]
+fn version_seven_non_standard_damage_keeps_nearest_defense_rate_rounding() {
+    let input = DamageFormulaInput {
         kind: DamageKind::Mental,
         attack: 2_065,
-        defense: 736,
-        defense_multiplier: 800,
+        defense: 422,
+        defense_multiplier: 600,
         penetration: 0,
         minimum: MinimumDamage::Absolute(206),
         base_rate: 1_000,
@@ -343,14 +387,19 @@ fn defense_attribute_rate_rounds_to_the_nearest_point() {
         poison_multiplier: None,
         crit_multiplier: 1_000,
         is_crit: false,
-    });
+    };
 
+    let trace = pipeline::calculate_with_trace_for_formula_and_remainder(
+        input,
+        7,
+        0,
+        DamageFormula::AdditionalDamage,
+    );
+    assert_eq!(trace.amount, 1_812);
     assert!(matches!(
         trace.defense,
         DefenseTrace::Applied {
-            modified_defense: 589,
-            effective_defense: 589,
-            output: 1_476,
+            modified_defense: 253,
             ..
         }
     ));
