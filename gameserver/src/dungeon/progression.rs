@@ -61,8 +61,13 @@ fn subtract_costs<T: Eq>(costs: &mut Vec<(T, i32)>, retained: &[(T, i32)]) {
 
 pub fn battle_star(runtime: &battle::Battle, battle_id: i32) -> Result<i32, AppError> {
     let tables = configs::get();
-    let Some(battle) = tables.battle.get(battle_id) else {
+    if battle_id == 0 {
         return Ok(1);
+    }
+    let Some(battle) = tables.battle.get(battle_id) else {
+        return Err(AppError::Custom(format!(
+            "missing battle config {battle_id}"
+        )));
     };
     let base_star = successful_battle_base_star(&battle.advanced_condition);
     let advanced_star =
@@ -154,5 +159,18 @@ mod tests {
             r#type: 7,
         };
         assert!(condition_limit(1, &condition).is_err());
+    }
+
+    #[test]
+    fn only_the_no_battle_sentinel_uses_the_base_star() {
+        let data_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .join("data/excel2json");
+        let _ = config::init(data_dir.to_str().unwrap());
+        let runtime = runtime();
+
+        assert_eq!(battle_star(&runtime, 0).unwrap(), 1);
+        assert!(battle_star(&runtime, i32::MAX).is_err());
     }
 }
