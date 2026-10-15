@@ -541,7 +541,7 @@ pub async fn on_fight_end_fight(
             && won
             && (compose_handled || (active.tower_type.is_none() && active.act229_context.is_none()))
         {
-            let star = active.star();
+            let star = active.star()?;
             let round = active.current_round();
             let record =
                 dungeon::prepare_dungeon_record(ctx.state.db, player_id, active, round).await?;
@@ -585,7 +585,7 @@ pub async fn on_fight_end_fight(
                         context.activity_id,
                         context.stage_id,
                         active.current_round(),
-                        active.star(),
+                        active.star()?,
                         &active.act229_heroes(),
                     )
                     .await?,
@@ -681,7 +681,7 @@ pub async fn on_dungeon_end_dungeon(
                 .await?;
             push::send_end_fight_push(ctx, dungeon::abort_end_fight(active)).await?;
         } else if active.is_victory() {
-            let star = active.star();
+            let star = active.star()?;
             let round = active.current_round();
             let record =
                 dungeon::prepare_dungeon_record(ctx.state.db, player_id, active, round).await?;

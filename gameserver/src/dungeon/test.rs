@@ -1029,8 +1029,8 @@ fn battle_star_uses_configured_round_condition() {
         ..Default::default()
     });
 
-    assert_eq!(battle_star(&runtime, 301110), 2);
-    assert_eq!(battle_star(&runtime, 70202), 2);
+    assert_eq!(battle_star(&runtime, 301110).unwrap(), 2);
+    assert_eq!(battle_star(&runtime, 70202).unwrap(), 2);
 }
 
 #[tokio::test]
