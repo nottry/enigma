@@ -46,6 +46,10 @@ pub enum ConduitCommand {
     Initialize {
         team: i32,
     },
+    ReconcileDefeatedDevices {
+        team: i32,
+        defeated_uids: Vec<i64>,
+    },
     SelectGroup {
         source_uid: i64,
         group: i32,
@@ -150,6 +154,7 @@ pub struct ConduitCounterChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitChange {
     Initialized(ConduitArea),
+    RosterRefreshed(ConduitArea),
     GroupSelected {
         source_uid: i64,
         team: i32,
@@ -291,6 +296,24 @@ impl ConduitManager {
             .filter(|(_, area)| !area.devices.is_empty() || !area.powers.is_empty())
             .filter(|(team, _)| !self.initialized.contains(team))
             .map(|(team, _)| ConduitCommand::Initialize { team: *team })
+            .collect()
+    }
+
+    pub fn terminal_roster_refresh_commands(&self, defeated_uids: &[i64]) -> Vec<ConduitCommand> {
+        self.areas
+            .iter()
+            .filter_map(|(team, area)| {
+                let defeated_uids = area
+                    .devices
+                    .iter()
+                    .map(|device| device.uid)
+                    .filter(|uid| defeated_uids.contains(uid))
+                    .collect::<Vec<_>>();
+                (!defeated_uids.is_empty()).then_some(ConduitCommand::ReconcileDefeatedDevices {
+                    team: *team,
+                    defeated_uids,
+                })
+            })
             .collect()
     }
 

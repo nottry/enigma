@@ -128,6 +128,81 @@ fn configured_seed_uses_selected_destiny_device_from_entity_loadout() {
 }
 
 #[test]
+fn terminal_roster_refresh_removes_defeated_devices_and_preserves_live_state() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(3149),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    model_id: Some(3144),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = ConduitManager::seed(&fight);
+    manager
+        .execute(ConduitCommand::SelectGroup {
+            source_uid: 10,
+            group: 2,
+        })
+        .unwrap();
+    let stopped_skill = manager.selected_skills(10).unwrap()[0].skill_id;
+    manager
+        .execute(ConduitCommand::StopSkill {
+            origin: ORIGIN,
+            source_uid: 10,
+            team: 1,
+            skill_id: stopped_skill,
+        })
+        .unwrap();
+    manager
+        .execute(ConduitCommand::ChangePower(ConduitPowerChange {
+            origin: ORIGIN,
+            source_uid: 10,
+            team: 1,
+            power_id: 1,
+            delta: 4,
+            kind: ConduitPowerChangeKind::Standard,
+        }))
+        .unwrap();
+
+    let commands = manager.terminal_roster_refresh_commands(&[11]);
+    assert_eq!(commands.len(), 1);
+    let change = manager.execute(commands[0].clone()).unwrap();
+    let ConduitChange::RosterRefreshed(area) = change else {
+        panic!("expected a Conduit roster refresh");
+    };
+    assert_eq!(area.devices.len(), 1);
+    assert_eq!(area.devices[0].uid, 10);
+    assert_eq!(area.devices[0].selected_group, 2);
+    assert!(
+        area.devices[0]
+            .skill_groups
+            .iter()
+            .flatten()
+            .any(|skill| skill.skill_id == stopped_skill && skill.is_stopped)
+    );
+    assert_eq!(
+        area.powers
+            .iter()
+            .find(|power| power.id == 1)
+            .unwrap()
+            .value,
+        4
+    );
+    assert!(manager.terminal_roster_refresh_commands(&[11]).is_empty());
+}
+
+#[test]
 fn selects_the_requested_group_on_the_owning_device() {
     config::init(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -234,6 +309,43 @@ fn device_skill_spends_its_configured_power_and_updates_round_counters() {
     assert_eq!(manager.power(1, 1), 1);
     assert_eq!(manager.consumed(1, 1), 3);
     assert_eq!(manager.uses(10), 1);
+}
+
+#[test]
+fn zero_cost_device_skill_registers_its_power_pool() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = ConduitManager::seed(&fight);
+
+    manager
+        .execute(ConduitCommand::BeginSkill {
+            source_uid: 10,
+            skill_id: 31490111,
+            cost_reduction: 0,
+        })
+        .unwrap();
+
+    assert_eq!(
+        manager
+            .areas
+            .get(&1)
+            .unwrap()
+            .powers
+            .iter()
+            .map(|power| (power.id, power.value))
+            .collect::<Vec<_>>(),
+        vec![(1, 0)]
+    );
 }
 
 #[test]
@@ -613,6 +725,17 @@ fn unique_skill_clears_configured_energy_pools_as_one_activation() {
     assert_eq!(manager.power(1, 0), 0);
     assert_eq!(manager.power(1, 1), 0);
     assert_eq!(manager.power(1, 2), 0);
+    assert_eq!(
+        manager
+            .areas
+            .get(&1)
+            .unwrap()
+            .powers
+            .iter()
+            .map(|power| power.id)
+            .collect::<Vec<_>>(),
+        vec![0, 1, 2]
+    );
     assert!(matches!(
         cleared,
         ConduitChange::PowersCleared {

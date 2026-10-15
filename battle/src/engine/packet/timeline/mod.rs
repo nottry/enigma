@@ -688,6 +688,9 @@ fn project_change(
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::Initialized(
             area,
         )) => vec![EffectPacket::conduit_initialized(area)],
+        BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::RosterRefreshed(
+            area,
+        )) => vec![EffectPacket::conduit_initialized(area)],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::GroupSelected {
             source_uid,
             team,
