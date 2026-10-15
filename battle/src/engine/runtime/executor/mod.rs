@@ -657,7 +657,7 @@ pub(crate) fn execute_rule_op_with(
             Ok(RuleOutcome::Shield(Box::new(changes)))
         }
         RuleOp::Command(BattleCommand::ExPoint(command)) => {
-            let changes = managers.execute_ex_point(command)?;
+            let changes = managers.execute_ex_point_rolled(command, determinism)?;
             for event in changes.events() {
                 events.push(event);
             }

@@ -894,6 +894,88 @@ fn moxie_reduction_immunity_blocks_reduction_but_allows_spending() {
     ));
 }
 
+#[test]
+fn moxie_reduction_immunity_precedes_resistance() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(103370111),
+                ex_point: Some(3),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut managers = BattleManagers::seeded(&fight);
+    let granted = managers
+        .execute_buff(BuffCommand::Grant(BuffGrant {
+            origin: CommandOrigin {
+                domain: RuleDomain::BuffAct,
+                key: DefinitionKey::new(509, "ImmunityExpointChange"),
+            },
+            source_uid: -1,
+            target_uid: -1,
+            buff_id: 5081,
+            amount: None,
+            occurrences: 1,
+            child_uid_reservations: 0,
+        }))
+        .unwrap();
+    let buff_uid = granted.change.added.unwrap().buff.uid.unwrap();
+    let reduction = || {
+        ExPointCommand::Reduce(ExPointChange {
+            origin: CommandOrigin {
+                domain: RuleDomain::Behavior,
+                key: DefinitionKey::new(30001, "DelExPoint"),
+            },
+            source_uid: 10,
+            target_uid: -1,
+            delta: -1,
+            config_effect: 1,
+            effect_type: 0,
+        })
+    };
+    let mut determinism = crate::engine::runtime::determinism::RoundDeterminism::default();
+    determinism.replace_moxie_reduction_resistance_choices([
+        crate::engine::runtime::determinism::MoxieReductionResistanceChoice {
+            producer_id: 30001,
+            source_uid: 10,
+            target_uid: -1,
+            resisted: true,
+        },
+    ]);
+
+    let blocked = managers
+        .execute_ex_point_rolled(reduction(), &mut determinism)
+        .unwrap();
+    assert!(matches!(
+        blocked,
+        ExPointChanges::Value { change, .. }
+            if change.applied_delta == 0 && change.before == 3 && change.after == 3
+    ));
+
+    managers
+        .execute_buff(BuffCommand::Remove(BuffRemove {
+            origin: CommandOrigin {
+                domain: RuleDomain::BuffAct,
+                key: DefinitionKey::new(509, "ImmunityExpointChange"),
+            },
+            target_uid: -1,
+            selector: BuffRemoveSelector::Uid(buff_uid),
+        }))
+        .unwrap();
+    assert!(matches!(
+        managers
+            .execute_ex_point_rolled(reduction(), &mut determinism)
+            .unwrap(),
+        ExPointChanges::Resisted { target_uid: -1, .. }
+    ));
+}
+
 fn entity_with_ex_point_type(uid: i64, ex_point_type: i32) -> FightEntityInfo {
     FightEntityInfo {
         uid: Some(uid),

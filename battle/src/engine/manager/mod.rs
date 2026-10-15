@@ -858,6 +858,65 @@ impl BattleManagers {
         &mut self,
         command: ex_point::ExPointCommand,
     ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        self.execute_ex_point_with(command, false)
+    }
+
+    pub(crate) fn execute_ex_point_rolled(
+        &mut self,
+        command: ex_point::ExPointCommand,
+        determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        let reduction_allowed = match command {
+            ex_point::ExPointCommand::Reduce(change) => !self.buff.has_buff_act_kind(
+                change.target_uid,
+                crate::engine::skill::buff_act::registry::BuffActKind::MoxieReductionImmunity,
+            ),
+            _ => true,
+        };
+        let resisted = match command {
+            ex_point::ExPointCommand::Reduce(change) if reduction_allowed => {
+                let resistance_id = crate::engine::entity::attr::AttrId::MoxieDownResistance;
+                let base = self
+                    .entity
+                    .model_id(change.target_uid)
+                    .and_then(|model_id| self.catalog().monster_resistances(model_id))
+                    .map(|resistance| resistance.del_ex_point)
+                    .unwrap_or_default();
+                let chance = base.saturating_add(
+                    self.persistent_attribute_delta(change.target_uid, resistance_id),
+                );
+                chance >= 1000
+                    || (chance > 0
+                        && determinism.roll_moxie_reduction_resistance(
+                            change.origin.key.opcode,
+                            change.source_uid,
+                            change.target_uid,
+                            chance,
+                        ))
+            }
+            _ => false,
+        };
+        self.execute_ex_point_with(command, resisted)
+    }
+
+    fn execute_ex_point_with(
+        &mut self,
+        command: ex_point::ExPointCommand,
+        resisted: bool,
+    ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        if let ex_point::ExPointCommand::Reduce(change) = command
+            && (change.target_uid == 0 || change.delta >= 0)
+        {
+            return Err(ex_point::ExPointCommandError::InvalidCommand);
+        }
+        if let ex_point::ExPointCommand::Reduce(change) = command
+            && resisted
+        {
+            return Ok(ex_point::ExPointChanges::Resisted {
+                target_uid: change.target_uid,
+                resistance_id: crate::engine::entity::attr::AttrId::MoxieDownResistance.id(),
+            });
+        }
         let command = match command {
             ex_point::ExPointCommand::Change(mut change) if change.delta > 0 => {
                 if let Some(source_uid) = self.buff.buff_act_source_uid(
@@ -868,10 +927,12 @@ impl BattleManagers {
                 }
                 ex_point::ExPointCommand::Change(change)
             }
+            ex_point::ExPointCommand::Reduce(change) => ex_point::ExPointCommand::Change(change),
             command => command,
         };
         let target_uid = match command {
             ex_point::ExPointCommand::Change(change) => Some(change.target_uid),
+            ex_point::ExPointCommand::Reduce(change) => Some(change.target_uid),
             ex_point::ExPointCommand::Spend(change) => Some(change.target_uid),
             ex_point::ExPointCommand::Set(change) => Some(change.target_uid),
             ex_point::ExPointCommand::ChangeMax(_)

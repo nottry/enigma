@@ -267,16 +267,17 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
         BehaviorKind::AddConduitExPoint | BehaviorKind::AddSynchronization => 0,
         _ => behavior.config_effect,
     };
+    let ex_point_change = |target_uid, delta| ExPointChange {
+        origin,
+        source_uid: context.source_uid,
+        target_uid,
+        delta,
+        config_effect: ex_point_config_effect,
+        effect_type: EffectType::Expointchange as i32,
+    };
     let ex_point = |target_uid, delta| {
         RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
-            ExPointChange {
-                origin,
-                source_uid: context.source_uid,
-                target_uid,
-                delta,
-                config_effect: ex_point_config_effect,
-                effect_type: EffectType::Expointchange as i32,
-            },
+            ex_point_change(target_uid, delta),
         )))
     };
     let eureka = |power_id, delta| {
@@ -329,7 +330,12 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
                 delta.saturating_mul(context.transfer_count),
             )]
         }),
-        BehaviorKind::DelExPoint | BehaviorKind::DelExPointNotImmunity => behavior
+        BehaviorKind::DelExPoint => behavior.arg(0).map(|amount| {
+            vec![RuleOp::Command(BattleCommand::ExPoint(
+                ExPointCommand::Reduce(ex_point_change(context.target_uid, -amount.max(0))),
+            ))]
+        }),
+        BehaviorKind::DelExPointNotImmunity => behavior
             .arg(0)
             .map(|amount| vec![ex_point(context.target_uid, -amount.max(0))]),
         BehaviorKind::AbsorbExPoint => {

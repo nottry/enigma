@@ -112,6 +112,20 @@ impl EffectPacket {
         }
     }
 
+    pub fn ex_point_resisted(target_uid: i64, resistance_id: i32) -> ActEffect {
+        ActEffect {
+            target_id: Some(target_uid),
+            effect_type: Some(EffectType::Resistances as i32),
+            effect_num: Some(resistance_id),
+            config_effect: Some(0),
+            buff_act_id: Some(0),
+            reserve_id: Some(0),
+            team_type: Some(0),
+            effect_num1: Some(0),
+            ..Default::default()
+        }
+    }
+
     pub fn ex_point_overflow_bank(target_uid: i64, delta: i32) -> ActEffect {
         ActEffect {
             target_id: Some(target_uid),

@@ -1,6 +1,9 @@
 use sonettobuf::CardInfo;
 
-use super::{AiSkillChoice, ConditionRandomChoice, CrystalReuseChoice, RoundDeterminism};
+use super::{
+    AiSkillChoice, ConditionRandomChoice, CrystalReuseChoice, MoxieReductionResistanceChoice,
+    RoundDeterminism,
+};
 
 #[test]
 fn crit_roll_respects_impossible_and_guaranteed_chances() {
@@ -215,6 +218,20 @@ fn observed_indirect_heal_crits_are_owned_by_producer_source_and_target() {
 
     assert!(!determinism.roll_indirect_heal_crit(999, 20, 10, 1000));
     assert!(determinism.roll_indirect_heal_crit(31090112, 20, 10, 0));
+}
+
+#[test]
+fn observed_moxie_resistance_is_owned_by_behavior_source_and_target() {
+    let mut determinism = RoundDeterminism::default();
+    determinism.replace_moxie_reduction_resistance_choices([MoxieReductionResistanceChoice {
+        producer_id: 30007,
+        source_uid: 10,
+        target_uid: -1,
+        resisted: true,
+    }]);
+
+    assert!(!determinism.roll_moxie_reduction_resistance(30001, 10, -1, 0));
+    assert!(determinism.roll_moxie_reduction_resistance(30007, 10, -1, 0));
 }
 
 #[test]
