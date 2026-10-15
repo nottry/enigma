@@ -405,6 +405,21 @@ impl BattleRuntime {
                 absorb_hurt_map_layout,
             )?);
         }
+        if runs_phase_two {
+            let persistence = schedule::run_device_card_persistence(
+                &mut self.managers,
+                &pool,
+                catalog,
+                &mut self.determinism,
+                context,
+            )
+            .map_err(|error| format!("{error:?}"))?;
+            fight_steps.extend(project_result(
+                persistence,
+                fight_version,
+                absorb_hurt_map_layout,
+            )?);
+        }
         if needs_refill && runs_phase_two {
             let refill = schedule::run_round_refill(
                 &mut self.managers,

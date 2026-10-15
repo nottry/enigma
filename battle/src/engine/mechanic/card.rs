@@ -159,7 +159,7 @@ impl CardMechanic {
         managers: &BattleManagers,
         pool: &TargetPool,
     ) -> bool {
-        !card.temp_card.unwrap_or_default()
+        (!card.temp_card.unwrap_or_default() || self.is_device_card(managers, card))
             && pool
                 .entity(card.uid.unwrap_or_default())
                 .is_none_or(|entity| {

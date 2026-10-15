@@ -20,11 +20,12 @@ pub use command::{
     CardChanges, CardCommand, CardCommandError, CardConsumeForEffect, CardConsumptionKind,
     CardDeckRankUpRange, CardDraw, CardEnchantHand, CardEnergyAllocation, CardEnergyChange,
     CardHandLimitChange, CardInvalidateAiOwner, CardInvalidatePlayed, CardInvalidatedAi,
-    CardMarkTemporary, CardOpeningDraw, CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange,
-    CardRankFailure, CardRankResult, CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne,
-    CardRefreshAiQueue, CardRemoveOwner, CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards,
-    CardSetUltimateAvailability, CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange,
-    QueuedCardRankUp, QueuedUseCard, TemporaryCardKind,
+    CardMarkTemporary, CardOpeningDraw, CardOwnerRemoval, CardPersistTemporary, CardPlay,
+    CardQueueUse, CardRankChange, CardRankFailure, CardRankResult, CardRecordCastChannel,
+    CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
+    CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards, CardSetUltimateAvailability,
+    CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange, QueuedCardRankUp,
+    QueuedUseCard, TemporaryCardKind,
 };
 pub use deck::CardDeck;
 use deck::CardInstanceId;
@@ -1050,6 +1051,10 @@ impl CardManager {
     fn expire_temporary(&mut self) {
         self.deck
             .expire_temporary(&std::mem::take(&mut self.expiring_temporary));
+    }
+
+    fn persist_temporary(&mut self, indices: &[usize]) -> bool {
+        self.deck.persist_temporary(indices)
     }
 
     pub fn compose(&mut self, indices: &[usize], result: CardInfo) -> Option<CardInfo> {

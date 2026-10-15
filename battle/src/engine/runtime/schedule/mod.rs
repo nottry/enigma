@@ -8,7 +8,7 @@ use crate::engine::{
         buff::{BuffCommand, BuffDurationAdvance},
         card::{
             CARD_ENERGY_CLEAR_ORIGIN, CARD_PLAY_ORIGIN, CardCommand, CardInvalidatePlayed,
-            CardRefillOne, CardRefreshAiQueue, CardSetAiQueue, CardSetup,
+            CardPersistTemporary, CardRefillOne, CardRefreshAiQueue, CardSetAiQueue, CardSetup,
         },
         entity::RosterLane,
         eureka::{EurekaChange, EurekaCommand, PowerType},
