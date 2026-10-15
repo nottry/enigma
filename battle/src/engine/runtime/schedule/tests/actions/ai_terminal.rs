@@ -90,6 +90,81 @@ fn ai_self_target_skills_ignore_the_selected_opponent() {
 }
 
 #[test]
+fn missing_allied_monster_is_resummoned_after_active_skill_damage() {
+    init_config();
+    let entity = |uid, team_type, model_id, position, current_hp| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        model_id: Some(model_id),
+        position: Some(position),
+        current_hp: Some(current_hp),
+        skill_group1: (model_id == 103370111)
+            .then_some(103374111)
+            .into_iter()
+            .collect(),
+        attr: Some(HeroAttribute {
+            hp: Some(100_000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 3149, 1, 100_000)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                entity(-1, 2, 103370111, 1, 100_000),
+                entity(-2, 2, 103370112, 2, 0),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_roots(config::configs::get(), [103374111], []);
+
+    let result = run_ai_actions(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        [AiSkillChoice {
+            source_uid: -1,
+            skill_id: 103374111,
+            target_uid: 10,
+        }],
+        &[],
+    )
+    .unwrap();
+
+    let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
+    let skill = steps
+        .iter()
+        .find_map(|step| find_skill(step, 103374111))
+        .unwrap();
+    let effect_types = skill
+        .act_effect
+        .iter()
+        .filter_map(|effect| effect.effect_type)
+        .collect::<Vec<_>>();
+    let damage = effect_types
+        .iter()
+        .position(|kind| *kind == sonettobuf::effect_type_enum::EffectType::Damage as i32)
+        .expect("active skill should project damage");
+    let summon = effect_types
+        .iter()
+        .position(|kind| *kind == sonettobuf::effect_type_enum::EffectType::Summon as i32)
+        .expect("missing ally should project a summon");
+
+    assert!(damage < summon);
+}
+
+#[test]
 fn ai_action_phase_consumes_the_current_queue() {
     let fight = Fight::default();
     let pool = TargetPool::from_fight(&fight);
