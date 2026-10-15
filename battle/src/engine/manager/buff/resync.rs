@@ -15,6 +15,7 @@ impl BuffManager {
         let buff_id = buff.buff_id.filter(|id| *id > 0).ok_or_else(|| {
             format!("captured buff uid={buff_uid} on target {target_uid} has no valid buff id")
         })?;
+        let mut changed = false;
         if let Ok(policy) = BuffPolicy::configured(self.catalog().game_data(), buff_id)
             && policy.on_duplicate != DuplicateGrant::AddSeparateCopy
         {
@@ -41,6 +42,7 @@ impl BuffManager {
                 })
                 .filter_map(|active| active.buff.uid)
                 .collect::<Vec<_>>();
+            changed = !stale_uids.is_empty();
             self.buffs.retain(|active| {
                 !stale_uids
                     .iter()
@@ -56,7 +58,7 @@ impl BuffManager {
             .position(|active| active.owner_uid == target_uid && active.buff.uid == Some(buff_uid))
         {
             if self.buffs[index].buff == buff {
-                return Ok(false);
+                return Ok(changed);
             }
             let semantic_identity_changed = self.buffs[index].buff.buff_id != Some(buff_id)
                 || self.buffs[index].buff.from_uid != buff.from_uid;
@@ -257,6 +259,23 @@ mod tests {
         assert!(manager.snapshot(20, 1).is_none());
         assert_eq!(manager.snapshot(20, 2).unwrap().layer, Some(2));
         assert_eq!(manager.buff_id_amount(20, 109320111), 2);
+    }
+
+    #[test]
+    fn observed_stale_duplicate_reports_reconciliation() {
+        let buff = |uid| BuffInfo {
+            uid: Some(uid),
+            buff_id: Some(109320111),
+            from_uid: Some(20),
+            layer: Some(1),
+            ..Default::default()
+        };
+        let mut manager = manager_with_buffs(vec![buff(1), buff(2)]);
+
+        assert!(manager.resync_observed_present(20, buff(2)).unwrap());
+
+        assert!(manager.snapshot(20, 1).is_none());
+        assert!(manager.snapshot(20, 2).is_some());
     }
 
     #[test]
