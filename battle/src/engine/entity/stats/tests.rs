@@ -120,6 +120,15 @@ fn monster_hidden_stats_follow_the_model_template_curve() {
 }
 
 #[test]
+fn monster_hidden_stats_truncate_after_normalized_terms_are_combined() {
+    crate::test_support::init_config();
+
+    let stats = monster_instance_ex_stats(119384111, 90).unwrap();
+
+    assert_eq!(stats.cri_dmg, 1242);
+}
+
+#[test]
 fn destiny_poison_rate_uses_unlocked_config_slots() {
     crate::test_support::init_config();
 

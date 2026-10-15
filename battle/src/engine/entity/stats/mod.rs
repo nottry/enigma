@@ -311,10 +311,11 @@ pub(crate) fn monster_instance_ex_stats_with_game_data(
     };
     let curve = game.monster_level.get(level)?;
     let scaled = |initial: i32, equip: i32, resonance: i32| {
-        ((i64::from(initial) * 10_000
-            + i64::from(equip) * i64::from(curve.equip_super)
-            + i64::from(resonance) * i64::from(curve.base_super))
-            / 100_000) as i32
+        // The game truncates after combining normalized floating-point terms.
+        ((f64::from(initial) / 10_000.0
+            + f64::from(equip) / 10_000.0 * f64::from(curve.equip_super) / 10_000.0
+            + f64::from(resonance) / 10_000.0 * f64::from(curve.base_super) / 10_000.0)
+            * 1_000.0) as i32
     };
     Some(Stats {
         cri: scaled(job.cri_init_super, job.cri_equip_super, job.cri_reson_super),
