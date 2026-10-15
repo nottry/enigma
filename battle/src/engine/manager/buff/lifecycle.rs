@@ -119,7 +119,7 @@ impl BuffManager {
         let Some(team_type) = self.team_type(defeated_uid) else {
             return Vec::new();
         };
-        let mut inactive = self
+        self
             .buffs
             .iter()
             .filter(|active| {
@@ -127,7 +127,7 @@ impl BuffManager {
                     && active.owner_uid != defeated_uid
                     && hp.current(active.owner_uid) > 0
                     && !active.effective
-                    && active.fanout_emitter_uid.is_some()
+                    && active.fanout_emitter_uid == Some(defeated_uid)
                     && active.definition.as_ref().is_some_and(|definition| {
                         definition.features().iter().any(|feature| {
                             feature.kind
@@ -138,18 +138,6 @@ impl BuffManager {
                     })
             })
             .filter_map(|active| Some((active.owner_uid, active.buff.uid?)))
-            .collect::<Vec<_>>();
-        inactive.sort_by_key(|(owner_uid, buff_uid)| {
-            (
-                self.entities
-                    .iter()
-                    .position(|entity| entity.uid == *owner_uid)
-                    .unwrap_or(usize::MAX),
-                *buff_uid,
-            )
-        });
-        inactive
-            .into_iter()
             .map(|(target_uid, buff_uid)| {
                 BuffCommand::Remove(BuffRemove {
                     origin: CommandOrigin {
