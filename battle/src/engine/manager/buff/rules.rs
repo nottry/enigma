@@ -172,6 +172,8 @@ impl BuffPolicy {
             DuplicateGrant::KeepExisting
         } else if separate_copies {
             DuplicateGrant::AddSeparateCopy
+        } else if storage == BuffStorage::Single && definition.retains_existing_permanent_status() {
+            DuplicateGrant::KeepExisting
         } else if storage == BuffStorage::Single {
             DuplicateGrant::ReplaceExisting
         } else {

@@ -745,7 +745,7 @@ condition_definitions! {
     [5472032] "EnemyNumIncludeSpLessThan" => entity_count::enemies_with_special_at_most, predicate(&[]);
     [1011201] "EnemyAliveNum" => entity_count::enemy_alive, event_trigger(EventKind::SkillAction, None);
     [1011208] "EnemyAliveNum" => entity_count::enemy_alive, predicate(&[]);
-    [74210] "MonsterAliveNumMoreThan" => entity_count::alive_allied_model_at_least, predicate(&[]);
+    [74210] "MonsterAliveNumMoreThan" => entity_count::alive_allied_model_at_least, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [595002] "TargetIncludeHero" => target_identity::target_model, setup_route(SetupStage::EnterFight, 0, &[]);
     [595101] "TargetIncludeHero" => target_identity::positive_target_model, setup_route(SetupStage::RoundStartCondition, 101, &[]);
     [595210] "TargetIncludeHero" => target_identity::positive_active_skill_source_model, predicate(&[]);

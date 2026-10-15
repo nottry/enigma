@@ -229,6 +229,7 @@ pub struct ExPointMaxApplyResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExPointCommand {
     Change(ExPointChange),
+    Reduce(ExPointChange),
     Spend(ExPointChange),
     Set(ExPointSet),
     ChangeMax(ExPointMaxChange),
@@ -245,6 +246,10 @@ pub enum ExPointChanges {
     Max {
         origin: CommandOrigin,
         change: ExPointMaxApplyResult,
+    },
+    Resisted {
+        target_uid: i64,
+        resistance_id: i32,
     },
     SynchronizationConfigured {
         origin: CommandOrigin,
@@ -374,6 +379,16 @@ impl ExPointManager {
         let (origin, source_uid, target_uid, value, config_effect, effect_type, set, spend) =
             match command {
                 ExPointCommand::Change(value) => (
+                    value.origin,
+                    value.source_uid,
+                    value.target_uid,
+                    value.delta,
+                    value.config_effect,
+                    value.effect_type,
+                    false,
+                    false,
+                ),
+                ExPointCommand::Reduce(value) => (
                     value.origin,
                     value.source_uid,
                     value.target_uid,

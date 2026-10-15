@@ -256,6 +256,54 @@ fn duplicate_policy_distinguishes_timed_reapplication_from_single_replacement() 
 }
 
 #[test]
+fn permanent_positive_status_is_retained_until_explicitly_removed() {
+    init_config();
+    let hp = HpManager::default();
+    let mut manager = BuffManager::default();
+
+    let policy = BuffPolicy::for_buff_id(30250001).expect("Restless Heart definition");
+    assert_eq!(policy.storage, BuffStorage::Single);
+    assert_eq!(policy.on_duplicate, DuplicateGrant::KeepExisting);
+
+    let first = manager.add_replacing_excluded(&hp, 10, 10, 30250001, 0);
+    let first_uid = first.added.expect("initial status").buff.uid;
+    let duplicate = manager.add_replacing_excluded(&hp, 10, 10, 30250001, 0);
+
+    assert!(duplicate.added.is_none());
+    assert!(duplicate.removed.is_empty());
+    assert!(duplicate.refreshed.is_empty());
+    assert_eq!(manager.buff_id_amount(10, 30250001), 1);
+    assert_eq!(
+        manager
+            .active_for(10)
+            .find(|buff| buff.buff_id == Some(30250001))
+            .and_then(|buff| buff.uid),
+        first_uid
+    );
+
+    assert_eq!(manager.remove_by_id(10, 30250001).len(), 1);
+    let readded = manager.add_replacing_excluded(&hp, 10, 10, 30250001, 0);
+    assert_ne!(readded.added.expect("readded status").buff.uid, first_uid);
+}
+
+#[test]
+fn explicit_replacement_policy_still_replaces_permanent_positive_status() {
+    init_config();
+    let hp = HpManager::default();
+    let mut manager = BuffManager::default();
+
+    let policy = BuffPolicy::for_buff_id(25582).expect("explicit replacement definition");
+    assert_eq!(policy.storage, BuffStorage::Single);
+    assert_eq!(policy.on_duplicate, DuplicateGrant::ReplaceExisting);
+
+    manager.add_replacing_excluded(&hp, 10, 10, 25582, 0);
+    let replacement = manager.add_replacing_excluded(&hp, 10, 10, 25582, 0);
+
+    assert_eq!(replacement.removed.len(), 1);
+    assert!(replacement.added.is_some());
+}
+
+#[test]
 fn include_type_four_stores_timed_attribute_grants_as_separate_copies() {
     init_config();
     let policy = BuffPolicy::for_buff_id(30600101).expect("timed attribute definition");

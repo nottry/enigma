@@ -212,6 +212,14 @@ impl BattleRuntime {
         self.determinism.replace_crystal_reuse_choices(choices);
     }
 
+    pub fn seed_moxie_reduction_resistance_choices(
+        &mut self,
+        choices: impl IntoIterator<Item = determinism::MoxieReductionResistanceChoice>,
+    ) {
+        self.determinism
+            .replace_moxie_reduction_resistance_choices(choices);
+    }
+
     pub fn conduit_operations(&self) -> Vec<sonettobuf::FightDeviceOper> {
         self.managers
             .conduit

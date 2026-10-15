@@ -925,6 +925,13 @@ impl BuffDefinition {
                 }))
     }
 
+    pub(super) fn retains_existing_permanent_status(&self) -> bool {
+        self.duration == 0
+            && self.status == BuffStatus::PositiveStatus
+            && self.include_entries.is_empty()
+            && self.stack_transition().is_none()
+    }
+
     pub(super) fn reserves_normal_uid_on_kept_reapply(&self) -> bool {
         self.features
             .iter()

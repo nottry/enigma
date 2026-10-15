@@ -706,3 +706,67 @@ fn partial_resistance_resists_on_a_crit_style_roll() {
 
     assert!(outcomes.contains(&true) && outcomes.contains(&false));
 }
+
+#[test]
+fn moxie_reduction_resistance_keeps_the_resource_unchanged() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                model_id: Some(103370111),
+                current_hp: Some(100),
+                ex_point: Some(3),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let command = || {
+        RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Reduce(
+            ExPointChange {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(30001, "DelExPoint"),
+                },
+                source_uid: 10,
+                target_uid: -1,
+                delta: -1,
+                config_effect: 1,
+                effect_type: sonettobuf::effect_type_enum::EffectType::Expointchange as i32,
+            },
+        )))
+    };
+
+    let outcomes = (0..32)
+        .map(|seed| {
+            let mut managers = BattleManagers::seeded(&fight);
+            let mut determinism =
+                crate::engine::runtime::determinism::RoundDeterminism::with_seed(seed);
+            let expected = determinism.clone().roll_crit(30001, 10, -1, 600);
+            let outcome = execute_rule_op_with(
+                &mut managers,
+                &mut EventBus::default(),
+                &mut determinism,
+                command(),
+            )
+            .unwrap();
+
+            assert_eq!(managers.ex_point.get(-1), if expected { 3 } else { 2 });
+            assert_eq!(
+                matches!(
+                    outcome,
+                    RuleOutcome::ExPoint(ExPointChanges::Resisted {
+                        target_uid: -1,
+                        resistance_id: 409,
+                    })
+                ),
+                expected
+            );
+            expected
+        })
+        .collect::<Vec<_>>();
+
+    assert!(outcomes.contains(&true) && outcomes.contains(&false));
+}

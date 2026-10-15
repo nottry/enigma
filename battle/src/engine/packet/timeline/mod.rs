@@ -581,6 +581,10 @@ fn project_change(
         {
             vec![EffectPacket::ex_point(*change)]
         }
+        BattleChange::ExPoint(ExPointChanges::Resisted {
+            target_uid,
+            resistance_id,
+        }) => vec![EffectPacket::ex_point_resisted(*target_uid, *resistance_id)],
         BattleChange::ExPoint(ExPointChanges::Max { change, .. }) if change.applied_delta != 0 => {
             vec![EffectPacket::ex_point_max(*change)]
         }
