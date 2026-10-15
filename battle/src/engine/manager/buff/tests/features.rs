@@ -69,6 +69,46 @@ fn broad_buff_status_count_uses_configured_include_type_membership() {
 }
 
 #[test]
+fn visible_status_type_count_excludes_hidden_buffs_and_duplicate_types() {
+    init_config();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![
+                    BuffInfo {
+                        buff_id: Some(400104),
+                        uid: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(400105),
+                        uid: Some(2),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(31440116),
+                        uid: Some(3),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(31440114),
+                        uid: Some(4),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(manager.visible_buff_status_type_count(10, &[1, 5]), 2);
+}
+
+#[test]
 fn special_count_is_stored_on_the_marker_buff() {
     let fight = Fight {
         attacker: Some(FightTeam {

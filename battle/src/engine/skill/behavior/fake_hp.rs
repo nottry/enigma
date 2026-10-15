@@ -2,7 +2,10 @@ use crate::engine::{
     damage::{handler::modified_heal, scale_permille},
     manager::hp::{HpCommand, HpHeal, HpHealKind},
     skill::{
-        behavior::{BehaviorOpContext, registry::BehaviorHandler},
+        behavior::{
+            BehaviorOpContext,
+            registry::{BehaviorHandler, OutputOwner},
+        },
         effect::ParsedBehavior,
         rule::output::{BattleCommand, RuleOp},
     },
@@ -56,6 +59,10 @@ impl BehaviorHandler for Handler {
                 team_type: 0,
             }),
         ])
+    }
+
+    fn output_owner(_: &ParsedBehavior, op: &RuleOp, _: usize) -> Option<OutputOwner> {
+        matches!(op, RuleOp::BuffActInfoMarker(_)).then_some(OutputOwner::Parent)
     }
 }
 
@@ -163,6 +170,12 @@ mod tests {
                 && marker.act_id == 1150
                 && marker.params == [2_071, 8_108]
         ));
+        let definition = super::super::registry::find(&behavior).expect("FakeHpToHeal definition");
+        assert_eq!((definition.output_owner_for)(&behavior, &ops[0], 0), None);
+        assert_eq!(
+            (definition.output_owner_for)(&behavior, &ops[1], 1),
+            Some(OutputOwner::Parent)
+        );
         assert_eq!(
             crate::engine::skill::buff_act::lost_hp_to_fake_hp::state(&managers, 20)
                 .unwrap()

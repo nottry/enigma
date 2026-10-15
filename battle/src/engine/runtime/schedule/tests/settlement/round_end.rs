@@ -55,7 +55,6 @@ fn side_round_end_schedules_keep_the_proven_lane_order() {
         &catalog,
         &mut determinism,
         TargetContext::default(),
-        Vec::new(),
     )
     .unwrap();
     assert_eq!(
@@ -463,7 +462,6 @@ fn defender_after_settlement_runs_its_registered_passive_skill() {
             current_round: 1,
             ..Default::default()
         },
-        Vec::new(),
     )
     .unwrap();
 

@@ -105,6 +105,11 @@ pub enum ParsedConditionKind {
         compare: ConditionCompare,
         threshold: i32,
     },
+    VisibleBuffStatusTypeCount {
+        status_ids: Vec<i32>,
+        compare: ConditionCompare,
+        threshold: i32,
+    },
     PerTeamBuffStatusTypeCount {
         status_ids: Vec<i32>,
         divisor: i32,
@@ -666,6 +671,15 @@ fn negate_kind(kind: ParsedConditionKind) -> ParsedConditionKind {
             compare,
             threshold,
         } => ParsedConditionKind::BuffStatusCount {
+            status_ids,
+            compare: negate_compare(compare),
+            threshold,
+        },
+        ParsedConditionKind::VisibleBuffStatusTypeCount {
+            status_ids,
+            compare,
+            threshold,
+        } => ParsedConditionKind::VisibleBuffStatusTypeCount {
             status_ids,
             compare: negate_compare(compare),
             threshold,

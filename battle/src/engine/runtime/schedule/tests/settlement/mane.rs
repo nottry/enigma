@@ -121,7 +121,6 @@ fn blood_debt_replaces_its_expired_defense_debuff_after_settlement() {
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        Vec::new(),
     )
     .unwrap();
 
@@ -252,7 +251,6 @@ fn defender_round_end_keeps_buff_acts_and_owner_passives_in_one_frame() {
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        Vec::new(),
     )
     .unwrap();
     let steps = crate::engine::packet::timeline::project(&result.frames).unwrap();
@@ -385,7 +383,6 @@ fn defender_killed_by_settlement_does_not_run_later_owner_events() {
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        Vec::new(),
     )
     .unwrap();
 
@@ -449,7 +446,6 @@ fn defender_round_end_replaces_the_defeated_third_add() {
         &catalog,
         &mut RoundDeterminism::default(),
         TargetContext::default(),
-        Vec::new(),
     )
     .unwrap();
 

@@ -457,22 +457,13 @@ impl BattleRuntime {
                 &promotions,
             )
             .map_err(|error| format!("{error:?}"))?;
-            let schedule::AiActionResult {
-                output: ai_output,
-                invalidated_card_rewards,
-            } = ai;
-            fight_steps.extend(project_result(
-                ai_output,
-                fight_version,
-                absorb_hurt_map_layout,
-            )?);
+            fight_steps.extend(project_result(ai, fight_version, absorb_hurt_map_layout)?);
             let after_ai_round_end = schedule::run_after_ai_round_end(
                 &mut self.managers,
                 &pool,
                 catalog,
                 &mut self.determinism,
                 settlement_context,
-                invalidated_card_rewards,
             )
             .map_err(|error| format!("{error:?}"))?;
             fight_steps.extend(project_result(
