@@ -951,13 +951,14 @@ fn drain_queue_with_deferred(
                         .map(crate::engine::manager::hp::PendingDeath::transition)
                         .collect::<Vec<_>>();
                     for death in deaths {
+                        let cleanup =
+                            queued_defeated_owner_buff_cleanup(managers, death, &frame_path);
                         drain_defeated_owner_buff_cleanup(
                             managers,
                             pool,
                             catalog,
                             determinism,
-                            death,
-                            &frame_path,
+                            cleanup,
                             &mut result,
                             state,
                         )?;
@@ -1925,13 +1926,17 @@ fn drain_queue_with_deferred(
                     .flatten();
                 if settles_death_immediately && let Some(action_scope) = settlement_action_scope {
                     for death in &settled_deaths {
+                        let cleanup = queued_defeated_owner_buff_cleanup(
+                            managers,
+                            death.transition(),
+                            action_scope,
+                        );
                         drain_defeated_owner_buff_cleanup(
                             managers,
                             pool,
                             catalog,
                             determinism,
-                            death.transition(),
-                            action_scope,
+                            cleanup,
                             &mut result,
                             state,
                         )?;
@@ -1970,13 +1975,14 @@ fn drain_queue_with_deferred(
                         .map(crate::engine::manager::hp::PendingDeath::transition)
                         .collect::<Vec<_>>();
                     for death in &deaths {
+                        let cleanup =
+                            queued_defeated_owner_buff_cleanup(managers, *death, action_scope);
                         drain_defeated_owner_buff_cleanup(
                             managers,
                             pool,
                             catalog,
                             determinism,
-                            *death,
-                            action_scope,
+                            cleanup,
                             &mut result,
                             state,
                         )?;
@@ -2232,12 +2238,11 @@ fn drain_defeated_owner_buff_cleanup(
     pool: &TargetPool,
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
-    death: crate::engine::manager::hp::DeathTransition,
-    parent_path: &[usize],
+    cleanup: Option<QueuedOp>,
     result: &mut DrainResult,
     state: &mut DrainState,
 ) -> Result<(), DrainError> {
-    let Some(cleanup) = queued_defeated_owner_buff_cleanup(managers, death, parent_path) else {
+    let Some(cleanup) = cleanup else {
         return Ok(());
     };
     drain_nested_queue(
