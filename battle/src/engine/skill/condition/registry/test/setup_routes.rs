@@ -222,7 +222,7 @@ fn exact_dead_alias_subscribes_to_entity_death() {
     );
     assert_eq!(
         find_key(812, "Dead").map(|definition| definition.reaction_observer_scope),
-        Some(ReactionObserverScope::EventTarget)
+        Some(ReactionObserverScope::ConditionTarget)
     );
 
     let death = find_key(8, "Dead").unwrap();

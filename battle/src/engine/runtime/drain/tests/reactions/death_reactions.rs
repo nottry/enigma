@@ -1,6 +1,91 @@
 use super::*;
 
 #[test]
+fn allied_death_condition_fires_for_the_surviving_owner() {
+    crate::test_support::init_config();
+
+    let entity = |uid, passive_skill| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(2),
+        current_hp: Some(100),
+        passive_skill,
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, vec![103374115]), entity(-2, Vec::new())],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    managers.hp.lose(-2, 100, 10);
+
+    run_event(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        BattleEvent::EntityDied(crate::engine::event::payload::EntityDiedEvent {
+            source_uid: 10,
+            target_uid: -2,
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(managers.buff.buff_id_amount(-1, 103374115), 1);
+}
+
+#[test]
+fn exact_dead_condition_fires_for_the_defeated_owner() {
+    crate::test_support::init_config();
+
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                current_hp: Some(100),
+                passive_skill: vec![211203],
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    managers.hp.lose(10, 100, -1);
+
+    run_event(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        BattleEvent::EntityDied(crate::engine::event::payload::EntityDiedEvent {
+            source_uid: -1,
+            target_uid: 10,
+        }),
+    )
+    .unwrap();
+
+    assert_eq!(managers.buff.buff_id_amount(10, 2112031), 1);
+}
+
+#[test]
 fn self_death_condition_only_fires_for_the_defeated_owner() {
     crate::test_support::init_config();
 

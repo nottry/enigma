@@ -1070,10 +1070,11 @@ fn direct_damage_trace(
         );
     }
     let damage_trace =
-        crate::engine::damage::pipeline::calculate_with_trace_for_version_and_remainder(
+        crate::engine::damage::pipeline::calculate_with_trace_for_formula_and_remainder(
             inputs,
             runtime.fight_version,
             critical_multiplier_remainder,
+            formula,
         );
     if crate::engine::damage::trace::enabled() {
         let local_damage_bonus = source_active_features

@@ -250,6 +250,107 @@ fn halo_children_keep_the_grant_source_separate_from_the_carrier() {
 }
 
 #[test]
+fn defeated_entity_cleanup_preserves_halos_from_surviving_emitters() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: [10, 11, 30, 12]
+                .into_iter()
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut manager = BuffManager::default();
+    let mut hp = HpManager::default();
+    manager.seed(&fight);
+    hp.seed(&fight);
+    for target_uid in [10, 11, 30, 12] {
+        manager
+            .execute(
+                &hp,
+                BuffCommand::Grant(BuffGrant {
+                    origin: CommandOrigin {
+                        domain: RuleDomain::Behavior,
+                        key: DefinitionKey::new(1, "AddBuff"),
+                    },
+                    source_uid: 30,
+                    target_uid,
+                    buff_id: 31450141,
+                    amount: None,
+                    occurrences: 1,
+                    child_uid_reservations: 0,
+                }),
+            )
+            .unwrap();
+    }
+    hp.lose(11, 100, 0).unwrap();
+
+    let commands = manager.defeated_entity_inactive_halo_cleanup(11, &hp);
+    let targets = commands
+        .iter()
+        .filter_map(|command| match command {
+            BuffCommand::Remove(remove) => Some(remove.target_uid),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(targets, [10, 30, 12]);
+
+    for command in commands {
+        let changes = manager.execute(&hp, command).unwrap();
+        assert!(changes.events().is_empty());
+        assert!(
+            changes
+                .change
+                .removed
+                .iter()
+                .all(|removed| !removed.effective)
+        );
+    }
+    for owner_uid in [10, 30, 12] {
+        assert_eq!(
+            manager
+                .active_for(owner_uid)
+                .filter(|buff| buff.buff_id == Some(31450143))
+                .count(),
+            3
+        );
+    }
+
+    hp.lose(30, 100, 0).unwrap();
+    let commands = manager.defeated_entity_inactive_halo_cleanup(30, &hp);
+    assert_eq!(
+        commands
+            .iter()
+            .filter_map(|command| match command {
+                BuffCommand::Remove(remove) => Some(remove.target_uid),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        [10, 12]
+    );
+    for command in commands {
+        manager.execute(&hp, command).unwrap();
+    }
+    for owner_uid in [10, 12] {
+        assert_eq!(
+            manager
+                .active_for(owner_uid)
+                .filter(|buff| buff.buff_id == Some(31450143))
+                .count(),
+            2
+        );
+        assert_eq!(manager.buff_id_amount(owner_uid, 31450143), 1);
+    }
+}
+
+#[test]
 fn base_halo_regrant_refreshes_the_same_team_instances() {
     crate::test_support::init_config();
     let fight = Fight {

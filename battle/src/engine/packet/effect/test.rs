@@ -444,6 +444,7 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
         target_uid: 10,
         before_amount: 1,
         buff: after,
+        effective: true,
         config_effect: 0,
         delete_reason: None,
         depleted: false,
@@ -464,12 +465,28 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
             duration: Some(1),
             ..Default::default()
         },
+        effective: true,
         config_effect: 0,
         delete_reason: None,
         depleted: true,
         fixed_max_hp_delta: 0,
     });
     assert_eq!(depleted.buff.unwrap().duration, Some(1));
+
+    let inactive = EffectPacket::buff_delete(&BuffRemoveResult {
+        target_uid: 10,
+        before_amount: 1,
+        buff: BuffInfo::default(),
+        effective: false,
+        config_effect: 0,
+        delete_reason: None,
+        depleted: false,
+        fixed_max_hp_delta: 0,
+    });
+    assert_eq!(
+        inactive.effect_type,
+        Some(EffectType::Buffdelnoeffect as i32)
+    );
 }
 
 #[test]

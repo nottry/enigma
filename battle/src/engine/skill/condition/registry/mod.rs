@@ -785,7 +785,7 @@ condition_definitions! {
     [99210] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [992101] "PerKillNum" => entity_count::per_kill, event_trigger(EventKind::SkillAction, Some(SkillPhase::AfterHit));
     [8] "Dead" => lifecycle::entity_dead, condition_target_observes(side_reaction_frame(reaction_targets_event(event_trigger(EventKind::EntityDied, None))));
-    [812] "Dead" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
+    [812] "Dead" => lifecycle::entity_dead, condition_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [648003, 648009] "SelfExit" => lifecycle::entity_dead, event_target_observes(reaction_targets_owner(event_trigger(EventKind::EntityDied, None)));
     [24102] "TeammateAlive" => entity_count::teammate_alive, event_trigger(EventKind::RoundStart, None);
     [524302] "GroupSummonedNumEqual" => entity_count::group_summoned_equal, event_trigger(EventKind::RoundEnd, None);
