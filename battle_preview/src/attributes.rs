@@ -144,7 +144,7 @@ pub fn loadout_diffs(fight: &Fight, battle_path: &Path) -> anyhow::Result<Vec<St
             if let Some(balance) = battle_balance {
                 builder = builder.with_balance(balance, balance.stats_for(&build, &[]));
             }
-            builder.build()
+            builder.build()?
         };
         let fields = [
             (
@@ -1338,8 +1338,9 @@ mod tests {
         write_roster(&directory, hero.clone());
         let mut fight = fight(uid);
         let entity = &mut fight.attacker.as_mut().unwrap().entitys[0];
-        let built =
-            EntityBuilder::new(preview_build_input(entity, &hero).unwrap(), 0, 0, false).build();
+        let built = EntityBuilder::new(preview_build_input(entity, &hero).unwrap(), 0, 0, false)
+            .build()
+            .unwrap();
         entity.skill_group1 = built.skill_group1.clone();
         entity.skill_group2 = built.skill_group2.clone();
         entity.ex_skill = built.ex_skill;

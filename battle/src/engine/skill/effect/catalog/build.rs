@@ -1,5 +1,6 @@
 use super::parse::{
-    RawSlot, monster_model_skills, numeric_ids, parse_slot, parse_target, row_slots, rule_issue,
+    RawSlot, SlotParseError, monster_model_skills, numeric_ids, parse_slot, parse_target,
+    row_slots, rule_issue, target_issue,
 };
 use super::*;
 
@@ -287,7 +288,7 @@ impl SkillEffectCatalog {
             if behavior.trim().is_empty() {
                 continue;
             }
-            if let Some(mut slot) = parse_slot(
+            match parse_slot(
                 db,
                 RawSlot {
                     behavior,
@@ -299,41 +300,57 @@ impl SkillEffectCatalog {
                     round_limit,
                 },
             ) {
-                slot.behavior.effect_id = row.id;
-                slot.behavior.slot = index as u8 + 1;
-                if let Some(definition) =
-                    crate::engine::skill::behavior::registry::find(&slot.behavior)
-                {
-                    let found = (definition.references)(&slot.behavior);
-                    for &summoned_id in &found.summons {
-                        self.record_missing_summoned(
-                            db,
-                            row.id,
-                            index as u8 + 1,
-                            behavior,
-                            &slot.behavior,
-                            summoned_id,
-                        );
+                Ok(mut slot) => {
+                    slot.behavior.effect_id = row.id;
+                    slot.behavior.slot = index as u8 + 1;
+                    if let Some(definition) =
+                        crate::engine::skill::behavior::registry::find(&slot.behavior)
+                    {
+                        let found = (definition.references)(&slot.behavior);
+                        for &summoned_id in &found.summons {
+                            self.record_missing_summoned(
+                                db,
+                                row.id,
+                                index as u8 + 1,
+                                behavior,
+                                &slot.behavior,
+                                summoned_id,
+                            );
+                        }
+                        references.skills.extend(found.skills);
+                        references.buffs.extend(found.buffs);
+                        references.models.extend(found.models);
+                        references.summons.extend(found.summons);
                     }
-                    references.skills.extend(found.skills);
-                    references.buffs.extend(found.buffs);
-                    references.models.extend(found.models);
-                    references.summons.extend(found.summons);
+                    if slot.behavior.spec.kind == BehaviorKind::NotifyUpgradeHero {
+                        let found =
+                            hero_upgrade_references(db, slot.behavior.arg(0).unwrap_or_default());
+                        references.skills.extend(found.skills);
+                        references.buffs.extend(found.buffs);
+                    }
+                    slots.push(slot);
                 }
-                if slot.behavior.spec.kind == BehaviorKind::NotifyUpgradeHero {
-                    let found =
-                        hero_upgrade_references(db, slot.behavior.arg(0).unwrap_or_default());
-                    references.skills.extend(found.skills);
-                    references.buffs.extend(found.buffs);
+                Err(SlotParseError::Behavior) => {
+                    self.issues.entry(row.id).or_default().push(rule_issue(
+                        db,
+                        row.id,
+                        index as u8 + 1,
+                        behavior,
+                    ));
                 }
-                slots.push(slot);
-            } else {
-                self.issues.entry(row.id).or_default().push(rule_issue(
-                    db,
-                    row.id,
-                    index as u8 + 1,
-                    behavior,
-                ));
+                Err(SlotParseError::Target {
+                    raw,
+                    opcode,
+                    type_name,
+                }) => {
+                    self.issues.entry(row.id).or_default().push(target_issue(
+                        row.id,
+                        index as u8 + 1,
+                        raw,
+                        Some(opcode),
+                        Some(type_name),
+                    ));
+                }
             }
         }
         self.insert(ParsedSkillEffect {
@@ -341,7 +358,19 @@ impl SkillEffectCatalog {
             slots,
         });
         self.insert_effect_tag(row.id, row.effect_tag);
-        self.insert_logic_target(row.id, parse_target(&row.logic_target).code);
+        if let Some(target) = parse_target(&row.logic_target)
+            .filter(|target| crate::engine::skill::target::is_mapped_target_code(target.code))
+        {
+            self.insert_logic_target(row.id, target.code);
+        } else {
+            self.issues.entry(row.id).or_default().push(target_issue(
+                row.id,
+                0,
+                row.logic_target.clone(),
+                None,
+                None,
+            ));
+        }
         self.insert_damage_rate(row.id, row.damage_rate);
         self.skill_types.insert(row.id, row.r#type);
         self.skill_effect_types

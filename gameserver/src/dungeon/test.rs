@@ -966,6 +966,120 @@ async fn act229_victory_uses_only_act229_settlement() {
             CmdId::FightEndFightCmd,
         ]
     );
+    let star: i32 = sqlx::query_scalar(
+        "SELECT star FROM user_activity229_stages
+         WHERE user_id = 35 AND activity_id = 138521 AND stage_id = 1",
+    )
+    .fetch_one(ctx.state.db)
+    .await
+    .unwrap();
+    assert_eq!(star, 1);
+}
+
+#[tokio::test]
+async fn act229_star_errors_leave_the_fight_active() {
+    use crate::{
+        handlers::dungeon::on_fight_end_fight,
+        net::{app::AppState, context::ConnectionContext, packet::ClientPacket},
+        player::{Player, PlayerState, battle::Act229BattleContext},
+    };
+    use prost::Message;
+    use sonettobuf::{CmdId, EndFightRequest, Fight, FightEntityInfo, FightTeam};
+    use tokio::sync::mpsc;
+
+    let data_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("data/excel2json");
+    let _ = config::init(data_dir.to_str().unwrap());
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    database::run_migrations(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, username, created_at, updated_at)
+         VALUES (36, 'act229-star-error', 0, 0)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let fight_id = battle_db::create_fight_instance(
+        &pool,
+        battle_db::NewFightInstance {
+            user_id: 36,
+            episode_id: 0,
+            battle_id: i32::MAX,
+            multiplication: 1,
+            entry_cost: "{}",
+            checkpoint: "{}",
+            created_at: 0,
+        },
+    )
+    .await
+    .unwrap();
+    let active = ActiveBattle {
+        fight_id: Some(fight_id),
+        battle_id: i32::MAX,
+        runtime: runtime(Fight {
+            cur_round: Some(2),
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    current_hp: Some(100),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    current_hp: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+        act229_context: Some(Act229BattleContext {
+            activity_id: 138521,
+            stage_id: 1,
+        }),
+        ..Default::default()
+    };
+    let state = Box::leak(Box::new(AppState::new(pool, configs::get())));
+    let (outbound, _) = mpsc::channel(8);
+    let mut ctx = ConnectionContext::new(outbound, state);
+    ctx.player = Some(Player::new(36, PlayerState::new(36, 0)));
+    ctx.player_mut().unwrap().battle.restore_active(active);
+    let mut data = Vec::new();
+    EndFightRequest {
+        is_abort: Some(false),
+    }
+    .encode(&mut data)
+    .unwrap();
+
+    assert!(
+        on_fight_end_fight(
+            &mut ctx,
+            ClientPacket {
+                sequence: 0,
+                cmd_id: CmdId::FightEndFightCmd as i16,
+                up_tag: 7,
+                data,
+            },
+        )
+        .await
+        .is_err()
+    );
+    assert!(ctx.player().unwrap().battle.active_snapshot().is_some());
+    assert!(
+        battle_db::load_active_fight(ctx.state.db, 36)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let stages: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM user_activity229_stages WHERE user_id = 36")
+            .fetch_one(ctx.state.db)
+            .await
+            .unwrap();
+    assert_eq!(stages, 0);
 }
 
 #[test]
@@ -1029,8 +1143,8 @@ fn battle_star_uses_configured_round_condition() {
         ..Default::default()
     });
 
-    assert_eq!(battle_star(&runtime, 301110), 2);
-    assert_eq!(battle_star(&runtime, 70202), 2);
+    assert_eq!(battle_star(&runtime, 301110).unwrap(), 2);
+    assert_eq!(battle_star(&runtime, 70202).unwrap(), 2);
 }
 
 #[tokio::test]

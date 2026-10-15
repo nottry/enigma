@@ -24,7 +24,7 @@ impl Evidence {
             roots
         };
         for root in roots {
-            for path in crate::wire_evidence::bounded_json_files(root) {
+            for path in crate::wire_evidence::capture_json_files(root) {
                 let Ok(contents) = fs::read_to_string(path) else {
                     continue;
                 };

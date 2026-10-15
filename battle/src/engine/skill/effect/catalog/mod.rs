@@ -57,6 +57,7 @@ pub(crate) enum SkillEffectTag {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuleIssueReason {
     MalformedBehavior,
+    MalformedTarget,
     MissingBehavior,
     MissingSummoned,
     UnsupportedBehavior,
