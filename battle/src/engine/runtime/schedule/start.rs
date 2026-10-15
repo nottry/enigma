@@ -211,6 +211,8 @@ pub fn run_round_start_after_ai_split(
     let round_start_duration_snapshot = duration_snapshot(managers, &owner_uids);
     let setup_layout =
         crate::engine::fight::versions::round_start_setup_layout(managers.fight_version());
+    let version_seven =
+        setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
     let mut fight_steps = DrainResult::default();
     push_cue(
         &mut fight_steps.frames,
@@ -222,6 +224,29 @@ pub fn run_round_start_after_ai_split(
         append(
             &mut fight_steps,
             run_wave_entry_setup(managers, pool, catalog, determinism, context, entering_uids)?,
+        );
+    }
+    if version_seven {
+        let mut defender_owner_uids = pool
+            .defender_main
+            .iter()
+            .filter(|entity| managers.hp.current(entity.uid) > 0)
+            .map(|entity| entity.uid)
+            .collect::<Vec<_>>();
+        defender_owner_uids
+            .extend(pool.assist_boss(crate::engine::fight::rules::DEFENDER_SIDE_UID));
+        append(
+            &mut fight_steps,
+            drain::run_setup_stage_for_owners(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                SetupStage::RoundStart,
+                -1,
+                &round_start_setup_owner_uids(&defender_owner_uids, 2),
+            )?,
         );
     }
     let (before_duration, settlement_plan, split_losses) = run_round_start_before_duration(
@@ -237,8 +262,6 @@ pub fn run_round_start_after_ai_split(
         false,
     )?;
     append(&mut fight_steps, before_duration);
-    let version_seven =
-        setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
     let split_losses = if version_seven {
         split_losses
     } else {

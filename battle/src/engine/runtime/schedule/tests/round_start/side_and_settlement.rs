@@ -105,7 +105,7 @@ fn round_start_executes_each_team_at_its_own_turn_boundary() {
 }
 
 #[test]
-fn version_seven_defender_pre_ai_keeps_conditional_setup_without_replaying_round_start() {
+fn version_seven_defers_defender_round_start_until_after_ai() {
     let entity = |skill_ids| FightEntityInfo {
         uid: Some(-1),
         team_type: Some(2),
@@ -173,6 +173,19 @@ fn version_seven_defender_pre_ai_keeps_conditional_setup_without_replaying_round
     .unwrap();
 
     assert_eq!(managers.ex_point.get(-1), 1);
+
+    run_round_start_after_ai_split(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &[],
+        3,
+    )
+    .unwrap();
+
+    assert_eq!(managers.ex_point.get(-1), 5);
 }
 
 #[test]
