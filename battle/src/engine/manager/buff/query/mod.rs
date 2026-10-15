@@ -671,6 +671,31 @@ impl BuffManager {
         type_ids.len() as i32
     }
 
+    pub fn visible_stacked_status_type_count(&self, uid: i64, status_ids: &[i32]) -> i32 {
+        let mut type_amounts = HashMap::new();
+        for (active, definition) in self.buffs.iter().filter_map(|active| {
+            let definition = active.definition.as_ref()?;
+            (active.effective
+                && active.owner_uid == uid
+                && definition.is_visible()
+                && status_ids.contains(&definition.status_id))
+            .then_some((active, definition))
+        }) {
+            let amount = if definition.counts_stacked_layers_in_conditions() {
+                active.buff.layer.unwrap_or(1).max(1)
+            } else {
+                1
+            };
+            let entry = type_amounts.entry(active.type_id).or_insert(0);
+            if definition.counts_stacked_layers_in_conditions() {
+                *entry += amount;
+            } else {
+                *entry = 1;
+            }
+        }
+        type_amounts.values().sum()
+    }
+
     pub fn team_buff_status_type_count(&self, uids: &[i64], status_ids: &[i32]) -> i32 {
         let mut type_ids = Vec::new();
         for active in self.buffs.iter().filter(|active| {

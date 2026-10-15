@@ -194,7 +194,7 @@ fn committed_conduit_hit_satisfies_attack_conditions() {
 #[test]
 fn visible_status_threshold_runs_only_before_attacks() {
     crate::test_support::init_config();
-    let status_buffs = [31450171, 31450143, 30250001, 31440116, 31450111]
+    let mut status_buffs = [31450171, 31450143, 31440116, 31450111]
         .into_iter()
         .enumerate()
         .map(|(index, buff_id)| BuffInfo {
@@ -203,7 +203,14 @@ fn visible_status_threshold_runs_only_before_attacks() {
             from_uid: Some(10),
             ..Default::default()
         })
-        .collect();
+        .collect::<Vec<_>>();
+    status_buffs.push(BuffInfo {
+        uid: Some(5),
+        buff_id: Some(103374114),
+        from_uid: Some(-2),
+        layer: Some(2),
+        ..Default::default()
+    });
     let fight = Fight {
         attacker: Some(FightTeam {
             entitys: vec![FightEntityInfo {

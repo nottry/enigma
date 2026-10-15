@@ -696,6 +696,10 @@ impl BuffDefinition {
             .any(|include| self.has_include_type(include))
     }
 
+    pub(super) fn counts_stacked_layers_in_conditions(&self) -> bool {
+        self.has_include_type(BuffIncludeType::Stacked)
+    }
+
     pub(super) fn emits_existing_layer_on_refresh(&self) -> bool {
         [BuffIncludeType::Layer, BuffIncludeType::Stacked12]
             .into_iter()
