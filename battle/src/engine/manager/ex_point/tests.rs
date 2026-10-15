@@ -4,6 +4,26 @@ use super::*;
 use crate::engine::skill::rule::{DefinitionKey, RuleDomain};
 
 #[test]
+fn unique_skill_point_requires_a_known_type_and_positive_maximum() {
+    assert_eq!(
+        parse_unique_skill_point("4#100").unwrap(),
+        (ExPointKind::DevicePower, 100)
+    );
+
+    for malformed in [
+        "4",
+        "common#100",
+        "4#many",
+        "4#100#1",
+        "42#100",
+        "4#0",
+        "4#-1",
+    ] {
+        assert!(parse_unique_skill_point(malformed).is_err());
+    }
+}
+
+#[test]
 fn nautika_uses_rank_replaced_faith_cap() {
     crate::test_support::init_config();
     let mut fight = Fight {

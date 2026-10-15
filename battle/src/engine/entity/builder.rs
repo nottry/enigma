@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use sonettobuf::{EnhanceInfoBox, EquipRecord, FightEntityInfo, HeroAttribute, PowerInfo};
 
-use crate::engine::manager::ex_point::ExPointKind;
+use crate::engine::manager::ex_point::{ExPointKind, parse_unique_skill_point};
 
 use super::{
     attr::Attr,
@@ -416,30 +416,11 @@ impl EntityBuilder {
             .or_else(|| crate::catalog::configured_unique_skill_point(game, hero_id, rank))
             .filter(|spec| !spec.trim().is_empty());
         match spec {
-            Some(spec) => Self::parse_ex_point_spec(spec),
+            Some(spec) => {
+                parse_unique_skill_point(spec).map(|(kind, maximum)| (kind.as_wire(), maximum))
+            }
             None => Ok((0, 0)),
         }
-    }
-
-    fn parse_ex_point_spec(spec: &str) -> Result<(i32, i32)> {
-        let mut values = spec.split('#');
-        let kind = values
-            .next()
-            .context("missing unique skill point type")?
-            .trim()
-            .parse()
-            .with_context(|| format!("invalid unique skill point type in {spec:?}"))?;
-        let maximum = values
-            .next()
-            .context("missing unique skill point maximum")?
-            .trim()
-            .parse()
-            .with_context(|| format!("invalid unique skill point maximum in {spec:?}"))?;
-        anyhow::ensure!(
-            values.next().is_none(),
-            "unexpected unique skill point field in {spec:?}"
-        );
-        Ok((kind, maximum))
     }
 
     fn career(game: &config::GameDB, hero_id: i32) -> i32 {
@@ -712,17 +693,5 @@ mod tests {
 
         assert_eq!(entity.ex_point_type, Some(4));
         assert_eq!(entity.ex_point_max, Some(100));
-    }
-
-    #[test]
-    fn unique_skill_point_requires_exact_numeric_type_and_maximum() {
-        assert_eq!(
-            EntityBuilder::parse_ex_point_spec("4#100").unwrap(),
-            (4, 100)
-        );
-
-        for malformed in ["4", "common#100", "4#many", "4#100#1"] {
-            assert!(EntityBuilder::parse_ex_point_spec(malformed).is_err());
-        }
     }
 }

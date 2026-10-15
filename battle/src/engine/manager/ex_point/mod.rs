@@ -68,6 +68,41 @@ impl ExPointKind {
     }
 }
 
+pub(crate) fn parse_unique_skill_point(spec: &str) -> anyhow::Result<(ExPointKind, i32)> {
+    use anyhow::{Context, ensure};
+
+    let mut values = spec.split('#');
+    let raw_kind = values
+        .next()
+        .context("missing unique skill point type")?
+        .trim()
+        .parse::<i32>()
+        .with_context(|| format!("invalid unique skill point type in {spec:?}"))?;
+    let kind = match raw_kind {
+        0 => ExPointKind::Common,
+        1 => ExPointKind::Faith,
+        2 => ExPointKind::Synchronization,
+        3 => ExPointKind::Adrenaline,
+        4 => ExPointKind::DevicePower,
+        _ => anyhow::bail!("unknown unique skill point type {raw_kind} in {spec:?}"),
+    };
+    let maximum = values
+        .next()
+        .context("missing unique skill point maximum")?
+        .trim()
+        .parse::<i32>()
+        .with_context(|| format!("invalid unique skill point maximum in {spec:?}"))?;
+    ensure!(
+        maximum > 0,
+        "nonpositive unique skill point maximum in {spec:?}"
+    );
+    ensure!(
+        values.next().is_none(),
+        "unexpected unique skill point field in {spec:?}"
+    );
+    Ok((kind, maximum))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExPointState {
     pub current: i32,
