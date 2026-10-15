@@ -338,11 +338,17 @@ impl SkillEffectCatalog {
                         behavior,
                     ));
                 }
-                Err(SlotParseError::Target(raw)) => {
+                Err(SlotParseError::Target {
+                    raw,
+                    opcode,
+                    type_name,
+                }) => {
                     self.issues.entry(row.id).or_default().push(target_issue(
                         row.id,
                         index as u8 + 1,
                         raw,
+                        Some(opcode),
+                        Some(type_name),
                     ));
                 }
             }
@@ -352,13 +358,17 @@ impl SkillEffectCatalog {
             slots,
         });
         self.insert_effect_tag(row.id, row.effect_tag);
-        if let Some(target) = parse_target(&row.logic_target) {
+        if let Some(target) = parse_target(&row.logic_target)
+            .filter(|target| crate::engine::skill::target::is_mapped_target_code(target.code))
+        {
             self.insert_logic_target(row.id, target.code);
         } else {
             self.issues.entry(row.id).or_default().push(target_issue(
                 row.id,
                 0,
                 row.logic_target.clone(),
+                None,
+                None,
             ));
         }
         self.insert_damage_rate(row.id, row.damage_rate);

@@ -386,9 +386,11 @@ fn parses_target_code_and_raw_args() {
 #[test]
 fn slot_parser_rejects_malformed_targets() {
     init_config();
+    let db = config::configs::get();
+    let type_name = db.skill_behavior.get(60225).unwrap().r#type.clone();
     let parse = |target, condition_target, logic_target| {
         parse_slot(
-            config::configs::get(),
+            db,
             RawSlot {
                 behavior: "60225#530000751:100&530000752:25",
                 target,
@@ -406,7 +408,29 @@ fn slot_parser_rejects_malformed_targets() {
         parse("103", "bad", "103"),
         parse("999", "", "bad"),
     ] {
-        assert_eq!(result, Err(SlotParseError::Target("bad".to_owned())));
+        assert_eq!(
+            result,
+            Err(SlotParseError::Target {
+                raw: "bad".to_owned(),
+                opcode: 60225,
+                type_name: type_name.clone(),
+            })
+        );
+    }
+
+    for result in [
+        parse("2147483647", "103", "103"),
+        parse("103", "2147483647", "103"),
+        parse("999", "", "2147483647"),
+    ] {
+        assert_eq!(
+            result,
+            Err(SlotParseError::Target {
+                raw: "2147483647".to_owned(),
+                opcode: 60225,
+                type_name: type_name.clone(),
+            })
+        );
     }
 }
 

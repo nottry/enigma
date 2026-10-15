@@ -74,12 +74,18 @@ pub(super) fn rule_issue(db: &GameDB, effect_id: i32, slot: u8, raw: &str) -> Ru
     }
 }
 
-pub(super) fn target_issue(effect_id: i32, slot: u8, raw: String) -> RuleIssue {
+pub(super) fn target_issue(
+    effect_id: i32,
+    slot: u8,
+    raw: String,
+    opcode: Option<i32>,
+    type_name: Option<String>,
+) -> RuleIssue {
     RuleIssue {
         effect_id,
         slot,
-        opcode: None,
-        type_name: None,
+        opcode,
+        type_name,
         raw,
         reason: RuleIssueReason::MalformedTarget,
     }
@@ -107,7 +113,11 @@ pub(super) struct RawSlot<'a> {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum SlotParseError {
     Behavior,
-    Target(String),
+    Target {
+        raw: String,
+        opcode: i32,
+        type_name: String,
+    },
 }
 
 pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlot, SlotParseError> {
@@ -152,6 +162,11 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlo
     }
 
     let behavior = ParsedBehavior::from_spec(spec, behavior_args, behavior_values);
+    let target_error = |raw: &str| SlotParseError::Target {
+        raw: raw.to_owned(),
+        opcode: behavior.spec.key.opcode,
+        type_name: behavior.spec.key.type_name.to_owned(),
+    };
     let supports = crate::engine::skill::behavior::registry::find(&behavior)
         .and_then(|definition| definition.supports);
     if supports.is_some_and(|supports| !supports(&behavior))
@@ -175,15 +190,29 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlo
         &conditions,
         &behavior.spec,
     );
-    let condition_target = parse_target(condition_target)
-        .ok_or_else(|| SlotParseError::Target(condition_target.to_owned()))?;
-    let parsed_target =
-        parse_target(target).ok_or_else(|| SlotParseError::Target(target.to_owned()))?;
+    let parsed_condition_target =
+        parse_target(condition_target).ok_or_else(|| target_error(condition_target))?;
+    if !crate::engine::skill::target::is_mapped_target_code(parsed_condition_target.code) {
+        return Err(target_error(condition_target));
+    }
+    let parsed_target = parse_target(target).ok_or_else(|| target_error(target))?;
+    if parsed_target.code != 999
+        && !crate::engine::skill::target::is_mapped_target_code(parsed_target.code)
+    {
+        return Err(target_error(target));
+    }
     let target_from_condition = parsed_target.code == 999;
     let target = match parsed_target {
-        target if target.code == 999 && condition_target.code != 0 => condition_target.clone(),
-        target if target.code == 999 => parse_target(logic_target)
-            .ok_or_else(|| SlotParseError::Target(logic_target.to_owned()))?,
+        target if target.code == 999 && parsed_condition_target.code != 0 => {
+            parsed_condition_target.clone()
+        }
+        target if target.code == 999 => {
+            let target = parse_target(logic_target).ok_or_else(|| target_error(logic_target))?;
+            if !crate::engine::skill::target::is_mapped_target_code(target.code) {
+                return Err(target_error(logic_target));
+            }
+            target
+        }
         target => target,
     };
 
@@ -191,7 +220,7 @@ pub(super) fn parse_slot(db: &GameDB, raw: RawSlot<'_>) -> Result<SkillEffectSlo
         behavior,
         conditions,
         compiled_route,
-        condition_target,
+        condition_target: parsed_condition_target,
         target,
         target_from_condition,
         limit,
