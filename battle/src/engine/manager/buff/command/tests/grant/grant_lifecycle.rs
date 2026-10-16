@@ -1,6 +1,57 @@
 use super::*;
 
 #[test]
+fn external_refresh_keeps_the_current_applier() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(1_000),
+                buffs: vec![BuffInfo {
+                    buff_id: Some(103374114),
+                    uid: Some(1109),
+                    from_uid: Some(10),
+                    duration: Some(2),
+                    layer: Some(1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut hp = HpManager::default();
+    hp.seed(&fight);
+    let mut manager = BuffManager::default();
+    manager.seed(&fight);
+
+    let changes = manager
+        .execute(
+            &hp,
+            BuffCommand::Grant(BuffGrant {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(1, "AddBuff"),
+                },
+                source_uid: -2,
+                target_uid: 10,
+                buff_id: 103374114,
+                amount: None,
+                occurrences: 1,
+                child_uid_reservations: 0,
+            }),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        changes.events().as_slice(),
+        [BattleEvent::BuffChanged(change)] if change.source_uid == -2
+    ));
+}
+
+#[test]
 fn provoke_replaces_only_the_copy_from_the_same_applier() {
     crate::test_support::init_config();
     let fight = Fight {

@@ -33,6 +33,7 @@ impl EffectPacket {
                 && refreshed.before.layer.unwrap_or_default() > 0
             {
                 effects.push(Self::buff_update(&BuffUpdateResult {
+                    source_uid: refreshed.source_uid,
                     target_uid: refreshed.target_uid,
                     before: refreshed.before.clone(),
                     after: refreshed.before.clone(),
@@ -147,6 +148,7 @@ impl EffectPacket {
                 let mut echoed = refreshed.before.clone();
                 echoed.duration = refreshed.after.duration;
                 effects.push(Self::buff_update(&BuffUpdateResult {
+                    source_uid: refreshed.source_uid,
                     target_uid: refreshed.target_uid,
                     before: echoed.clone(),
                     after: echoed,

@@ -436,6 +436,7 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
     };
 
     let update = [EffectPacket::buff_update(&BuffUpdateResult {
+        source_uid: 0,
         target_uid: 10,
         before,
         after: after.clone(),
@@ -506,6 +507,7 @@ fn duration_only_refresh_does_not_emit_an_attribute_marker() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,
@@ -686,6 +688,7 @@ fn stack_consumption_does_not_emit_an_attribute_marker() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,
@@ -721,6 +724,7 @@ fn stack_refresh_emits_configured_refresh_markers() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,
