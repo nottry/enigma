@@ -1,5 +1,79 @@
 use super::*;
 
+fn attr_max_hp_change(
+    source_uid: i64,
+    target_uid: i64,
+    before_current: i32,
+    after_current: i32,
+    delta: i32,
+) -> BattleChange {
+    BattleChange::Hp(Box::new(HpChanges {
+        origin: CommandOrigin {
+            domain: RuleDomain::BuffAct,
+            key: DefinitionKey::new(100, "Attr"),
+        },
+        source_uid,
+        target_uid,
+        damage: None,
+        fake_hp_consumed: None,
+        team_shared_shield_absorbed: None,
+        team_shared_shield_removed: None,
+        shared_hurt: None,
+        shield_absorbed: None,
+        shield_granted: None,
+        max_hp: Some(MaxHpChange {
+            target_uid,
+            before_current,
+            before_max: 100,
+            delta,
+            after_current,
+            after_max: 100 + delta,
+        }),
+        hp: None,
+        toughness: None,
+        kill: None,
+        death: None,
+    }))
+}
+
+#[test]
+fn attr_max_hp_wire_follows_applier_and_real_current_hp_changes() {
+    let cases = [
+        (10, 10, 100, 120, 20, vec![108, 109, 108, 109]),
+        (20, 10, 100, 120, 20, vec![108, 109]),
+        (10, 10, 100, 80, -20, vec![108, 109, 108]),
+        (10, 10, 50, 50, -20, vec![108, 108]),
+    ];
+
+    for (source_uid, target_uid, before_current, after_current, delta, expected) in cases {
+        let effects = project_change_for_test(&attr_max_hp_change(
+            source_uid,
+            target_uid,
+            before_current,
+            after_current,
+            delta,
+        ))
+        .unwrap();
+
+        assert_eq!(
+            effects
+                .iter()
+                .map(|effect| effect.effect_type.unwrap())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(
+            effects
+                .iter()
+                .all(|effect| effect.target_id == Some(target_uid))
+        );
+        assert!(effects.iter().all(|effect| {
+            effect.effect_type != Some(EffectType::Maxhpchange as i32)
+                || effect.buff_act_id == Some(0)
+        }));
+    }
+}
+
 #[test]
 fn semantic_buff_marker_projects_real_damage_kill() {
     let effects = project_change_for_test(&BattleChange::BuffFeatureMarker(BuffMarkerResult {

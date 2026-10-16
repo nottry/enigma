@@ -16,7 +16,7 @@ use crate::engine::{
         gauge::{GaugeChange, GaugeChangeKind, GaugeKey},
         hp::{
             DamageEffectKind, DamageRecord, HpChange, HpChanges, HurtDamageFromType, HurtInfoData,
-            ShieldChange,
+            MaxHpChange, ShieldChange,
         },
         injury::InjuryChange,
         shield::ShieldCommand,

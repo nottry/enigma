@@ -435,7 +435,13 @@ mod tests {
         );
         assert!(wire.markers(WirePhase::Refresh).is_empty());
         assert!(wire.markers(WirePhase::Static).is_empty());
-        assert_eq!(wire.max_hp.unwrap().repeats, 1);
+        assert_eq!(
+            wire.max_hp.unwrap(),
+            crate::engine::skill::buff_act::wire::MaxHpWireRule::Fixed {
+                repeats: 1,
+                buff_act_id: 0,
+            }
+        );
         assert!(crate::engine::manager::buff::wire_markers(108_300_003, WirePhase::Add).is_empty());
     }
 }
