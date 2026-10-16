@@ -288,7 +288,7 @@ impl BuffDefinition {
 
     pub(super) fn command_refresh_wire_markers(
         &self,
-        event: crate::engine::event::kind::EventKind,
+        transaction_event: Option<crate::engine::event::kind::EventKind>,
     ) -> Vec<i32> {
         let phase = crate::engine::skill::buff_act::wire::WirePhase::Refresh;
         if self.features.iter().any(|feature| {
@@ -304,8 +304,12 @@ impl BuffDefinition {
             .iter()
             .filter(|feature| {
                 !mutates_max_hp(feature)
-                    && !feature.values.first().copied().is_some_and(|act_id| {
-                        crate::engine::skill::buff_act::registry::find(act_id, &feature.act_type)
+                    && !transaction_event.is_some_and(|event| {
+                        feature.values.first().copied().is_some_and(|act_id| {
+                            crate::engine::skill::buff_act::registry::find(
+                                act_id,
+                                &feature.act_type,
+                            )
                             .is_some_and(|definition| {
                                 definition.transaction.handler.is_some()
                                     && definition.transaction.wire_marker_events.contains(&event)
@@ -319,6 +323,7 @@ impl BuffDefinition {
                                         .unwrap_or(definition.runtime.publication)
                                         == crate::engine::event::subscription::PublicationPhase::AfterPublish
                             })
+                        })
                     })
             })
             .flat_map(|feature| {

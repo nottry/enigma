@@ -58,13 +58,23 @@ fn command_refresh_markers_keep_their_registered_owner() {
     assert_eq!(
         BuffDefinition::get(103_374_114)
             .unwrap()
-            .command_refresh_wire_markers(crate::engine::event::kind::EventKind::BuffChanged,),
+            .command_refresh_wire_markers(
+                Some(crate::engine::event::kind::EventKind::BuffChanged,)
+            ),
         Vec::<i32>::new()
+    );
+    assert_eq!(
+        BuffDefinition::get(103_374_114)
+            .unwrap()
+            .command_refresh_wire_markers(None),
+        vec![sonettobuf::effect_type_enum::EffectType::Attr as i32]
     );
     assert_eq!(
         BuffDefinition::get(31_130_122)
             .unwrap()
-            .command_refresh_wire_markers(crate::engine::event::kind::EventKind::BuffChanged,),
+            .command_refresh_wire_markers(
+                Some(crate::engine::event::kind::EventKind::BuffChanged,)
+            ),
         vec![sonettobuf::effect_type_enum::EffectType::None as i32]
     );
 }

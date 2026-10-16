@@ -526,7 +526,7 @@ fn duration_only_refresh_does_not_emit_an_attribute_marker() {
 }
 
 #[test]
-fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
+fn capped_timed_layer_refresh_keeps_command_marker_without_transaction_event() {
     use crate::engine::{
         manager::{
             buff::{BuffCommand, BuffConsume, BuffGrant, BuffManager, BuffSelector, DepletedBuff},
@@ -580,6 +580,10 @@ fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
 
     let effects = EffectPacket::recorded_buff_changes(&changes);
 
+    assert!(!changes.events().iter().any(|event| matches!(
+        event,
+        crate::engine::event::payload::BattleEvent::BuffChanged(_)
+    )));
     assert_eq!(
         effects
             .iter()
@@ -591,6 +595,7 @@ fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
         vec![
             (Some(EffectType::Buffupdate as i32), Some(3)),
             (Some(EffectType::Buffupdate as i32), Some(3)),
+            (Some(EffectType::Attr as i32), None),
         ]
     );
 
@@ -611,6 +616,10 @@ fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
             }),
         )
         .unwrap();
+    assert!(!unchanged.events().iter().any(|event| matches!(
+        event,
+        crate::engine::event::payload::BattleEvent::BuffChanged(_)
+    )));
     assert_eq!(
         EffectPacket::recorded_buff_changes(&unchanged)
             .iter()
@@ -619,6 +628,7 @@ fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
         vec![
             Some(EffectType::Buffupdate as i32),
             Some(EffectType::Buffupdate as i32),
+            Some(EffectType::Attr as i32),
         ]
     );
 

@@ -1,4 +1,6 @@
-use super::super::{BuffDefinition, BuffFanoutResult, BuffRemoveResult, BuffUpdateResult};
+use super::super::{
+    BuffDefinition, BuffFanoutResult, BuffRemoveResult, BuffUpdateResult, count_or_layer,
+};
 use super::*;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,10 +98,11 @@ impl BuffChanges {
                     definition
                         .as_ref()
                         .map(|definition| {
+                            let transaction_event = (count_or_layer(&refresh.before)
+                                != count_or_layer(&refresh.after))
+                            .then_some(crate::engine::event::kind::EventKind::BuffChanged);
                             definition
-                                .command_refresh_wire_markers(
-                                    crate::engine::event::kind::EventKind::BuffChanged,
-                                )
+                                .command_refresh_wire_markers(transaction_event)
                                 .into_iter()
                                 .map(|effect_type| BuffMarkerResult {
                                     target_uid: refresh.target_uid,
