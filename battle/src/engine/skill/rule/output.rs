@@ -104,6 +104,7 @@ pub enum RuleOp {
     Skill(SkillInvocation),
     SkillLifecycle(SkillLifecycle),
     DeathSettlement(crate::engine::manager::hp::DeathTransition),
+    DeathEventGroupComplete(crate::engine::manager::hp::PendingDeath),
     SubscriberGroupComplete,
     TerminalSettlement,
     BeginSkillAction {

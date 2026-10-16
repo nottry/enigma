@@ -1,0 +1,149 @@
+use super::*;
+
+#[test]
+fn each_death_event_group_settles_before_the_next_group_reacts() {
+    crate::test_support::init_config();
+
+    let entity = |uid, team_type, passive_skill| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        current_hp: Some(100),
+        passive_skill,
+        attr: Some(HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, Vec::new())],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![
+                entity(-1, 2, vec![103374115]),
+                entity(-2, 2, vec![103374213]),
+                entity(-3, 2, vec![103374313]),
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut death_managers = BattleManagers::seeded(&fight);
+    let origin = CommandOrigin {
+        domain: RuleDomain::Lifecycle,
+        key: DefinitionKey::new(0, "TestDeathEventGroup"),
+    };
+    let mut event_groups = Vec::new();
+    let mut pending_deaths = Vec::new();
+    for target_uid in [-2, -3] {
+        let mut changes = death_managers
+            .hp
+            .execute_command(crate::engine::manager::hp::HpCommand::Kill(
+                crate::engine::manager::hp::HpKill {
+                    origin,
+                    source_uid: 10,
+                    target_uid,
+                    config_effect: 1,
+                },
+            ))
+            .unwrap();
+        event_groups.push(changes.events());
+        pending_deaths.extend(changes.take_deaths_with_shares());
+    }
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut determinism = RoundDeterminism::default();
+    let mut state = DrainState::new(TargetContext::default());
+    let mut frames = Vec::new();
+    let root = push_root(&mut frames, FrameOwner::Command, FrameTrigger::Active);
+    let reactions = dispatch_event_groups(
+        &pool,
+        &managers,
+        &catalog,
+        &mut determinism,
+        &mut state,
+        &event_groups,
+        &root,
+        &root,
+        Some(&root),
+        &root,
+        None,
+        false,
+        true,
+        crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        None,
+        None,
+        Some(&mut pending_deaths),
+    )
+    .unwrap();
+    assert!(pending_deaths.is_empty());
+    assert_eq!(
+        reactions
+            .after_publish
+            .iter()
+            .filter_map(|queued| match &queued.op {
+                RuleOp::Skill(invocation) => Some((invocation.plan.skill_id, 0)),
+                RuleOp::DeathEventGroupComplete(death) => {
+                    Some((0, death.transition().target_uid))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        [
+            (103374115, 0),
+            (103374213, 0),
+            (0, -2),
+            (103374115, 0),
+            (103374313, 0),
+            (0, -3),
+        ]
+    );
+    for target_uid in [-2, -3] {
+        managers
+            .hp
+            .execute_command(crate::engine::manager::hp::HpCommand::Kill(
+                crate::engine::manager::hp::HpKill {
+                    origin,
+                    source_uid: 10,
+                    target_uid,
+                    config_effect: 1,
+                },
+            ))
+            .unwrap();
+    }
+
+    let mut queue = reactions.into_ordered().into();
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    fn collect(step: &sonettobuf::FightStep, order: &mut Vec<(i32, i64)>) {
+        if let Some(skill_id @ (103374115 | 103374213 | 103374313)) = step.act_id {
+            order.push((skill_id, 0));
+        }
+        for effect in &step.act_effect {
+            if effect.effect_type == Some(sonettobuf::effect_type_enum::EffectType::Dead as i32) {
+                order.push((0, effect.target_id.unwrap()));
+            }
+            if let Some(child) = effect.fight_step.as_ref() {
+                collect(child, order);
+            }
+        }
+    }
+
+    let mut order = Vec::new();
+    for step in crate::engine::packet::timeline::project(&result.frames).unwrap() {
+        collect(&step, &mut order);
+    }
+    assert_eq!(order, [(103374115, 0), (0, -2), (103374115, 0), (0, -3),]);
+}

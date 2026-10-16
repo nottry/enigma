@@ -130,6 +130,7 @@ fn run_owned_buff_act_groups(
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
                 | RuleOp::DeathSettlement(_)
+                | RuleOp::DeathEventGroupComplete(_)
                 | RuleOp::SubscriberGroupComplete
                 | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }

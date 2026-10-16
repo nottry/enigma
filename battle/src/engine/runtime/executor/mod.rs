@@ -552,6 +552,9 @@ pub(crate) fn execute_rule_op_with(
             Ok(RuleOutcome::PublishedEvent)
         }
         RuleOp::DeathSettlement(death) => Ok(RuleOutcome::DeathSettlement(death)),
+        RuleOp::DeathEventGroupComplete(_) => {
+            unreachable!("death event group completion is owned by the runtime drain")
+        }
         RuleOp::SubscriberGroupComplete => {
             unreachable!("subscriber group completion is owned by the runtime drain")
         }

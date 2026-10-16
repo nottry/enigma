@@ -133,6 +133,7 @@ pub(super) fn dispatch_event_groups(
     publication_phase: crate::engine::event::subscription::PublicationPhase,
     owner_uids: Option<&[i64]>,
     lane: Option<ReactionLane>,
+    mut pending_deaths: Option<&mut Vec<crate::engine::manager::hp::PendingDeath>>,
 ) -> Result<ReactionBatch, DrainError> {
     let all_events = event_groups.iter().flatten().cloned().collect::<Vec<_>>();
     let mut state = EventBatchState {
@@ -145,7 +146,7 @@ pub(super) fn dispatch_event_groups(
     });
     let mut reactions = ReactionBatch::default();
     for events in event_groups {
-        let group = dispatch_event_batch_inner(
+        let mut group = dispatch_event_batch_inner(
             pool,
             managers,
             catalog,
@@ -165,6 +166,31 @@ pub(super) fn dispatch_event_groups(
             &mut state,
             fired_once_per_action,
         )?;
+        if publication_phase == crate::engine::event::subscription::PublicationPhase::AfterPublish
+            && lane.is_none()
+            && let Some(pending_deaths) = pending_deaths.as_deref_mut()
+        {
+            for event in events {
+                let BattleEvent::EntityDied(event) = event else {
+                    continue;
+                };
+                let Some(index) = pending_deaths.iter().position(|death| {
+                    let transition = death.transition();
+                    transition.source_uid == event.source_uid
+                        && transition.target_uid == event.target_uid
+                }) else {
+                    continue;
+                };
+                let death = pending_deaths.remove(index);
+                group
+                    .after_publish
+                    .push(queued_death_event_group_completion(
+                        death,
+                        event,
+                        action_path.unwrap_or(parent_path),
+                    ));
+            }
+        }
         reactions.append(group);
     }
     reactions.assign_subscriber_death_groups(action_path);
