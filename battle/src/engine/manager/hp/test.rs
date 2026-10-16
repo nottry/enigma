@@ -435,6 +435,37 @@ fn max_hp_adjustment_mutates_current_and_max_without_hp_loss() {
 }
 
 #[test]
+fn max_hp_reduction_only_clamps_current_above_the_new_maximum() {
+    for (current, expected_current) in [(50, 50), (90, 80)] {
+        let mut hp = HpManager::default();
+        hp.states.insert(
+            10,
+            HpState {
+                current,
+                max: 100,
+                base_max: 100,
+            },
+        );
+
+        let changes = hp
+            .execute_command(HpCommand::AdjustMax(MaxHpAdjust {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(100, "Attr"),
+                },
+                source_uid: 10,
+                target_uid: 10,
+                delta: -20,
+            }))
+            .unwrap();
+
+        assert_eq!(changes.max_hp.unwrap().after_current, expected_current);
+        assert_eq!(hp.current(10), expected_current);
+        assert_eq!(hp.max(10), 80);
+    }
+}
+
+#[test]
 fn shield_absorbs_damage_before_hp() {
     let mut hp = HpManager::default();
     hp.set_shield(10, 100);

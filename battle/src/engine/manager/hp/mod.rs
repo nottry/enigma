@@ -724,7 +724,11 @@ impl HpManager {
             state.base_max = state.max;
         }
         state.max = (state.max + delta).max(0);
-        state.current = (state.current + delta).clamp(0, state.max);
+        state.current = if delta >= 0 {
+            (state.current + delta).min(state.max)
+        } else {
+            state.current.min(state.max)
+        };
         if before != state.current {
             *self.revisions.entry(uid).or_default() += 1;
         }
