@@ -52,6 +52,20 @@ fn layer_master_halo_refresh_repeats_its_wire_marker() {
 }
 
 #[test]
+fn attr_refresh_markers_are_owned_by_the_transaction() {
+    crate::test_support::init_config();
+
+    let definition = BuffDefinition::get(103_374_114).unwrap();
+    assert_eq!(
+        definition.after_publish_wire_markers(
+            crate::engine::skill::buff_act::wire::WirePhase::Refresh,
+            crate::engine::event::kind::EventKind::BuffChanged,
+        ),
+        vec![sonettobuf::effect_type_enum::EffectType::Attr as i32]
+    );
+}
+
+#[test]
 fn initializes_common_params_for_stateful_buff_acts() {
     crate::test_support::init_config();
 

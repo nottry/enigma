@@ -193,6 +193,32 @@ impl BuffChanges {
         self
     }
 
+    pub(crate) fn defer_after_publish_refresh_markers(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+    ) {
+        for (refresh, wire) in self.change.refreshed.iter().zip(&mut self.refresh_wire) {
+            let Some(definition) = BuffDefinition::configured(
+                catalog.game_data(),
+                refresh.after.buff_id.unwrap_or_default(),
+            ) else {
+                continue;
+            };
+            for effect_type in definition.after_publish_wire_markers(
+                crate::engine::skill::buff_act::wire::WirePhase::Refresh,
+                crate::engine::event::kind::EventKind::BuffChanged,
+            ) {
+                if let Some(index) = wire
+                    .markers
+                    .iter()
+                    .position(|marker| marker.effect_type == effect_type)
+                {
+                    wire.markers.remove(index);
+                }
+            }
+        }
+    }
+
     pub(super) fn with_act_info_marker(mut self, marker: BuffActInfoMarkerResult) -> Self {
         self.act_info_markers.push(marker);
         self

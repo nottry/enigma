@@ -286,6 +286,33 @@ impl BuffDefinition {
             .collect()
     }
 
+    pub(super) fn after_publish_wire_markers(
+        &self,
+        phase: crate::engine::skill::buff_act::wire::WirePhase,
+        event: crate::engine::event::kind::EventKind,
+    ) -> Vec<i32> {
+        self.features
+            .iter()
+            .filter(|feature| !mutates_max_hp(feature))
+            .filter(|feature| {
+                let Some(act_id) = feature.values.first().copied() else {
+                    return false;
+                };
+                crate::engine::skill::buff_act::registry::runtime_publication(
+                    act_id,
+                    &feature.act_type,
+                    event,
+                ) == crate::engine::event::subscription::PublicationPhase::AfterPublish
+            })
+            .flat_map(|feature| {
+                feature
+                    .wire
+                    .into_iter()
+                    .flat_map(move |definition| definition.markers(phase).iter().copied())
+            })
+            .collect()
+    }
+
     pub(super) fn projects_initial_state_on_refresh(&self, act_id: i32) -> bool {
         self.features.iter().any(|feature| {
             feature.arguments_supported

@@ -690,7 +690,11 @@ macro_rules! buff_act_definitions {
 buff_act_definitions! {
     (100, "Attr") => Attr,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
-        publication: BeforePublish, frame: CausingFrame,
+        publications: [
+            EventKind::BuffAdded => BeforePublish,
+            EventKind::BuffRemoved => BeforePublish
+        ],
+        frame: CausingFrame,
         transaction: super::attr::transaction_rule_ops, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(100, "Attr"), &[EffectType::Attr as i32]).with_attr_max_hp());
     (10021, "Rouge2AttrToRole") => Rouge2AttrToRole,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],

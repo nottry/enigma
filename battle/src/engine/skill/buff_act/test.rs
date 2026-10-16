@@ -141,6 +141,31 @@ fn grant_features_keep_config_order() {
 }
 
 #[test]
+fn attr_refresh_transaction_emits_state_change_before_all_markers() {
+    crate::test_support::init_config();
+
+    let event = transaction_event(103_374_114, 1, 2);
+    let ops = transaction_rule_ops(&managers_with_buff(103_374_114, 2), &event);
+    let attr_ops = ops
+        .into_iter()
+        .filter(|(feature, _)| is_kind(feature, registry::BuffActKind::Attr))
+        .map(|(_, op)| op)
+        .collect::<Vec<_>>();
+
+    assert!(matches!(
+        attr_ops.first(),
+        Some(RuleOp::Command(BattleCommand::Hp(HpCommand::AdjustMax(_))))
+    ));
+    assert_eq!(
+        attr_ops
+            .iter()
+            .filter(|op| matches!(op, RuleOp::BuffFeatureMarker { .. }))
+            .count(),
+        2
+    );
+}
+
+#[test]
 fn buff_act_type_can_own_its_runtime_event() {
     assert_eq!(
         registry::runtime_event(731, "CastChannel", 0),

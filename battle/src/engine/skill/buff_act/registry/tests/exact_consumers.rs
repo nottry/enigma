@@ -31,6 +31,22 @@ fn hurt_to_progress_owns_the_pre_damage_hit_route() {
 }
 
 #[test]
+fn attr_transactions_follow_the_buff_lifecycle_boundary() {
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffAdded),
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffChanged),
+        PublicationPhase::AfterPublish
+    );
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffRemoved),
+        PublicationPhase::BeforePublish
+    );
+}
+
+#[test]
 fn registry_requires_exact_id_and_type() {
     assert_eq!(
         find(1075, "CardLimitAdd").unwrap().kind,
