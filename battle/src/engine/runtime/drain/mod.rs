@@ -817,6 +817,7 @@ fn drain_queue_with_deferred(
         };
         match op {
             RuleOp::DeathEventGroupComplete(death) => {
+                state.complete_death_event_group(death);
                 if managers.hp.is_current_death(death) {
                     let transition = death.transition();
                     let parent_path = parent_path
@@ -1812,7 +1813,9 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::AfterPublish,
                         terminal_owner_uids.as_deref(),
                         None,
-                        active_action_scope.is_some().then_some(&mut pending_deaths),
+                        active_action_scope
+                            .is_some()
+                            .then_some(pending_deaths.as_slice()),
                     )?
                 };
                 state.defer_before_after_hit_observers(
@@ -1949,9 +1952,11 @@ fn drain_queue_with_deferred(
 
                 // A pending death becomes a frame change only if HP is still zero.
                 // Active-action deaths wait for the shared HitPassives release.
-                let event_grouped_deaths = original_pending_deaths
+                let completed_death_event_groups =
+                    state.take_completed_death_event_groups(&original_pending_deaths);
+                pending_deaths.retain(|death| !completed_death_event_groups.contains(death));
+                let event_grouped_deaths = completed_death_event_groups
                     .into_iter()
-                    .filter(|death| !pending_deaths.contains(death))
                     .filter(|death| managers.hp.is_current_death(*death))
                     .collect::<Vec<_>>();
                 let settled_deaths = pending_deaths

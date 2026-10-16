@@ -52,6 +52,7 @@ pub(super) struct DrainState {
     next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
     deaths: HashMap<FramePath, Vec<PendingDeath>>,
+    completed_death_event_groups: Vec<PendingDeath>,
     target_modifiers: HashMap<FramePath, i32>,
     budget: DrainBudget,
     context: TargetContext,
@@ -465,6 +466,26 @@ impl DrainState {
 
     pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<PendingDeath>> {
         self.deaths.remove(action_path)
+    }
+
+    pub(super) fn complete_death_event_group(&mut self, death: PendingDeath) {
+        self.completed_death_event_groups.push(death);
+    }
+
+    pub(super) fn take_completed_death_event_groups(
+        &mut self,
+        pending: &[PendingDeath],
+    ) -> Vec<PendingDeath> {
+        let mut completed = Vec::new();
+        self.completed_death_event_groups.retain(|death| {
+            if pending.contains(death) {
+                completed.push(*death);
+                false
+            } else {
+                true
+            }
+        });
+        completed
     }
 
     pub(super) fn record_subscriber_deaths(

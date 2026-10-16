@@ -77,10 +77,10 @@ fn each_death_event_group_settles_before_the_next_group_reacts() {
         crate::engine::event::subscription::PublicationPhase::AfterPublish,
         None,
         None,
-        Some(&mut pending_deaths),
+        Some(&pending_deaths),
     )
     .unwrap();
-    assert!(pending_deaths.is_empty());
+    assert_eq!(pending_deaths.len(), 2);
     assert_eq!(
         reactions
             .after_publish
@@ -158,4 +158,101 @@ fn each_death_event_group_settles_before_the_next_group_reacts() {
         ]
     );
     assert_eq!(managers.buff.buff_id_amount(10, 103374114), 2);
+}
+
+#[test]
+fn death_event_group_does_not_cleanup_a_revived_target() {
+    crate::test_support::init_config();
+
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                team_type: Some(1),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                position: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    ..Default::default()
+                }),
+                buffs: vec![BuffInfo {
+                    uid: Some(20),
+                    buff_id: Some(31_250_181),
+                    from_uid: Some(-1),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let catalog = SkillEffectCatalog::from_fight(config::configs::get(), &fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut frames = Vec::new();
+    let action = push_root(
+        &mut frames,
+        FrameOwner::Skill {
+            source_uid: 10,
+            skill_id: 1,
+            card_index: 0,
+            target_uid: Some(-1),
+        },
+        FrameTrigger::Active,
+    );
+    let mut queue = [QueuedOp {
+        op: RuleOp::Command(BattleCommand::Hp(
+            crate::engine::manager::hp::HpCommand::Kill(crate::engine::manager::hp::HpKill {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestDeathEventGroup"),
+                },
+                source_uid: 10,
+                target_uid: -1,
+                config_effect: 1,
+            }),
+        )),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: Some(action),
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]
+    .into();
+    let result = drain_queue_with_frames(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+        &mut queue,
+        frames,
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 30);
+    assert!(!result.outcomes.iter().any(|outcome| matches!(
+        outcome,
+        crate::engine::runtime::executor::RuleOutcome::DeathSettlement(_)
+            | crate::engine::runtime::executor::RuleOutcome::Card(_)
+    )));
 }
