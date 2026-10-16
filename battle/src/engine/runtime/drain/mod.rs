@@ -747,7 +747,8 @@ fn drain_queue_with_deferred(
         // Previous operations may have changed HP, buffs, entities, or resources.
         // Target resolution must see those committed manager values.
         let continuing_source = match (&op, &trigger, frame_path.as_ref()) {
-            (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
+            (RuleOp::Skill(invocation), SkillOpTrigger::Event(_), _)
+            | (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
                 Some(invocation.plan.source_uid)
             }
             _ => None,

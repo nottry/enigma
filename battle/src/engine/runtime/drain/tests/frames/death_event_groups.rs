@@ -7,6 +7,7 @@ fn each_death_event_group_settles_before_the_next_group_reacts() {
     let entity = |uid, team_type, passive_skill| FightEntityInfo {
         uid: Some(uid),
         team_type: Some(team_type),
+        position: Some(if uid > 0 { 1 } else { -uid as i32 }),
         current_hp: Some(100),
         passive_skill,
         attr: Some(HeroAttribute {
@@ -145,5 +146,16 @@ fn each_death_event_group_settles_before_the_next_group_reacts() {
     for step in crate::engine::packet::timeline::project(&result.frames).unwrap() {
         collect(&step, &mut order);
     }
-    assert_eq!(order, [(103374115, 0), (0, -2), (103374115, 0), (0, -3),]);
+    assert_eq!(
+        order,
+        [
+            (103374115, 0),
+            (103374213, 0),
+            (0, -2),
+            (103374115, 0),
+            (103374313, 0),
+            (0, -3),
+        ]
+    );
+    assert_eq!(managers.buff.buff_id_amount(10, 103374114), 2);
 }
