@@ -147,7 +147,8 @@ impl BattleRuntime {
             battle_id,
             captured,
         )?;
-        if decks.used_capture {
+        let used_capture = decks.used_capture;
+        if used_capture {
             self.determinism.enqueue_card_draws(captured_draws);
         }
         let ai_deck = decks.ai;
@@ -168,10 +169,16 @@ impl BattleRuntime {
         {
             (configured, true)
         } else {
-            let drawn = self.determinism.draw_cards(
+            let mut drawn = self.determinism.draw_cards(
                 &available_player_cards(self.managers.catalog(), &self.fight),
                 opening_hand_size,
             );
+            if !used_capture {
+                crate::engine::manager::card::start::preserve_generated_basic_coverage(
+                    &self.fight,
+                    &mut drawn,
+                );
+            }
             if drawn.len() == opening_hand_size {
                 (drawn, false)
             } else {

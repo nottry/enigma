@@ -36,6 +36,61 @@ fn destination_start_schedule_builds_the_complete_round_wrapper() {
 }
 
 #[test]
+fn generated_opening_reaches_the_round_with_every_basic_card() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        battle_id: Some(7),
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    model_id: Some(1001),
+                    position: Some(1),
+                    current_hp: Some(100),
+                    skill_group1: vec![101],
+                    skill_group2: vec![201],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    model_id: Some(1002),
+                    position: Some(2),
+                    current_hp: Some(100),
+                    skill_group1: vec![102],
+                    skill_group2: vec![202],
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(12),
+                    model_id: Some(1003),
+                    position: Some(3),
+                    current_hp: Some(100),
+                    skill_group1: vec![103],
+                    skill_group2: vec![203],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut runtime = runtime(fight);
+
+    let round = runtime.build_start_round_from_schedule().unwrap();
+
+    assert_eq!(round.team_a_cards1.len(), 7);
+    for skill_id in [101, 201, 102, 202, 103, 203] {
+        assert!(
+            round
+                .team_a_cards1
+                .iter()
+                .any(|card| card.skill_id == Some(skill_id))
+        );
+    }
+}
+
+#[test]
 fn rejected_opening_seed_does_not_retain_captured_draws() {
     crate::test_support::init_config();
     let fight = Fight {
