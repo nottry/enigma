@@ -317,6 +317,7 @@ impl BuffManager {
         let next_duration = before.duration.unwrap_or_default().saturating_sub(1);
         self.buffs[index].buff.duration = Some(next_duration);
         Some(BuffUpdateResult {
+            source_uid: before.from_uid.unwrap_or_default(),
             target_uid: plan.target_uid,
             before,
             after: self.buffs[index].buff.clone(),
@@ -467,6 +468,7 @@ impl BuffManager {
         } else {
             Some(BuffReplaceResult {
                 refreshed: vec![BuffUpdateResult {
+                    source_uid: before.from_uid.unwrap_or_default(),
                     target_uid: plan.target_uid,
                     before,
                     after,

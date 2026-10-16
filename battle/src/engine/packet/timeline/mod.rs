@@ -507,16 +507,34 @@ fn project_change(
                         .and_then(|definition| definition.max_hp)
                     })
                     .flatten();
-                for _ in 0..wire.map_or(1, |rule| rule.repeats) {
+                let plan = wire.map_or(
+                    crate::engine::skill::buff_act::wire::MaxHpWirePlan {
+                        max_hp_repeats: 1,
+                        current_hp_repeats: 1,
+                        buff_act_id: 0,
+                    },
+                    |rule| {
+                        rule.plan(
+                            changes.source_uid,
+                            changes.target_uid,
+                            max_hp.before_current,
+                            max_hp.after_current,
+                            max_hp.delta,
+                        )
+                    },
+                );
+                for index in 0..plan.max_hp_repeats {
                     effects.push(EffectPacket::max_hp_change(
                         max_hp.target_uid,
                         max_hp.after_max,
-                        wire.map_or(0, |rule| rule.buff_act_id),
+                        plan.buff_act_id,
                     ));
-                    effects.push(EffectPacket::current_hp_change(
-                        max_hp.target_uid,
-                        max_hp.after_current,
-                    ));
+                    if index < plan.current_hp_repeats {
+                        effects.push(EffectPacket::current_hp_change(
+                            max_hp.target_uid,
+                            max_hp.after_current,
+                        ));
+                    }
                 }
             }
             if let Some(death) = changes.death {

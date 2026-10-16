@@ -863,6 +863,7 @@ fn shared_damage_subscription_carries_event_batch_ownership() {
         crate::engine::event::subscription::PublicationPhase::AfterPublish,
         None,
         None,
+        None,
     )
     .unwrap();
     let second = dispatch_event_groups(
@@ -880,6 +881,7 @@ fn shared_damage_subscription_carries_event_batch_ownership() {
         true,
         true,
         crate::engine::event::subscription::PublicationPhase::AfterPublish,
+        None,
         None,
         None,
     )

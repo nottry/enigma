@@ -272,6 +272,35 @@ fn queued_death_settlement(
     }
 }
 
+fn queued_death_event_group_settlement(
+    death: crate::engine::manager::hp::DeathTransition,
+    frame_path: &[usize],
+) -> QueuedOp {
+    let mut queued = queued_death_settlement(death, frame_path);
+    queued.frame_path = queued.parent_path.take();
+    queued.frame_owner = None;
+    queued
+}
+
+fn queued_death_event_group_completion(
+    death: crate::engine::manager::hp::PendingDeath,
+    event: &crate::engine::event::payload::EntityDiedEvent,
+    parent_path: &[usize],
+) -> QueuedOp {
+    QueuedOp {
+        op: RuleOp::DeathEventGroupComplete(death),
+        trigger: SkillOpTrigger::Event(BattleEvent::EntityDied(*event)),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: Some(parent_path.to_vec()),
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }
+}
+
 fn queued_terminal_settlement(event: BattleEvent, parent_path: &[usize]) -> QueuedOp {
     QueuedOp {
         op: RuleOp::TerminalSettlement,
@@ -718,7 +747,8 @@ fn drain_queue_with_deferred(
         // Previous operations may have changed HP, buffs, entities, or resources.
         // Target resolution must see those committed manager values.
         let continuing_source = match (&op, &trigger, frame_path.as_ref()) {
-            (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
+            (RuleOp::Skill(invocation), SkillOpTrigger::Event(_), _)
+            | (RuleOp::Skill(invocation), SkillOpTrigger::Active, Some(_)) => {
                 Some(invocation.plan.source_uid)
             }
             _ => None,
@@ -786,6 +816,22 @@ fn drain_queue_with_deferred(
             parent_path
         };
         match op {
+            RuleOp::DeathEventGroupComplete(death) => {
+                state.complete_death_event_group(death);
+                if managers.hp.is_current_death(death) {
+                    let transition = death.transition();
+                    let parent_path = parent_path
+                        .as_deref()
+                        .or(frame_path.as_deref())
+                        .expect("death event group completion keeps its parent frame");
+                    let mut settlements =
+                        queued_defeated_owner_buff_cleanup(managers, transition, parent_path)
+                            .into_iter()
+                            .collect::<Vec<_>>();
+                    settlements.push(queued_death_event_group_settlement(transition, parent_path));
+                    prepend(queue, settlements);
+                }
+            }
             RuleOp::SubscriberGroupComplete => {
                 let group = subscriber
                     .as_ref()
@@ -1528,6 +1574,7 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::BeforePublish,
                         None,
                         Some(ReactionLane::BuffActs),
+                        None,
                     )?;
                     drain_nested_queue(
                         managers,
@@ -1565,6 +1612,7 @@ fn drain_queue_with_deferred(
                     crate::engine::event::subscription::PublicationPhase::BeforePublish,
                     None,
                     None,
+                    None,
                 )?;
                 let mut started_after_reactions = None;
                 if matches!(&outcome, RuleOutcome::SkillActionStarted { .. }) {
@@ -1583,6 +1631,7 @@ fn drain_queue_with_deferred(
                         matches!(&outcome, RuleOutcome::HpBatch(_)),
                         context.current_round > 0,
                         crate::engine::event::subscription::PublicationPhase::AfterPublish,
+                        None,
                         None,
                         None,
                     )?;
@@ -1638,6 +1687,7 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::BeforePublish,
                         None,
                         Some(ReactionLane::Skills),
+                        None,
                     )?;
                     result.events.extend(hit_events.iter().cloned());
                     pending_hit_skills = hit_skills;
@@ -1669,7 +1719,14 @@ fn drain_queue_with_deferred(
                 // Once pre-publication work is complete, record the authoritative
                 // outcome and any buff fanout beneath their semantic owners.
                 let settles_death_immediately = outcome.settles_death_immediately();
-                let pending_deaths = outcome.take_deaths();
+                let mut pending_deaths = outcome.take_deaths();
+                let settlement_action_scope = action_scope.as_ref().filter(|path| {
+                    matches!(trigger, SkillOpTrigger::Active) || state.action_in_progress(path)
+                });
+                let active_action_scope = (!settles_death_immediately)
+                    .then_some(settlement_action_scope)
+                    .flatten();
+                let original_pending_deaths = pending_deaths.clone();
                 let redeal_hand = match &outcome {
                     RuleOutcome::Card(changes)
                         if changes.kind
@@ -1756,6 +1813,9 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::AfterPublish,
                         terminal_owner_uids.as_deref(),
                         None,
+                        active_action_scope
+                            .is_some()
+                            .then_some(pending_deaths.as_slice()),
                     )?
                 };
                 state.defer_before_after_hit_observers(
@@ -1794,6 +1854,7 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::AfterPublish,
                         terminal_owner_uids.as_deref(),
                         Some(ReactionLane::BuffActs),
+                        None,
                     )?;
                     let mut hit_skills = dispatch_event_groups(
                         pool,
@@ -1812,6 +1873,7 @@ fn drain_queue_with_deferred(
                         crate::engine::event::subscription::PublicationPhase::AfterPublish,
                         terminal_owner_uids.as_deref(),
                         Some(ReactionLane::Skills),
+                        None,
                     )?;
                     state.defer_before_after_hit_observers(
                         action_scope.as_deref(),
@@ -1890,6 +1952,13 @@ fn drain_queue_with_deferred(
 
                 // A pending death becomes a frame change only if HP is still zero.
                 // Active-action deaths wait for the shared HitPassives release.
+                let completed_death_event_groups =
+                    state.take_completed_death_event_groups(&original_pending_deaths);
+                pending_deaths.retain(|death| !completed_death_event_groups.contains(death));
+                let event_grouped_deaths = completed_death_event_groups
+                    .into_iter()
+                    .filter(|death| managers.hp.is_current_death(*death))
+                    .collect::<Vec<_>>();
                 let settled_deaths = pending_deaths
                     .into_iter()
                     .filter(|death| managers.hp.is_current_death(*death))
@@ -1910,15 +1979,15 @@ fn drain_queue_with_deferred(
                 {
                     execution.record_immediate_source_death();
                 }
-                let mut terminal_death = settled_deaths.first().map(|death| death.transition());
-                let mut cleanup_deaths = Vec::new();
+                let mut terminal_death = settled_deaths
+                    .first()
+                    .or_else(|| event_grouped_deaths.first())
+                    .map(|death| death.transition());
+                let mut cleanup_deaths = event_grouped_deaths
+                    .iter()
+                    .map(|death| death.transition())
+                    .collect::<Vec<_>>();
                 let mut non_action_deaths = Vec::new();
-                let settlement_action_scope = action_scope.as_ref().filter(|path| {
-                    matches!(trigger, SkillOpTrigger::Active) || state.action_in_progress(path)
-                });
-                let active_action_scope = (!settles_death_immediately)
-                    .then_some(settlement_action_scope)
-                    .flatten();
                 if settles_death_immediately && let Some(action_scope) = settlement_action_scope {
                     for death in &settled_deaths {
                         let cleanup = queued_defeated_owner_buff_cleanup(
@@ -1990,7 +2059,8 @@ fn drain_queue_with_deferred(
                     terminal_death = terminal_death.or_else(|| deaths.first().copied());
                     cleanup_deaths.extend(deaths);
                 }
-                if !settled_deaths.is_empty()
+                let death_count = settled_deaths.len() + event_grouped_deaths.len();
+                if death_count != 0
                     && matches!(trigger, SkillOpTrigger::Active)
                     && let Some(queued) = queue.iter_mut().find(|queued| {
                         matches!(queued.trigger, SkillOpTrigger::Active)
@@ -1999,7 +2069,7 @@ fn drain_queue_with_deferred(
                     })
                     && let Some(execution) = queued.skill_execution.as_mut()
                 {
-                    execution.record_kills(settled_deaths.len() as i32);
+                    execution.record_kills(death_count as i32);
                 }
                 let cleanup_parent_path = settlement_action_scope
                     .map(Vec::as_slice)

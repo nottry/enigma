@@ -50,7 +50,13 @@ pub fn transaction_rule_ops(
     managers: &BattleManagers,
     event: &crate::engine::event::payload::BattleEvent,
 ) -> Vec<(ActiveBuffFeature, RuleOp)> {
-    super::attribute_transaction_rule_ops(managers, event, BuffActKind::Attr, max_hp_rule_op)
+    super::attribute_transaction_rule_ops_with_refresh_marker_ownership(
+        managers,
+        event,
+        BuffActKind::Attr,
+        max_hp_rule_op,
+        true,
+    )
 }
 
 fn hp_permille(feature: &ActiveBuffFeature) -> Option<i32> {

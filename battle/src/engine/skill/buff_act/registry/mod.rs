@@ -421,6 +421,7 @@ pub struct BuffActSetupDefinition {
 #[derive(Debug, Clone, Copy)]
 pub struct BuffActTransactionDefinition {
     pub events: &'static [EventKind],
+    pub wire_marker_events: &'static [EventKind],
     pub handler: Option<TransactionHandler>,
 }
 
@@ -535,6 +536,7 @@ macro_rules! buff_act_definitions {
             $(, phase: $phase:ident)?
             $(, events: [$($events:expr),*])?
             $(, transactions: [$($transaction_events:expr),*])?
+            $(, transaction_wire_markers: [$($transaction_wire_marker_events:expr),*])?
             $(, setup: [$($stage:ident($priority:expr)),*])?
             $(, mechanic_setup: [$($mechanic_stage:ident($mechanic_priority:expr)),*])?
             $(, root_mechanic_setup: [$($root_mechanic_stage:ident($root_mechanic_priority:expr)),*])?
@@ -600,6 +602,7 @@ macro_rules! buff_act_definitions {
                 },
                 transaction: BuffActTransactionDefinition {
                     events: &[$($($transaction_events),*)?],
+                    wire_marker_events: &[$($($transaction_wire_marker_events),*)?],
                     handler: buff_act_definitions!(@transaction $($transaction)?),
                 },
                 state: BuffActStateDefinition {
@@ -690,8 +693,13 @@ macro_rules! buff_act_definitions {
 buff_act_definitions! {
     (100, "Attr") => Attr,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
-        publication: BeforePublish, frame: CausingFrame,
-        transaction: super::attr::transaction_rule_ops, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(100, "Attr"), &[EffectType::Attr as i32]).with_max_hp(2, 0));
+        transaction_wire_markers: [EventKind::BuffChanged],
+        publications: [
+            EventKind::BuffAdded => BeforePublish,
+            EventKind::BuffRemoved => BeforePublish
+        ],
+        frame: CausingFrame,
+        transaction: super::attr::transaction_rule_ops, wire: (super::wire::BuffActWireDefinition::add_refresh(DefinitionKey::new(100, "Attr"), &[EffectType::Attr as i32]).with_attr_max_hp());
     (10021, "Rouge2AttrToRole") => Rouge2AttrToRole,
         transactions: [EventKind::BuffAdded, EventKind::BuffChanged, EventKind::BuffRemoved],
         publication: BeforePublish, frame: CausingFrame,
