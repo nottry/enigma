@@ -526,7 +526,7 @@ fn duration_only_refresh_does_not_emit_an_attribute_marker() {
 }
 
 #[test]
-fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
+fn capped_timed_layer_refresh_leaves_attribute_marker_to_its_transaction() {
     use crate::engine::{
         manager::{
             buff::{BuffCommand, BuffConsume, BuffGrant, BuffManager, BuffSelector, DepletedBuff},
@@ -591,7 +591,6 @@ fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
         vec![
             (Some(EffectType::Buffupdate as i32), Some(3)),
             (Some(EffectType::Buffupdate as i32), Some(3)),
-            (Some(EffectType::Attr as i32), None),
         ]
     );
 
@@ -620,7 +619,6 @@ fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
         vec![
             Some(EffectType::Buffupdate as i32),
             Some(EffectType::Buffupdate as i32),
-            Some(EffectType::Attr as i32),
         ]
     );
 

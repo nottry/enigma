@@ -1398,7 +1398,6 @@ fn drain_queue_with_deferred(
                 // This is the single durable commit point for non-skill RuleOps.
                 // The returned outcome describes committed changes and follow-ups.
                 let mut outcome = execute_rule_op_with(managers, &mut bus, determinism, command)?;
-                outcome.defer_after_publish_refresh_markers(managers.catalog());
                 let transformed = match &outcome {
                     RuleOutcome::Entity(changes)
                         if matches!(

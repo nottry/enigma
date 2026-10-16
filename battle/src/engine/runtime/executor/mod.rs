@@ -131,27 +131,6 @@ impl RuleOutcome {
         }
     }
 
-    pub(crate) fn defer_after_publish_refresh_markers(
-        &mut self,
-        catalog: crate::catalog::BattleCatalog,
-    ) {
-        let defer = |changes: &mut BuffChanges| {
-            changes.defer_after_publish_refresh_markers(catalog);
-        };
-        match self {
-            Self::Buff(changes) => defer(changes),
-            Self::BuffBatch(changes) => changes.iter_mut().for_each(defer),
-            Self::Revive(changes) => changes.buffs.iter_mut().for_each(defer),
-            Self::Shield(changes) => changes.buff.iter_mut().for_each(defer),
-            Self::BloodtitheSpend(changes) => defer(&mut changes.buff),
-            Self::BuffPrecast(changes) => defer(&mut changes.buff),
-            Self::FieldTransfer(changes) => changes.buffs.iter_mut().for_each(defer),
-            Self::FocusAllEntityBuff(changes) => changes.buffs.iter_mut().for_each(defer),
-            Self::Shell(changes) => changes.buffs.iter_mut().for_each(defer),
-            _ => {}
-        }
-    }
-
     pub(crate) fn applied_damage(&self) -> i32 {
         match self {
             Self::Hp(execution) => execution.changes.applied_damage(),

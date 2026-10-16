@@ -286,23 +286,40 @@ impl BuffDefinition {
             .collect()
     }
 
-    pub(super) fn after_publish_wire_markers(
+    pub(super) fn command_refresh_wire_markers(
         &self,
-        phase: crate::engine::skill::buff_act::wire::WirePhase,
         event: crate::engine::event::kind::EventKind,
     ) -> Vec<i32> {
+        let phase = crate::engine::skill::buff_act::wire::WirePhase::Refresh;
+        if self.features.iter().any(|feature| {
+            feature.arguments_supported
+                && feature.initial_state.is_some()
+                && feature
+                    .wire
+                    .is_some_and(|wire| wire.projects_initial_state_on_refresh)
+        }) {
+            return Vec::new();
+        }
         self.features
             .iter()
-            .filter(|feature| !mutates_max_hp(feature))
             .filter(|feature| {
-                let Some(act_id) = feature.values.first().copied() else {
-                    return false;
-                };
-                crate::engine::skill::buff_act::registry::runtime_publication(
-                    act_id,
-                    &feature.act_type,
-                    event,
-                ) == crate::engine::event::subscription::PublicationPhase::AfterPublish
+                !mutates_max_hp(feature)
+                    && !feature.values.first().copied().is_some_and(|act_id| {
+                        crate::engine::skill::buff_act::registry::find(act_id, &feature.act_type)
+                            .is_some_and(|definition| {
+                                definition.transaction.handler.is_some()
+                                    && definition.transaction.wire_marker_events.contains(&event)
+                                    && definition
+                                        .runtime
+                                        .publications
+                                        .iter()
+                                        .find_map(|(registered, phase)| {
+                                            (*registered == event).then_some(*phase)
+                                        })
+                                        .unwrap_or(definition.runtime.publication)
+                                        == crate::engine::event::subscription::PublicationPhase::AfterPublish
+                            })
+                    })
             })
             .flat_map(|feature| {
                 feature
