@@ -52,10 +52,14 @@ pub(crate) fn preserve_generated_basic_coverage(fight: &Fight, cards: &mut [Card
         return;
     }
     let basics = normal_player_candidate_pool_with(fight, |_| false);
+    preserve_basic_coverage(&basics, cards);
+}
+
+pub(crate) fn preserve_basic_coverage(basics: &[CardInfo], cards: &mut [CardInfo]) {
     if basics.len() > cards.len() {
         return;
     }
-    for basic in &basics {
+    for basic in basics {
         if cards.iter().any(|card| same_card(card, basic)) {
             continue;
         }
