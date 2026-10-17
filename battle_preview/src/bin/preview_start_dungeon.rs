@@ -100,6 +100,11 @@ fn start_inputs(root: &Path, args: Vec<String>) -> anyhow::Result<Vec<PathBuf>> 
             Vec::new(),
             "StartTowerBattleReply.json",
         )?);
+        inputs.extend(battle_inputs(
+            root,
+            Vec::new(),
+            "StartAct229BattleReply.json",
+        )?);
         inputs.sort();
         return Ok(inputs);
     }
@@ -108,11 +113,15 @@ fn start_inputs(root: &Path, args: Vec<String>) -> anyhow::Result<Vec<PathBuf>> 
         .into_iter()
         .map(|arg| {
             let directory = root.join(&arg);
-            ["StartDungeonReply.json", "StartTowerBattleReply.json"]
-                .into_iter()
-                .map(|name| directory.join(name))
-                .find(|path| path.exists())
-                .unwrap_or_else(|| PathBuf::from(arg))
+            [
+                "StartDungeonReply.json",
+                "StartTowerBattleReply.json",
+                "StartAct229BattleReply.json",
+            ]
+            .into_iter()
+            .map(|name| directory.join(name))
+            .find(|path| path.exists())
+            .unwrap_or_else(|| PathBuf::from(arg))
         })
         .collect())
 }
@@ -320,6 +329,24 @@ mod tests {
             )
             .unwrap()
             .starts_with(output_root)
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn activity_battle_folder_resolves_its_start_reply() {
+        let root = std::env::temp_dir().join(format!(
+            "enigma-start-preview-activity-{}",
+            std::process::id()
+        ));
+        let battle = root.join("Activity/Battle1");
+        let reply = battle.join("StartAct229BattleReply.json");
+        fs::create_dir_all(&battle).unwrap();
+        fs::write(&reply, b"capture").unwrap();
+
+        assert_eq!(
+            start_inputs(&root, vec!["Activity/Battle1".to_owned()]).unwrap(),
+            vec![reply]
         );
         fs::remove_dir_all(root).unwrap();
     }
