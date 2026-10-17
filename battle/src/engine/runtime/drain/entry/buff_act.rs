@@ -129,6 +129,7 @@ fn run_owned_buff_act_groups(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::ImmediateReservePromotion
                 | RuleOp::DeathSettlement(_)
                 | RuleOp::DeathEventGroupComplete(_)
                 | RuleOp::SubscriberGroupComplete

@@ -13,7 +13,7 @@ use crate::engine::{
         record::{
             FrameOwner, FramePath, FrameTrigger, RoundCue, RoundPhase, SemanticFrame, SetupSide,
             active_skill_scope_path, entity_entry_halo_scope_path, event_scope_path, owner_at_path,
-            push_change, push_child, push_cue, push_root, set_skill_target,
+            push_change, push_child, push_cue, push_frame_child, push_root, set_skill_target,
         },
         skill::{self, SkillExecution, SkillOpError, SkillOpTrigger},
     },
@@ -816,6 +816,29 @@ fn drain_queue_with_deferred(
             parent_path
         };
         match op {
+            RuleOp::ImmediateReservePromotion => {
+                let parent_path = frame_path
+                    .as_deref()
+                    .or(parent_path.as_deref())
+                    .expect("action-boundary promotion keeps its action frame");
+                let promotions = managers.promote_immediate_reserves();
+                if promotions.is_empty() {
+                    continue;
+                }
+                let mut promoted = crate::engine::runtime::schedule::run_promotions(
+                    base_pool,
+                    managers,
+                    catalog,
+                    determinism,
+                    context,
+                    promotions,
+                )?;
+                for frame in promoted.frames.drain(..) {
+                    push_frame_child(&mut result.frames, parent_path, frame);
+                }
+                result.outcomes.append(&mut promoted.outcomes);
+                result.events.append(&mut promoted.events);
+            }
             RuleOp::DeathEventGroupComplete(death) => {
                 state.complete_death_event_group(death);
                 if managers.hp.is_current_death(death) {
@@ -2228,6 +2251,24 @@ fn drain_queue_with_deferred(
                 }
                 prepend(queue, immediate_followups);
                 insert_after_frame(queue, &frame_path, reactions.after_skill);
+                if completes_action {
+                    insert_after_frame(
+                        queue,
+                        &frame_path,
+                        [QueuedOp {
+                            op: RuleOp::ImmediateReservePromotion,
+                            trigger: SkillOpTrigger::Active,
+                            skill_execution: None,
+                            frame_path: Some(frame_path.clone()),
+                            parent_path: None,
+                            frame_group: None,
+                            independent_parent_group: None,
+                            frame_owner: None,
+                            subscriber: None,
+                            caster_frame: None,
+                        }],
+                    );
+                }
                 // Buff acts waiting on the action, then held casts, follow its own reactions.
                 insert_after_frame(queue, &frame_path, after_action);
                 insert_after_frame(queue, &frame_path, held_casts);

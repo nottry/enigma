@@ -61,6 +61,9 @@ pub enum BattleCommand {
     BuffBatch(Vec<BuffCommand>),
     Hp(HpCommand),
     HpBatch(Vec<HpCommand>),
+    ImmediateReservePromotion(
+        crate::engine::manager::battle_rule::ImmediateReservePromotionCommand,
+    ),
     MaxRound(crate::engine::manager::battle_rule::MaxRoundCommand),
     Indicator(IndicatorCommand),
     Injury(InjuryCommand),
@@ -103,6 +106,7 @@ pub enum RuleOp {
     Publish(crate::engine::event::payload::BattleEvent),
     Skill(SkillInvocation),
     SkillLifecycle(SkillLifecycle),
+    ImmediateReservePromotion,
     DeathSettlement(crate::engine::manager::hp::DeathTransition),
     DeathEventGroupComplete(crate::engine::manager::hp::PendingDeath),
     SubscriberGroupComplete,

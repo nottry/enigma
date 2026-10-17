@@ -153,6 +153,7 @@ pub enum BehaviorKind {
     LethalHpLoss,
     KillTargets,
     MonsterChange,
+    ImmediatelyMonster,
     Assassinate,
     AverageLife,
     FocusAllEntityBuff,

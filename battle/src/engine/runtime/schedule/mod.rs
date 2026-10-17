@@ -369,6 +369,10 @@ pub fn run_ai_actions(
         if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
             break;
         }
+        let current_pool = pool
+            .roster_changed(managers)
+            .then(|| pool.runtime_view(managers));
+        let pool = current_pool.as_ref().unwrap_or(pool);
         let card_index = index as i32 + 1;
         if managers.hp.current(choice.source_uid) <= 0 {
             let resource_owner_uid = promotions
@@ -529,14 +533,14 @@ pub fn run_no_action_round(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_promotions(
-    fight: &sonettobuf::Fight,
+    pool: &TargetPool,
     managers: &mut BattleManagers,
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     promotions: impl IntoIterator<Item = crate::engine::fight::reserve::Promotion>,
 ) -> Result<DrainResult, DrainError> {
-    let pool = TargetPool::from_fight_with_catalog(managers.catalog(), fight);
+    let pool = pool.runtime_view(managers);
     let mut result = DrainResult::default();
     for promotion in promotions {
         let entering_uid = promotion.entering_uid;

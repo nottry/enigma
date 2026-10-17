@@ -367,7 +367,7 @@ impl BattleRuntime {
                 &self.fight,
             );
             let promotion = schedule::run_promotions(
-                &self.fight,
+                &pool,
                 &mut self.managers,
                 catalog,
                 &mut self.determinism,

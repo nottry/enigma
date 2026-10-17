@@ -1313,13 +1313,30 @@ impl BattleManagers {
         fight: &mut Fight,
     ) -> Vec<crate::engine::fight::reserve::Promotion> {
         let mut promotions = self.entity.promote_reserves(&self.hp);
-        for promotion in &mut promotions {
+        self.complete_promotions(&mut promotions);
+        self.sync_entities(fight);
+        promotions
+    }
+
+    pub(crate) fn promote_immediate_reserves(
+        &mut self,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        let battle_rule = &self.battle_rule;
+        let mut promotions = self
+            .entity
+            .promote_immediate_reserves(&self.hp, |team_type| {
+                battle_rule.promotes_reserves_immediately(team_type)
+            });
+        self.complete_promotions(&mut promotions);
+        promotions
+    }
+
+    fn complete_promotions(&self, promotions: &mut [crate::engine::fight::reserve::Promotion]) {
+        for promotion in promotions {
             if let Some(entering) = self.entity_snapshot(promotion.entering_uid) {
                 promotion.entering = entering;
             }
         }
-        self.sync_entities(fight);
-        promotions
     }
 
     pub(crate) fn advance_wave(
