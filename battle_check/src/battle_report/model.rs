@@ -9,6 +9,16 @@ pub(crate) struct Subject {
     pub(crate) slug: String,
     pub(crate) variants: Vec<Variant>,
     pub(crate) chapter_id: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) route: Option<StageRoute>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct StageRoute {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) chapter_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) episode_name: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
