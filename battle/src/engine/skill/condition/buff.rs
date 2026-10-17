@@ -237,6 +237,17 @@ pub fn any_target_buff_type_at_least(
     })
 }
 
+pub fn all_targets_buff_type_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::AllTargetBuffTypeCount {
+        type_ids: parse_buff_ids(raw_args.get(..1)?)?,
+        threshold: raw_args.get(1)?.parse().ok()?,
+    })
+}
+
 pub fn buff_type_pair_at_least(
     _: i32,
     _: &str,
@@ -274,6 +285,18 @@ pub fn team_buff_type_layer_at_most(
         threshold: raw_args.first()?.parse().ok()?,
         type_ids: parse_buff_ids(raw_args.get(1..2)?)?,
         compare: ConditionCompare::LessThanOrEqual,
+    })
+}
+
+pub fn team_buff_type_layer_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::BuffTypeCount {
+        threshold: raw_args.first()?.parse().ok()?,
+        type_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::GreaterThanOrEqual,
     })
 }
 
