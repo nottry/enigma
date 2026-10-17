@@ -17,10 +17,14 @@ pub(crate) fn collect_hero_roots(
     skills: &mut VecDeque<Pending>,
     report: &mut Report,
 ) -> Result<()> {
-    if let Some((stone, rank)) = options.destiny_stone.zip(options.destiny_rank) {
+    if !options.json
+        && let Some((stone, rank)) = options.destiny_stone.zip(options.destiny_rank)
+    {
         println!("destiny_stone={stone} rank={rank}");
     }
-    if let Some((psychube_id, level)) = options.psychube_id.zip(options.psychube_level) {
+    if !options.json
+        && let Some((psychube_id, level)) = options.psychube_id.zip(options.psychube_level)
+    {
         println!("psychube={psychube_id} skill_rank={level}");
     }
     collect_hero_build_roots(
