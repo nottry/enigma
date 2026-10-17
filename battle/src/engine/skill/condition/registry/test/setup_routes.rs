@@ -606,25 +606,28 @@ fn round_start_allies_buff_type_gate_keeps_its_exact_lane() {
 
 #[test]
 fn round_start_team_buff_layers_keep_their_exact_payload_order() {
-    assert_eq!(
-        parse(
-            513102,
-            "SelfTeamHasBuffTypeLayerMoreThan",
-            &["6".into(), "117373041".into()]
-        ),
-        Some(ParsedConditionKind::BuffTypeCount {
-            type_ids: vec![117373041],
-            compare: crate::engine::skill::condition::parse::ConditionCompare::GreaterThanOrEqual,
-            threshold: 6,
-        })
-    );
-    assert_eq!(
-        find_key(513102, "SelfTeamHasBuffTypeLayerMoreThan").map(|definition| definition.role),
-        Some(ConditionRole::Setup {
-            stage: SetupStage::RoundStartCondition,
-            priority: 102,
-        })
-    );
+    for (opcode, priority) in [(513101, 101), (513102, 102)] {
+        assert_eq!(
+            parse(
+                opcode,
+                "SelfTeamHasBuffTypeLayerMoreThan",
+                &["6".into(), "117373041".into()]
+            ),
+            Some(ParsedConditionKind::BuffTypeCount {
+                type_ids: vec![117373041],
+                compare:
+                    crate::engine::skill::condition::parse::ConditionCompare::GreaterThanOrEqual,
+                threshold: 6,
+            })
+        );
+        assert_eq!(
+            find_key(opcode, "SelfTeamHasBuffTypeLayerMoreThan").map(|definition| definition.role),
+            Some(ConditionRole::Setup {
+                stage: SetupStage::RoundStartCondition,
+                priority,
+            })
+        );
+    }
 }
 
 #[test]
