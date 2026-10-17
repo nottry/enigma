@@ -94,6 +94,22 @@ impl CapturedBattle {
         files.sort();
         Ok(split_session(&files))
     }
+
+    /// The session battle and round selected by one timestamped reply.
+    pub(super) fn from_session_reply(path: &Path) -> anyhow::Result<(Self, i32)> {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        Self::from_session(parent)?
+            .into_iter()
+            .find_map(|battle| {
+                battle
+                    .rounds
+                    .iter()
+                    .find(|round| round.reply == path)
+                    .map(|round| round.index)
+                    .map(|index| (battle, index))
+            })
+            .ok_or_else(|| anyhow::anyhow!("{} is not paired in a captured battle", path.display()))
+    }
 }
 
 pub(super) fn is_session_dir(path: &Path) -> bool {
@@ -103,6 +119,10 @@ pub(super) fn is_session_dir(path: &Path) -> bool {
                 .filter_map(Result::ok)
                 .any(|entry| command(&entry.path()).is_some_and(is_start_reply))
         })
+}
+
+pub(super) fn is_session_round_reply(path: &Path) -> bool {
+    path.is_file() && command(path) == Some("BeginRoundReply")
 }
 
 fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
@@ -290,5 +310,30 @@ mod tests {
         assert_eq!(battles[0].start, files[1]);
         assert_eq!(battles[0].start_request.as_ref(), Some(&files[0]));
         assert_eq!(battles[0].rounds.len(), 1);
+    }
+
+    #[test]
+    fn selects_one_timestamped_reply_from_a_session() {
+        let directory = std::env::temp_dir().join(format!(
+            "enigma-session-reply-selection-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        for name in [
+            "20260927_080404_757_000410_StartDungeonReply.json",
+            "20260927_080411_302_000420_BeginRoundRequest.json",
+            "20260927_080411_371_000421_BeginRoundReply.json",
+            "20260927_080420_569_000424_BeginRoundRequest.json",
+            "20260927_080420_623_000425_BeginRoundReply.json",
+        ] {
+            fs::write(directory.join(name), "{}").unwrap();
+        }
+        let selected = directory.join("20260927_080411_371_000421_BeginRoundReply.json");
+
+        let (battle, through) = CapturedBattle::from_session_reply(&selected).unwrap();
+
+        assert_eq!(through, 1);
+        assert_eq!(battle.rounds.len(), 2);
+        fs::remove_dir_all(directory).unwrap();
     }
 }
