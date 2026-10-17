@@ -4,8 +4,12 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(rust_analyzer)");
 
     let proto_files = ["sonetto.proto", "cmd_id.proto"];
+    println!("cargo::rerun-if-env-changed=ENIGMA_REGEN_PROTO");
 
-    if proto_files.iter().all(|f| Path::new(f).exists()) {
+    // Opt-in: a stale local proto would otherwise silently rewrite the committed include/_.rs.
+    if std::env::var_os("ENIGMA_REGEN_PROTO").is_some()
+        && proto_files.iter().all(|f| Path::new(f).exists())
+    {
         for proto in &proto_files {
             println!("cargo::rerun-if-changed={proto}");
         }
@@ -20,7 +24,7 @@ fn main() {
             .compile_protos(&proto_files, &["."])
             .expect("Failed to compile proto files");
     } else {
-        // Ignored proto sources are absent in normal worktrees; watching a missing file is always dirty.
+        // Without regeneration, watching a possibly missing proto file is always dirty.
         println!("cargo::rerun-if-changed=.");
     }
 }
