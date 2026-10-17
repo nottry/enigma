@@ -1271,7 +1271,7 @@ fn run_round_start_before_duration(
     };
     for &(stage, priority) in setup {
         if stage == SetupStage::RoundStartCondition
-            && priority == effect_time::ROUND_START_BEFORE_CONDITION_DURATION
+            && effect_time::ROUND_START_CONDITION_DURATION_STAGES.contains(&priority)
         {
             append(
                 &mut result,
@@ -1281,10 +1281,7 @@ fn run_round_start_before_duration(
                     catalog,
                     determinism,
                     context,
-                    duration_advance_rule(
-                        effect_time::ROUND_START_BEFORE_CONDITION_DURATION,
-                        &duration_snapshot,
-                    ),
+                    duration_advance_rule(priority, &duration_snapshot),
                 )?,
             );
         }

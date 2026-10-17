@@ -5,7 +5,12 @@ use crate::engine::skill::rule::DefinitionKey;
 pub const ROUND_END_ENTITY_SETTLEMENT: i32 = 303;
 pub const ROUND_END_AFTER_SETTLEMENT: i32 = 304;
 pub const ROUND_END_FINAL_SETTLEMENT: i32 = 307;
+pub const ROUND_START_INITIAL_DURATION: i32 = 100;
 pub const ROUND_START_BEFORE_CONDITION_DURATION: i32 = 102;
+pub const ROUND_START_CONDITION_DURATION_STAGES: [i32; 2] = [
+    ROUND_START_INITIAL_DURATION,
+    ROUND_START_BEFORE_CONDITION_DURATION,
+];
 pub const ROUND_START_DURATION: i32 = 103;
 pub const ROUND_START_AFTER_REACTION_DURATION: i32 = 104;
 pub const ROUND_START_DURATION_STAGES: [i32; 2] =
@@ -51,6 +56,7 @@ macro_rules! effect_time_definitions {
 effect_time_definitions! {
     0 => BuffActEvent::StaticRead,
     12 => BuffActEvent::Runtime(EventKind::EntityDied),
+    ROUND_START_INITIAL_DURATION => BuffActEvent::Runtime(EventKind::RoundStart),
     101 => BuffActEvent::Runtime(EventKind::RoundStart),
     102 => BuffActEvent::Runtime(EventKind::RoundStart),
     103 => BuffActEvent::Runtime(EventKind::RoundStart),
@@ -126,7 +132,7 @@ pub fn supports_duration_policy(take_stage: i32) -> bool {
     let Some(definition) = find(take_stage) else {
         return false;
     };
-    take_stage == ROUND_START_BEFORE_CONDITION_DURATION
+    ROUND_START_CONDITION_DURATION_STAGES.contains(&take_stage)
         || ROUND_START_DURATION_STAGES.contains(&take_stage)
         || take_stage == ROUND_END_ENTITY_SETTLEMENT
         || take_stage == ROUND_END_AFTER_SETTLEMENT
@@ -206,6 +212,7 @@ mod tests {
     #[test]
     fn duration_support_accepts_non_advancing_and_scheduled_policies() {
         assert!(supports_duration_policy(-1));
+        assert!(supports_duration_policy(ROUND_START_INITIAL_DURATION));
         assert!(supports_duration_policy(
             ROUND_START_BEFORE_CONDITION_DURATION
         ));

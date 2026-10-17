@@ -149,7 +149,7 @@ fn opening_round_start_late_uses_owner_eligibility_but_recurring_setup_stays_unf
 }
 
 #[test]
-fn configured_round_after_runs_for_defenders_during_opening() {
+fn configured_round_after_runs_for_defenders_and_advances_mane_duration() {
     init_config();
     let fight = Fight {
         version: Some(7),
@@ -257,6 +257,32 @@ fn configured_round_after_runs_for_defenders_during_opening() {
             .into_iter()
             .all(|position| position < deal_position)
     );
+
+    run_before_ai_round_start(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext {
+            current_round: 2,
+            ..Default::default()
+        },
+        2,
+        &[],
+        None,
+    )
+    .unwrap();
+    for uid in [-1, -2, -3] {
+        assert_eq!(
+            managers
+                .buff
+                .active_for(uid)
+                .find(|buff| buff.buff_id == Some(116362001))
+                .and_then(|buff| buff.duration),
+            Some(3),
+            "uid={uid}"
+        );
+    }
 }
 
 #[test]
