@@ -167,6 +167,149 @@ fn configured_cloth_skills_drive_universal_and_redeal_card_rules() {
 }
 
 #[test]
+fn first_melody_redeal_preserves_basic_coverage_and_ranks() {
+    crate::test_support::init_config();
+    let card = |uid, skill_id, rank| CardInfo {
+        uid: Some(uid),
+        skill_id: Some(skill_id),
+        card_effect: Some(rank),
+        ..Default::default()
+    };
+    let entity = |uid, group1, group2| FightEntityInfo {
+        uid: Some(uid),
+        current_hp: Some(100),
+        skill_group1: group1,
+        skill_group2: group2,
+        ..Default::default()
+    };
+    let fight = Fight {
+        version: Some(7),
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    ex_skill: Some(30280131),
+                    ..entity(10, vec![101, 102], vec![201, 202])
+                },
+                entity(20, vec![301, 302], vec![401, 402]),
+                entity(30, vec![501, 502], vec![601, 602]),
+            ],
+            player_entity: Some(FightEntityInfo {
+                uid: Some(0),
+                current_hp: Some(100),
+                ..Default::default()
+            }),
+            power: Some(99),
+            cloth_id: Some(1),
+            skill_infos: crate::engine::fight::team::Team::get_player_skills(Some(1)),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut runtime = runtime(fight);
+    runtime.catalog = SkillEffectCatalog::from_roots(config::configs::get(), [30010202], []);
+    let repeated = card(10, 101, 1);
+    let setup = || crate::engine::manager::card::CardSetup {
+        hand: vec![
+            card(10, 102, 2),
+            repeated.clone(),
+            card(10, 102, 2),
+            card(10, 30280131, 1),
+            repeated.clone(),
+            repeated.clone(),
+            repeated.clone(),
+            repeated.clone(),
+        ],
+        draw_pile: vec![
+            repeated.clone(),
+            card(10, 201, 1),
+            card(20, 301, 1),
+            card(20, 401, 1),
+            card(30, 501, 1),
+            card(30, 601, 1),
+        ],
+        deck_num: 48,
+    };
+    runtime
+        .managers
+        .execute_card(crate::engine::manager::card::CardCommand::Setup(setup()))
+        .unwrap();
+    runtime
+        .determinism
+        .enqueue_card_draws(vec![repeated.clone(); 7]);
+
+    runtime
+        .use_cloth_skill(UseClothSkillRequest {
+            skill_id: Some(30010202),
+            from_id: Some(0),
+            to_id: Some(0),
+            r#type: Some(ClothSkillType::ClothSkill as i32),
+        })
+        .unwrap();
+
+    let hand = runtime.card_hand();
+    assert_eq!(
+        hand.iter()
+            .map(|card| (card.uid, card.skill_id))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(10), Some(102)),
+            (Some(10), Some(101)),
+            (Some(30), Some(602)),
+            (Some(10), Some(30280131)),
+            (Some(20), Some(401)),
+            (Some(10), Some(201)),
+            (Some(30), Some(501)),
+            (Some(20), Some(301)),
+        ]
+    );
+
+    runtime.managers.register_entity(&FightEntityInfo {
+        uid: Some(40),
+        team_type: Some(1),
+        position: Some(4),
+        current_hp: Some(100),
+        attr: Some(sonettobuf::HeroAttribute {
+            hp: Some(100),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    runtime
+        .managers
+        .execute_card(crate::engine::manager::card::CardCommand::Setup(setup()))
+        .unwrap();
+    runtime
+        .determinism
+        .enqueue_card_draws(vec![repeated.clone(); 7]);
+    runtime
+        .use_cloth_skill(UseClothSkillRequest {
+            skill_id: Some(30010202),
+            from_id: Some(0),
+            to_id: Some(0),
+            r#type: Some(ClothSkillType::ClothSkill as i32),
+        })
+        .unwrap();
+
+    assert_eq!(
+        runtime
+            .card_hand()
+            .iter()
+            .map(|card| (card.uid, card.skill_id))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(10), Some(102)),
+            (Some(10), Some(101)),
+            (Some(10), Some(102)),
+            (Some(10), Some(30280131)),
+            (Some(10), Some(101)),
+            (Some(10), Some(101)),
+            (Some(10), Some(101)),
+            (Some(10), Some(101)),
+        ]
+    );
+}
+
+#[test]
 fn conduit_selection_adds_the_configured_precast_and_commits_the_choice() {
     crate::test_support::init_config();
     let fight = Fight {
