@@ -13,4 +13,5 @@ battle.workspace = true
 battle_preview = { path = "../battle_preview" }
 config.workspace = true
 protocol.workspace = true
+serde.workspace = true
 serde_json.workspace = true

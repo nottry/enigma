@@ -27,6 +27,7 @@ fn battle_crates_keep_their_dependency_boundary() {
             "battle_preview",
             "config",
             "protocol",
+            "serde",
             "serde_json",
         ],
     );

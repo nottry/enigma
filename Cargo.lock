@@ -204,6 +204,7 @@ dependencies = [
  "battle_preview",
  "config",
  "protocol",
+ "serde",
  "serde_json",
 ]
 

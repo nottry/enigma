@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-#[derive(Debug)]
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
 pub(crate) struct Subject {
     pub(crate) id: i32,
     pub(crate) name: String,
@@ -9,7 +11,7 @@ pub(crate) struct Subject {
     pub(crate) chapter_id: Option<i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Variant {
     pub(crate) label: String,
     pub(crate) source_id: Option<i32>,
@@ -18,7 +20,7 @@ pub(crate) struct Variant {
     pub(crate) scan: Scan,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Scan {
     pub(crate) skills: Vec<Skill>,
     pub(crate) buffs: Vec<Buff>,
@@ -28,17 +30,7 @@ pub(crate) struct Scan {
     pub(crate) gaps: usize,
 }
 
-impl Scan {
-    pub(crate) fn status(&self) -> &'static str {
-        if self.errors.is_empty() && self.gaps == 0 {
-            "semantically ready"
-        } else {
-            "incomplete"
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Skill {
     pub(crate) id: i32,
     pub(crate) effect_id: i32,
@@ -52,7 +44,7 @@ pub(crate) struct Skill {
     pub(crate) issues: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Slot {
     pub(crate) number: usize,
     pub(crate) behavior: Node,
@@ -66,7 +58,7 @@ pub(crate) struct Slot {
     pub(crate) referenced_buffs: Vec<i32>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Node {
     pub(crate) opcode: Option<i32>,
     pub(crate) type_name: String,
@@ -78,7 +70,7 @@ pub(crate) struct Node {
     pub(crate) observation: &'static str,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct Buff {
     pub(crate) id: i32,
     pub(crate) name: String,
@@ -89,7 +81,7 @@ pub(crate) struct Buff {
     pub(crate) acts: Vec<BuffAct>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub(crate) struct BuffAct {
     pub(crate) node: Node,
     pub(crate) effect_time: i32,
