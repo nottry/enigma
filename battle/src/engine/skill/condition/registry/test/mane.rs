@@ -31,6 +31,21 @@ fn attack_conditions_keep_their_exact_routes() {
 }
 
 #[test]
+fn tuning_practice_observes_matching_incantations_at_action_start() {
+    assert_eq!(
+        parse(34201, "UseSkillEffectTag", &["4".into(), "6".into()]),
+        Some(ParsedConditionKind::ActiveSkillEffectTag(vec![4, 6]))
+    );
+    assert_eq!(
+        find_key(34201, "UseSkillEffectTag").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::Immediate),
+        })
+    );
+}
+
+#[test]
 fn mass_attack_received_keeps_its_target_attacked_route() {
     assert_eq!(
         parse(53209, "HurtNumType", &["2".into()]),

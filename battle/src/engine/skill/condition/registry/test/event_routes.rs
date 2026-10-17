@@ -575,6 +575,22 @@ fn static_team_battle_tag_threshold_runs_at_battle_start() {
 }
 
 #[test]
+fn received_hit_battle_tag_gate_checks_the_attacker_after_the_shared_hit() {
+    let definition = find_key(1021209, "BattleTagCheck").unwrap();
+
+    assert_eq!(
+        parse(1021209, "BattleTagCheck", &["131".into()]),
+        Some(ParsedConditionKind::TargetBattleTag(131))
+    );
+    assert_eq!(definition.role, ConditionRole::Predicate);
+    assert_eq!(definition.dependencies, &[EventKind::TargetAttacked]);
+    assert_eq!(
+        definition.reaction_timing.resolve(Default::default()),
+        ReactionTiming::AfterSharedHit
+    );
+}
+
+#[test]
 fn next_round_buff_gate_runs_after_round_start() {
     let definition = find_key(19105, "HasBuffId").unwrap();
 

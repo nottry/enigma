@@ -77,6 +77,14 @@ pub fn effect_tag(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKin
     )?))
 }
 
+pub fn effect_tags(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
+    let mut tags = Vec::new();
+    for arg in args {
+        tags.extend(parse_i32_list(arg)?);
+    }
+    (!tags.is_empty()).then_some(ParsedConditionKind::ActiveSkillEffectTag(tags))
+}
+
 pub fn rank(_: i32, _: &str, args: &[String]) -> Option<ParsedConditionKind> {
     Some(ParsedConditionKind::ActiveSkillRank {
         compare: ConditionCompare::Equal,
