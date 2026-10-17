@@ -2,7 +2,7 @@ use super::SocialManager;
 use crate::error::AppError;
 use database::db::game::{friends, player_card, player_infos};
 use sonettobuf::{
-    AddBlacklistReply, FriendExtInfo, FriendInfo, GetApplyListReply, GetBlacklistReply,
+    AddBlacklistReply, FriendExtInfo, FriendModuleFriendInfo, GetApplyListReply, GetBlacklistReply,
     GetFriendInfoListReply, GetRecommendedFriendsReply, LoadFriendInfosReply, PlayerCardExtInfo,
     RemoveBlacklistReply, RemoveFriendReply, SearchReply,
 };
@@ -136,10 +136,10 @@ impl SocialManager {
     }
 }
 
-fn friend_info(user_id: u64) -> FriendInfo {
-    FriendInfo {
+fn friend_info(user_id: u64) -> FriendModuleFriendInfo {
+    FriendModuleFriendInfo {
         user_id: Some(user_id),
-        state: None,
+        ..Default::default()
     }
 }
 
