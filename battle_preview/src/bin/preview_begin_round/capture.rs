@@ -32,15 +32,23 @@ impl CapturedBattle {
     /// A battle saved as its own folder with fixed file names.
     pub(super) fn from_folder(round_path: &Path) -> anyhow::Result<Self> {
         let parent = round_path.parent().unwrap_or_else(|| Path::new("."));
-        let start = ["StartDungeonReply.json", "StartTowerBattleReply.json"]
-            .map(|name| parent.join(name))
-            .into_iter()
-            .find(|path| path.exists())
-            .unwrap_or_else(|| parent.join("StartTowerBattleReply.json"));
-        let start_request = ["StartDungeonRequest.json", "StartTowerBattleRequest.json"]
-            .map(|name| parent.join(name))
-            .into_iter()
-            .find(|path| path.exists());
+        let start = [
+            "StartDungeonReply.json",
+            "StartTowerBattleReply.json",
+            "StartAct229BattleReply.json",
+        ]
+        .map(|name| parent.join(name))
+        .into_iter()
+        .find(|path| path.exists())
+        .unwrap_or_else(|| parent.join("StartTowerBattleReply.json"));
+        let start_request = [
+            "StartDungeonRequest.json",
+            "StartTowerBattleRequest.json",
+            "StartAct229BattleRequest.json",
+        ]
+        .map(|name| parent.join(name))
+        .into_iter()
+        .find(|path| path.exists());
         let legacy = super::uses_legacy_round_names(round_path);
         let rounds = super::round_indices(round_path, i32::MAX)?
             .into_iter()
@@ -108,7 +116,7 @@ fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
             continue;
         };
         match command {
-            "StartDungeonRequest" | "StartTowerBattleRequest" => {
+            "StartDungeonRequest" | "StartTowerBattleRequest" | "StartAct229BattleRequest" => {
                 last_start_request = Some(file.clone());
             }
             command if is_start_reply(command) => {
@@ -170,7 +178,10 @@ fn cloth_inputs(parent: &Path, round_index: i32) -> io::Result<Vec<CapturedCloth
 }
 
 fn is_start_reply(command: &str) -> bool {
-    matches!(command, "StartDungeonReply" | "StartTowerBattleReply")
+    matches!(
+        command,
+        "StartDungeonReply" | "StartTowerBattleReply" | "StartAct229BattleReply"
+    )
 }
 
 // Timeline packets are named `<date>_<time>_<millis>_<sequence>_<Command>.json`.
@@ -261,5 +272,23 @@ mod tests {
             battles[0].rounds[0].cloth[0].reply.as_ref(),
             Some(&files[2])
         );
+    }
+
+    #[test]
+    fn activity_timeline_pairs_the_wrapped_start_request_and_reply() {
+        let files = [
+            "20260927_080404_694_000408_StartAct229BattleRequest.json",
+            "20260927_080404_757_000410_StartAct229BattleReply.json",
+            "20260927_080411_302_000420_BeginRoundRequest.json",
+            "20260927_080411_371_000421_BeginRoundReply.json",
+        ]
+        .map(PathBuf::from);
+
+        let battles = split_session(&files);
+
+        assert_eq!(battles.len(), 1);
+        assert_eq!(battles[0].start, files[1]);
+        assert_eq!(battles[0].start_request.as_ref(), Some(&files[0]));
+        assert_eq!(battles[0].rounds.len(), 1);
     }
 }

@@ -187,7 +187,11 @@ struct BattleRequestMetadata {
 }
 
 fn folder_request_path(battle_path: &Path) -> Option<PathBuf> {
-    Some(battle_path.parent()?.join("StartDungeonRequest.json")).filter(|path| path.exists())
+    let parent = battle_path.parent()?;
+    ["StartDungeonRequest.json", "StartAct229BattleRequest.json"]
+        .map(|name| parent.join(name))
+        .into_iter()
+        .find(|path| path.exists())
 }
 
 fn battle_request_metadata(battle_path: &Path) -> anyhow::Result<BattleRequestMetadata> {
@@ -202,6 +206,14 @@ fn request_metadata(request_path: &Path) -> anyhow::Result<BattleRequestMetadata
     let request = request
         .as_object()
         .ok_or_else(|| anyhow::anyhow!("invalid dungeon request"))?;
+    let request = if capture_command(request_path).as_deref() == Some("StartAct229BattleRequest") {
+        request
+            .get("startDungeonRequest")
+            .and_then(serde_json::Value::as_object)
+            .ok_or_else(|| anyhow::anyhow!("invalid activity startDungeonRequest"))?
+    } else {
+        request
+    };
     let is_balance = request
         .get("isBalance")
         .or_else(|| request.get("is_balance"))
@@ -661,7 +673,10 @@ fn resolve_repeated_packet(
         let Some(command) = capture_command(&anchor) else {
             continue;
         };
-        if command == "StartDungeonRequest" {
+        if matches!(
+            command.as_str(),
+            "StartDungeonRequest" | "StartAct229BattleRequest"
+        ) {
             continue;
         }
         let bytes = fs::read(&anchor)?;
@@ -695,6 +710,7 @@ fn is_battle_start_packet(path: &Path) -> bool {
         .is_some_and(|name| {
             name.ends_with("_StartDungeonReply.json")
                 || name.ends_with("_StartTowerBattleReply.json")
+                || name.ends_with("_StartAct229BattleReply.json")
         })
 }
 
@@ -1122,6 +1138,56 @@ mod tests {
                 .is_balance
         );
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn activity_request_metadata_unwraps_the_dungeon_request() {
+        let directory = test_directory("activity-request");
+        fs::write(
+            directory.join("StartAct229BattleRequest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "startDungeonRequest": {
+                    "isBalance": true,
+                    "fightGroup": {
+                        "equips": [{ "heroUid": "42", "equipUid": ["100"] }]
+                    }
+                },
+                "activityId": 1,
+                "stageId": 1
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let metadata = battle_request_metadata(&directory.join("BeginRoundReply_1.json")).unwrap();
+
+        assert!(metadata.is_balance);
+        assert_eq!(metadata.selected_equips, HashMap::from([(42, 100)]));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn malformed_activity_request_wrapper_fails_loudly() {
+        for (label, request) in [
+            ("missing", serde_json::json!({ "activityId": 1 })),
+            ("null", serde_json::json!({ "startDungeonRequest": null })),
+            (
+                "wrong-type",
+                serde_json::json!({ "startDungeonRequest": "invalid" }),
+            ),
+        ] {
+            let directory = test_directory(label);
+            let path = directory.join("StartAct229BattleRequest.json");
+            fs::write(&path, serde_json::to_vec(&request).unwrap()).unwrap();
+
+            assert!(
+                request_metadata(&path)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("invalid activity startDungeonRequest")
+            );
+            fs::remove_dir_all(directory).unwrap();
+        }
     }
 
     #[test]
@@ -1747,5 +1813,8 @@ mod tests {
             .as_deref(),
             Some("StartDungeonReply")
         );
+        assert!(is_battle_start_packet(Path::new(
+            "20260927_080404_757_000410_StartAct229BattleReply.json"
+        )));
     }
 }
