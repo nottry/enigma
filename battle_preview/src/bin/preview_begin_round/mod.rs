@@ -49,23 +49,32 @@ fn run() -> anyhow::Result<()> {
     let output_root = root.join("battles_gen");
     let mut args = env::args().skip(1).collect::<Vec<_>>();
     let resync = take_flag(&mut args, "--resync");
-    let (sessions, args): (Vec<_>, Vec<_>) = args
-        .into_iter()
-        .partition(|arg| capture::is_session_dir(Path::new(arg)));
     let mut battles = Vec::new();
-    for session in &sessions {
-        for battle in CapturedBattle::from_session(Path::new(session))? {
-            let inputs = battle
-                .rounds
-                .iter()
-                .map(|round| (round.index, round.reply.clone()))
-                .collect::<Vec<_>>();
-            battles.push((Ok(battle), inputs));
+    let mut fixture_args = Vec::new();
+    let mut has_session_input = false;
+    for arg in args {
+        let path = Path::new(&arg);
+        if capture::is_session_dir(path) {
+            has_session_input = true;
+            for battle in CapturedBattle::from_session(path)? {
+                let inputs = battle
+                    .rounds
+                    .iter()
+                    .map(|round| (round.index, round.reply.clone()))
+                    .collect::<Vec<_>>();
+                battles.push((Ok(battle), inputs));
+            }
+        } else if capture::is_session_round_reply(path) {
+            has_session_input = true;
+            let (battle, index) = CapturedBattle::from_session_reply(path)?;
+            battles.push((Ok(battle), vec![(index, path.to_path_buf())]));
+        } else {
+            fixture_args.push(arg);
         }
     }
     // Session directories alone select only their own battles.
-    if sessions.is_empty() || !args.is_empty() {
-        for (through, inputs) in battle_groups(begin_round_inputs(&input_root, args)?) {
+    if !has_session_input || !fixture_args.is_empty() {
+        for (through, inputs) in battle_groups(begin_round_inputs(&input_root, fixture_args)?) {
             battles.push((CapturedBattle::from_folder(&through), inputs));
         }
     }
