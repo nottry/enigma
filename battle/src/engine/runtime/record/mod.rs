@@ -207,6 +207,12 @@ pub(crate) fn push_frame_cue(frames: &mut [SemanticFrame], path: &[usize], cue: 
     frame_mut(frames, path).items.push(FrameItem::Cue(cue));
 }
 
+pub(crate) fn push_frame_child(frames: &mut [SemanticFrame], path: &[usize], child: SemanticFrame) {
+    frame_mut(frames, path)
+        .items
+        .push(FrameItem::Child(Box::new(child)));
+}
+
 pub(crate) fn push_change(frames: &mut [SemanticFrame], path: &[usize], change: BattleChange) {
     frame_mut(frames, path)
         .items

@@ -617,6 +617,12 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::HpBatch(batch))
         }
+        RuleOp::Command(BattleCommand::ImmediateReservePromotion(command)) => {
+            managers
+                .battle_rule
+                .enable_immediate_reserve_promotion(command);
+            Ok(RuleOutcome::StateChanged)
+        }
         RuleOp::Command(BattleCommand::MaxRound(command)) => managers
             .battle_rule
             .add_max_round(command)
@@ -983,6 +989,9 @@ pub(crate) fn execute_rule_op_with(
         }
         RuleOp::ModifyActiveSkillTargets { additional_count } => {
             Ok(RuleOutcome::ActiveSkillTargetsModified(additional_count))
+        }
+        RuleOp::ImmediateReservePromotion => {
+            unreachable!("reserve promotion is owned by the action drain")
         }
         RuleOp::FreezeActiveSkillRates => unreachable!("rate freezing is owned by the skill drain"),
     }

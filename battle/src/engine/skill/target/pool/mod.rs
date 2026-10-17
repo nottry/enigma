@@ -268,6 +268,20 @@ impl TargetPool {
         self.runtime_view_including(managers, None)
     }
 
+    pub(crate) fn roster_changed(&self, managers: &BattleManagers) -> bool {
+        self.attacker_main
+            .iter()
+            .chain(&self.defender_main)
+            .any(|entity| {
+                managers.entity.roster_lane(entity.uid)
+                    != Some(crate::engine::manager::entity::RosterLane::Main)
+            })
+            || self.reserve_uids.iter().any(|uid| {
+                managers.entity.roster_lane(*uid)
+                    != Some(crate::engine::manager::entity::RosterLane::Reserve)
+            })
+    }
+
     pub(crate) fn runtime_view_including(
         &self,
         managers: &BattleManagers,
@@ -371,6 +385,32 @@ impl TargetPool {
                 _ => {}
             }
         }
+        pool.attacker_main = pool
+            .attacker_all
+            .iter()
+            .filter(|entity| {
+                managers.entity.roster_lane(entity.uid)
+                    == Some(crate::engine::manager::entity::RosterLane::Main)
+            })
+            .cloned()
+            .collect();
+        pool.defender_main = pool
+            .defender_all
+            .iter()
+            .filter(|entity| {
+                managers.entity.roster_lane(entity.uid)
+                    == Some(crate::engine::manager::entity::RosterLane::Main)
+            })
+            .cloned()
+            .collect();
+        pool.reserve_uids = managers
+            .entity
+            .ordered_uids()
+            .filter(|uid| {
+                managers.entity.roster_lane(*uid)
+                    == Some(crate::engine::manager::entity::RosterLane::Reserve)
+            })
+            .collect();
         let roster_order = managers
             .entity
             .ordered_uids()

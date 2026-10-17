@@ -808,6 +808,10 @@ fn run_player_card_ops(
         {
             break;
         }
+        let current_pool = pool
+            .roster_changed(managers)
+            .then(|| pool.runtime_view(managers));
+        let pool = current_pool.as_ref().unwrap_or(pool);
         let QueuedPlayerAction {
             mut skill,
             source,

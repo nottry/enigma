@@ -435,8 +435,28 @@ impl EntityManager {
         &mut self,
         hp: &HpManager,
     ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        self.promote_reserves_matching(hp, |_| true)
+    }
+
+    pub(crate) fn promote_immediate_reserves(
+        &mut self,
+        hp: &HpManager,
+        promotes_immediately: impl Fn(i32) -> bool,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        self.promote_reserves_matching(hp, promotes_immediately)
+    }
+
+    fn promote_reserves_matching(
+        &mut self,
+        hp: &HpManager,
+        promotes: impl Fn(i32) -> bool,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
         let mut promotions = Vec::new();
-        for (defeated_uid, entering_uid, team_type) in self.pending_reserve_promotions(hp) {
+        for (defeated_uid, entering_uid, team_type) in self
+            .pending_reserve_promotions(hp)
+            .into_iter()
+            .filter(|(_, _, team_type)| promotes(*team_type))
+        {
             let Some(mut defeated) = self.identities.get(&defeated_uid).cloned() else {
                 continue;
             };
