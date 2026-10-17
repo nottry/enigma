@@ -19,9 +19,10 @@ pub use command::{
     CardAddPrecast, CardAddTemporary, CardAddUniversal, CardChangeKind, CardChangeToTemporary,
     CardChanges, CardCommand, CardCommandError, CardConsumeForEffect, CardConsumptionKind,
     CardDeckRankUpRange, CardDraw, CardEnchantHand, CardEnergyAllocation, CardEnergyChange,
-    CardHandLimitChange, CardInvalidatePlayed, CardMarkTemporary, CardOpeningDraw,
-    CardOwnerRemoval, CardPlay, CardQueueUse, CardRankChange, CardRankFailure, CardRankResult,
-    CardRecordCastChannel, CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
+    CardHandLimitChange, CardInvalidateAiOwner, CardInvalidatePlayed, CardInvalidatedAi,
+    CardMarkTemporary, CardOpeningDraw, CardOwnerRemoval, CardPersistTemporary, CardPlay,
+    CardQueueUse, CardRankChange, CardRankFailure, CardRankResult, CardRecordCastChannel,
+    CardRedealKeepRanks, CardRefillOne, CardRefreshAiQueue, CardRemoveOwner,
     CardReplaceOwnerSkills, CardSetAiQueue, CardSetTeamCards, CardSetUltimateAvailability,
     CardSetup, CardUseUniversal, HandCardRankUp, QueuedCardRankChange, QueuedCardRankUp,
     QueuedUseCard, TemporaryCardKind,
@@ -234,6 +235,21 @@ impl CardManager {
             .collect();
         self.set_ai_queue(cards);
         composed_owners
+    }
+
+    fn invalidate_ai_owner(&mut self, owner_uid: i64) -> Vec<(i32, CardInfo)> {
+        let mut card_index = 0;
+        let mut invalidated = Vec::new();
+        self.ai_queue.retain(|card| {
+            card_index += 1;
+            if card.uid == Some(owner_uid) {
+                invalidated.push((card_index, card.clone()));
+                false
+            } else {
+                true
+            }
+        });
+        invalidated
     }
 
     fn rank_depth(&self, owner_uid: i64, skill_id: i32) -> u32 {
@@ -819,8 +835,18 @@ impl CardManager {
         self.deck.consume_draw_card(card)
     }
 
-    pub(crate) fn deal_opening_cards(&mut self, cards: &[CardInfo]) -> bool {
-        self.deck.deal_from_draw_pile(cards)
+    pub(crate) fn deal_opening_cards(
+        &mut self,
+        cards: &[CardInfo],
+        normal_deck_draws: usize,
+    ) -> bool {
+        if normal_deck_draws > cards.len() || !self.deck.deal_from_draw_pile(cards) {
+            return false;
+        }
+        self.deck_num = self
+            .deck_num
+            .saturating_sub(i32::try_from(normal_deck_draws).unwrap_or(i32::MAX));
+        true
     }
 
     pub fn move_card(&mut self, from_index: usize, to_index: usize) -> bool {
@@ -1025,6 +1051,10 @@ impl CardManager {
     fn expire_temporary(&mut self) {
         self.deck
             .expire_temporary(&std::mem::take(&mut self.expiring_temporary));
+    }
+
+    fn persist_temporary(&mut self, indices: &[usize]) -> bool {
+        self.deck.persist_temporary(indices)
     }
 
     pub fn compose(&mut self, indices: &[usize], result: CardInfo) -> Option<CardInfo> {

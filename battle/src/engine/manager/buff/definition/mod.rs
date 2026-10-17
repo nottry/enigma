@@ -286,6 +286,55 @@ impl BuffDefinition {
             .collect()
     }
 
+    pub(super) fn command_refresh_wire_markers(
+        &self,
+        transaction_event: Option<crate::engine::event::kind::EventKind>,
+    ) -> Vec<i32> {
+        let phase = crate::engine::skill::buff_act::wire::WirePhase::Refresh;
+        if self.features.iter().any(|feature| {
+            feature.arguments_supported
+                && feature.initial_state.is_some()
+                && feature
+                    .wire
+                    .is_some_and(|wire| wire.projects_initial_state_on_refresh)
+        }) {
+            return Vec::new();
+        }
+        self.features
+            .iter()
+            .filter(|feature| {
+                !mutates_max_hp(feature)
+                    && !transaction_event.is_some_and(|event| {
+                        feature.values.first().copied().is_some_and(|act_id| {
+                            crate::engine::skill::buff_act::registry::find(
+                                act_id,
+                                &feature.act_type,
+                            )
+                            .is_some_and(|definition| {
+                                definition.transaction.handler.is_some()
+                                    && definition.transaction.wire_marker_events.contains(&event)
+                                    && definition
+                                        .runtime
+                                        .publications
+                                        .iter()
+                                        .find_map(|(registered, phase)| {
+                                            (*registered == event).then_some(*phase)
+                                        })
+                                        .unwrap_or(definition.runtime.publication)
+                                        == crate::engine::event::subscription::PublicationPhase::AfterPublish
+                            })
+                        })
+                    })
+            })
+            .flat_map(|feature| {
+                feature
+                    .wire
+                    .into_iter()
+                    .flat_map(move |definition| definition.markers(phase).iter().copied())
+            })
+            .collect()
+    }
+
     pub(super) fn projects_initial_state_on_refresh(&self, act_id: i32) -> bool {
         self.features.iter().any(|feature| {
             feature.arguments_supported
@@ -666,16 +715,13 @@ impl BuffDefinition {
                 .features
                 .iter()
                 .any(|feature| feature.kind == Some(BuffActKind::ExtraValueElectricTransform))
-            && ((self.has_include_type(BuffIncludeType::Stacked)
-                && !self.is_no_show
-                && self.status == BuffStatus::Special)
-                || (self.uses_stack_layer()
-                    && self.is_no_show
-                    && self.stack_max_layer() == 3
-                    && !self
-                        .features
-                        .iter()
-                        .any(|feature| feature.kind == Some(BuffActKind::Attr))))
+            && self.uses_stack_layer()
+            && self.is_no_show
+            && self.stack_max_layer() == 3
+            && !self
+                .features
+                .iter()
+                .any(|feature| feature.kind == Some(BuffActKind::Attr))
     }
 
     pub(super) fn reserves_child_before_explicit_layer_apply(&self) -> bool {
@@ -699,6 +745,10 @@ impl BuffDefinition {
             .any(|include| self.has_include_type(include))
     }
 
+    pub(super) fn counts_stacked_layers_in_conditions(&self) -> bool {
+        self.has_include_type(BuffIncludeType::Stacked)
+    }
+
     pub(super) fn emits_existing_layer_on_refresh(&self) -> bool {
         [BuffIncludeType::Layer, BuffIncludeType::Stacked12]
             .into_iter()
@@ -709,6 +759,10 @@ impl BuffDefinition {
         [BuffIncludeType::Layer, BuffIncludeType::Stacked12]
             .into_iter()
             .any(|kind| self.has_include_type(kind))
+    }
+
+    pub(super) fn shares_timed_stack_cap(&self) -> bool {
+        self.duration > 0 && self.has_include_type(BuffIncludeType::Stacked)
     }
 
     pub(super) fn reserves_child_on_layer_refresh(&self) -> bool {
@@ -852,6 +906,10 @@ impl BuffDefinition {
                 .any(|(include_type, _)| *include_type == type_id)
     }
 
+    pub(super) fn is_visible(&self) -> bool {
+        !self.is_no_show
+    }
+
     pub(super) fn syncs_single_stack_duration(&self) -> bool {
         self.act_common_params.is_empty()
             && self.has_features
@@ -922,6 +980,13 @@ impl BuffDefinition {
                         )
                     )
                 }))
+    }
+
+    pub(super) fn retains_existing_permanent_status(&self) -> bool {
+        self.duration == 0
+            && self.status == BuffStatus::PositiveStatus
+            && self.include_entries.is_empty()
+            && self.stack_transition().is_none()
     }
 
     pub(super) fn reserves_normal_uid_on_kept_reapply(&self) -> bool {

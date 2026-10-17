@@ -111,3 +111,92 @@ fn damage_target_count_kind_rejects_non_attacks() {
     assert!(matches(true));
     assert!(!matches(false));
 }
+
+#[test]
+fn all_in_buff_type_requires_every_condition_target() {
+    init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: [-1, -2]
+                .into_iter()
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    current_hp: Some(100),
+                    buffs: vec![BuffInfo {
+                        uid: Some(-uid),
+                        buff_id: Some(117373041),
+                        layer: Some(if uid == -1 { 2 } else { 1 }),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let condition = exact_condition(550102, "AllInBuffByTypeId", &["117373041", "1"]);
+
+    assert!(conditions_match(
+        std::slice::from_ref(&condition),
+        -1,
+        &[-1, -2],
+        Some(&managers),
+        &pool,
+        TargetContext::default(),
+    ));
+    assert!(!conditions_match(
+        &[condition],
+        -1,
+        &[-1, -2, -3],
+        Some(&managers),
+        &pool,
+        TargetContext::default(),
+    ));
+}
+
+#[test]
+fn team_buff_type_layer_gate_sums_every_condition_target() {
+    init_config();
+    let fight = Fight {
+        defender: Some(FightTeam {
+            entitys: [(-1, 2), (-2, 4)]
+                .into_iter()
+                .map(|(uid, layer)| FightEntityInfo {
+                    uid: Some(uid),
+                    current_hp: Some(100),
+                    buffs: vec![BuffInfo {
+                        uid: Some(-uid),
+                        buff_id: Some(117373041),
+                        layer: Some(layer),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let managers = BattleManagers::seeded(&fight);
+    let matches = |threshold| {
+        conditions_match(
+            &[exact_condition(
+                513102,
+                "SelfTeamHasBuffTypeLayerMoreThan",
+                &[threshold, "117373041"],
+            )],
+            -1,
+            &[-1, -2],
+            Some(&managers),
+            &pool,
+            TargetContext::default(),
+        )
+    };
+
+    assert!(matches("6"));
+    assert!(!matches("7"));
+}

@@ -115,4 +115,64 @@ impl Report {
             self.gaps.len(),
         );
     }
+
+    pub(crate) fn json(&self) -> serde_json::Value {
+        let mut skills = self.checked_skills.iter().copied().collect::<Vec<_>>();
+        let mut buffs = self.checked_buffs.iter().copied().collect::<Vec<_>>();
+        skills.sort_unstable();
+        buffs.sort_unstable();
+        let capabilities = self
+            .capabilities
+            .iter()
+            .map(|key| {
+                let reasons = self.gaps.get(key).cloned().unwrap_or_default();
+                serde_json::json!({
+                    "domain": key.domain,
+                    "opcode": key.opcode,
+                    "type": key.type_name,
+                    "semantic": if reasons.is_empty() { "supported" } else { "unsupported" },
+                    "reasons": reasons,
+                    "paths": self.gap_paths.get(key).cloned().unwrap_or_default(),
+                })
+            })
+            .collect::<Vec<_>>();
+        serde_json::json!({
+            "ready": self.is_ready(),
+            "skills": skills,
+            "buffs": buffs,
+            "capabilities": capabilities,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "notes": self.notes,
+            "explanations": self.explanations,
+        })
+    }
+
+    pub(crate) fn print_json(&self) {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&self.json()).expect("support report serializes")
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_distinguishes_supported_and_unsupported_capabilities() {
+        let supported = CapabilityKey::new("condition", 1, "Ready");
+        let unsupported = CapabilityKey::new("behavior", 2, "MissingOwner");
+        let mut report = Report::default();
+        report.capability(supported);
+        report.gap(unsupported, "missing command owner");
+        report.explanations.push("exact route".to_owned());
+
+        let json = report.json();
+        assert!(!json["ready"].as_bool().unwrap());
+        assert_eq!(json["capabilities"][0]["semantic"], "unsupported");
+        assert_eq!(json["capabilities"][1]["semantic"], "supported");
+        assert_eq!(json["explanations"][0], "exact route");
+    }
 }

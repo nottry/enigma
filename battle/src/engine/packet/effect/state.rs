@@ -34,6 +34,11 @@ impl EffectPacket {
     pub fn fight_progress_changed(
         change: crate::engine::manager::fight_progress::FightProgressValueChange,
     ) -> ActEffect {
+        let clamp_boundary = if change.delta > 0 {
+            change.after.max
+        } else {
+            0
+        };
         ActEffect {
             target_id: Some(i64::from(change.after.id)),
             effect_type: Some(EffectType::Progresschange as i32),
@@ -41,6 +46,7 @@ impl EffectPacket {
             config_effect: Some(0),
             buff_act_id: Some(change.after.id),
             reserve_id: Some(0),
+            reserve_str: Some(clamp_boundary.to_string()),
             team_type: Some(0),
             effect_num1: Some(0),
             ..Default::default()
@@ -98,6 +104,20 @@ impl EffectPacket {
             effect_type: Some(ex_point_effect_type(change)),
             effect_num: Some(change.applied_delta),
             config_effect: Some(change.config_effect),
+            buff_act_id: Some(0),
+            reserve_id: Some(0),
+            team_type: Some(0),
+            effect_num1: Some(0),
+            ..Default::default()
+        }
+    }
+
+    pub fn ex_point_resisted(target_uid: i64, resistance_id: i32) -> ActEffect {
+        ActEffect {
+            target_id: Some(target_uid),
+            effect_type: Some(EffectType::Resistances as i32),
+            effect_num: Some(resistance_id),
+            config_effect: Some(0),
             buff_act_id: Some(0),
             reserve_id: Some(0),
             team_type: Some(0),
@@ -369,6 +389,14 @@ impl EffectPacket {
             reserve_str: Some(format!("{},{}", change.point, change.value)),
             team_type: Some(change.team_type),
             effect_num1: Some(0),
+            ..Default::default()
+        }
+    }
+
+    pub fn toughness_reset(change: crate::engine::manager::toughness::ToughnessReset) -> ActEffect {
+        ActEffect {
+            target_id: Some(change.target_uid),
+            effect_type: Some(EffectType::Toughnessreset as i32),
             ..Default::default()
         }
     }

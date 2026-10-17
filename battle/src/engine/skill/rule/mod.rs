@@ -48,6 +48,7 @@ pub enum SetupStage {
     EnterBattleStatic,
     Unconditional,
     OpeningBuffGate,
+    OpeningSync,
     BuffGate,
     BuffSync,
     CardSetup,

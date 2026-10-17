@@ -24,6 +24,63 @@ fn attr_fix_emits_a_typed_attack_attribute() {
 }
 
 #[test]
+fn thunderous_applause_modifies_only_single_target_critical_attacks() {
+    crate::test_support::init_config();
+    let effects = SkillEffectCatalog::from_game_db(config::configs::get());
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                passive_skill: vec![430711],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let collect = |damage_target_count_kind, action_crit_count| {
+        let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+        emit_passive_attack_attributes(
+            &mut modifiers,
+            10,
+            302524112,
+            &[430711],
+            RateRuntime {
+                effects: &effects,
+                managers: &managers,
+                pool: &pool,
+                context: TargetContext {
+                    active_skill_is_attack: true,
+                    damage_target_count_kind,
+                    action_crit_count,
+                    hit_source_uid: 10,
+                    hit_target_uid: -1,
+                    runtime_target_uid: -1,
+                    ..Default::default()
+                },
+            },
+            &mut RoundDeterminism::default(),
+        );
+        modifiers.attack_attributes
+    };
+
+    assert_eq!(collect(1, 1), vec![(AttrId::CriticalDmg, 160)]);
+    assert!(collect(2, 1).is_empty());
+    assert!(collect(1, 0).is_empty());
+}
+
+#[test]
 fn outgoing_restraint_modifier_only_applies_to_the_weaker_afflatus() {
     crate::test_support::init_config();
     let effects = SkillEffectCatalog::from_game_db(config::configs::get());
@@ -317,6 +374,61 @@ fn source_modifier_with_target_999_uses_the_current_hit_target() {
     );
 
     assert_eq!(modifiers.attack_attributes, vec![(AttrId::DmgBonus, 60)]);
+}
+
+#[test]
+fn passive_status_thresholds_query_the_current_hit_target() {
+    crate::test_support::init_config();
+    let effects = SkillEffectCatalog::from_roots(config::configs::get(), [103374116], []);
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                current_hp: Some(100),
+                passive_skill: vec![103374116],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let managers = BattleManagers::seeded(&fight);
+    let pool = TargetPool::from_fight(&fight);
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+
+    emit_passive_attack_attributes(
+        &mut modifiers,
+        -1,
+        103374111,
+        &[103374116],
+        RateRuntime {
+            effects: &effects,
+            managers: &managers,
+            pool: &pool,
+            context: TargetContext {
+                active_skill_source_uid: -1,
+                active_skill_is_attack: true,
+                hit_source_uid: -1,
+                hit_target_uid: 10,
+                runtime_target_uid: 10,
+                ..Default::default()
+            },
+        },
+        &mut RoundDeterminism::default(),
+    );
+
+    assert_eq!(
+        modifiers.attack_attributes,
+        vec![(AttrId::Penetration, 100), (AttrId::Penetration, 100)]
+    );
 }
 
 #[test]

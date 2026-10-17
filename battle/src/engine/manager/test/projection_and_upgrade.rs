@@ -296,8 +296,8 @@ fn hero_upgrade_applies_configured_buffs_as_one_child_uid_sequence() {
         .unwrap();
     assert_eq!(
         following.change.added.unwrap().buff.uid,
-        Some(1101),
-        "the feature-backed layered state consumes its post-apply child UID"
+        Some(1100),
+        "the visible stacked state has no extra post-apply reservation"
     );
 }
 

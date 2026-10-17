@@ -726,6 +726,7 @@ fn death_outside_the_subscriber_group_supersedes_its_pending_transition() {
     let outer_group = Rc::new(RefCell::new(SubscriberDeathGroup::default()));
     let outer = SubscriberContext {
         owner_uid: -1,
+        skill_id: None,
         group: Some(outer_group),
     };
     drain_nested_queue(
@@ -795,6 +796,124 @@ fn death_outside_the_subscriber_group_supersedes_its_pending_transition() {
             target_uid: -1,
         }]
     );
+}
+
+#[test]
+fn subscriber_death_batch_cleans_each_defeated_halo_emitter() {
+    crate::test_support::init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: [10, 11, 30, 12]
+                .into_iter()
+                .map(|uid| FightEntityInfo {
+                    uid: Some(uid),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    ..Default::default()
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(-1),
+                team_type: Some(2),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    for target_uid in [10, 11, 30, 12] {
+        managers
+            .execute_buff(BuffCommand::Grant(BuffGrant {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Behavior,
+                    key: DefinitionKey::new(1, "AddBuff"),
+                },
+                source_uid: 30,
+                target_uid,
+                buff_id: 31450141,
+                amount: None,
+                occurrences: 1,
+                child_uid_reservations: 0,
+            }))
+            .unwrap();
+    }
+
+    let trigger = SkillOpTrigger::Event(BattleEvent::Kind(
+        crate::engine::event::kind::EventKind::RoundEndEntitySettlement,
+    ));
+    let group = Rc::new(RefCell::new(SubscriberDeathGroup::default()));
+    let subscriber = SubscriberContext {
+        owner_uid: 10,
+        skill_id: None,
+        group: Some(group),
+    };
+    let queued = |op| QueuedOp {
+        op,
+        trigger: trigger.clone(),
+        skill_execution: None,
+        frame_path: None,
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: Some(subscriber.clone()),
+        caster_frame: None,
+    };
+    let kill = |target_uid| {
+        RuleOp::Command(BattleCommand::Hp(
+            crate::engine::manager::hp::HpCommand::Kill(crate::engine::manager::hp::HpKill {
+                origin: CommandOrigin {
+                    domain: RuleDomain::Lifecycle,
+                    key: DefinitionKey::new(0, "TestBatchDeath"),
+                },
+                source_uid: -1,
+                target_uid,
+                config_effect: 1,
+            }),
+        ))
+    };
+    let catalog = SkillEffectCatalog::from_game_db(config::configs::get());
+    let mut determinism = RoundDeterminism::default();
+    let mut result = DrainResult::default();
+    let mut state = DrainState::new(TargetContext::default());
+    drain_nested_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        [queued(kill(11)), queued(kill(30))].into(),
+        &mut result,
+        &mut state,
+    )
+    .unwrap();
+    drain_nested_queue(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        [queued(RuleOp::SubscriberGroupComplete)].into(),
+        &mut result,
+        &mut state,
+    )
+    .unwrap();
+
+    for owner_uid in [10, 12] {
+        assert_eq!(
+            managers
+                .buff
+                .active_for(owner_uid)
+                .filter(|buff| buff.buff_id == Some(31450143))
+                .count(),
+            2
+        );
+        assert_eq!(managers.buff.buff_id_amount(owner_uid, 31450143), 1);
+    }
 }
 
 #[test]

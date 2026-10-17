@@ -396,6 +396,14 @@ pub(in crate::engine::runtime) fn emit_ops(
         );
     }
     for (slot_index, slot) in effect.slots.iter().enumerate().skip(resume_slot) {
+        if execution.immediate_source_death()
+            && matches!(
+                active_phase,
+                Some(SkillPhase::AfterDamage | SkillPhase::HitPassives | SkillPhase::AfterHit)
+            )
+        {
+            continue;
+        }
         if invocation
             .condition_slot
             .is_some_and(|selected| selected != slot_index)
@@ -517,17 +525,21 @@ pub(in crate::engine::runtime) fn emit_ops(
             }
             _ => continue,
         };
-        if condition_key.is_some_and(|condition_key| {
-            crate::engine::skill::condition::registry::find_key(
-                condition_key.opcode,
-                condition_key.type_name,
-            )
-            .is_some_and(|definition| {
-                definition
-                    .skill_action_trigger
-                    .rejects_extra_skill(execution.context.extra_skill_kind)
+        if condition_key
+            .and_then(|condition_key| {
+                crate::engine::skill::condition::registry::find_key(
+                    condition_key.opcode,
+                    condition_key.type_name,
+                )
             })
-        }) {
+            .is_some_and(|definition| {
+                definition.skill_action_trigger.requires_attack()
+                    && !execution.context.active_skill_is_attack
+                    || definition
+                        .skill_action_trigger
+                        .rejects_extra_skill(execution.context.extra_skill_kind)
+            })
+        {
             continue;
         }
         if condition_key.is_some_and(|condition_key| {
@@ -755,7 +767,10 @@ pub(in crate::engine::runtime) fn emit_ops(
                     let owner = (definition.output_owner_for)(&slot.behavior, &op, index)
                         .unwrap_or(definition.output_owner)
                         .resolve(
-                            matches!(trigger, SkillOpTrigger::Event(_)),
+                            match trigger {
+                                SkillOpTrigger::Event(event) => Some(event.kind()),
+                                _ => None,
+                            },
                             matches!(trigger, SkillOpTrigger::Setup { .. }),
                         );
                     SkillEmissionOp {

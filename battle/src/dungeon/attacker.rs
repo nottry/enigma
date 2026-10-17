@@ -253,7 +253,7 @@ impl Attacker {
             if let Some(balance) = balance {
                 builder = builder.with_balance(balance, stats);
             }
-            entitys.push(builder.build());
+            entitys.push(builder.build()?);
         }
 
         for hero_uid in fight_group.sub_hero_list.iter() {
@@ -281,7 +281,7 @@ impl Attacker {
             if let Some(balance) = balance {
                 builder = builder.with_balance(balance, stats);
             }
-            sub_entitys.push(builder.build());
+            sub_entitys.push(builder.build()?);
         }
 
         let player_entity = EntityBuilder::player(roster.user_id, 1);

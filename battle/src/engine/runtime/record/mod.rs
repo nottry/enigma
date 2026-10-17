@@ -30,6 +30,7 @@ pub enum FrameOwner {
     ConduitStopped {
         source_uid: i64,
         device_index: i32,
+        skill_position: i32,
     },
     BuffAct {
         owner_uid: i64,
@@ -50,6 +51,7 @@ pub enum FrameOwner {
         key: crate::engine::skill::rule::DefinitionKey,
     },
     SetupMechanic,
+    LifecycleMechanic,
     StageWave {
         wave: i32,
     },
@@ -71,6 +73,7 @@ pub enum RoundPhase {
     RoundStartCapacitySync,
     RoundStartSync,
     EntitySettlement,
+    EntityBuffCleanup,
     EntityCardCleanup,
     EntityEntrySetup,
 }
@@ -202,6 +205,12 @@ pub(crate) fn push_child(
 
 pub(crate) fn push_frame_cue(frames: &mut [SemanticFrame], path: &[usize], cue: RoundCue) {
     frame_mut(frames, path).items.push(FrameItem::Cue(cue));
+}
+
+pub(crate) fn push_frame_child(frames: &mut [SemanticFrame], path: &[usize], child: SemanticFrame) {
+    frame_mut(frames, path)
+        .items
+        .push(FrameItem::Child(Box::new(child)));
 }
 
 pub(crate) fn push_change(frames: &mut [SemanticFrame], path: &[usize], change: BattleChange) {

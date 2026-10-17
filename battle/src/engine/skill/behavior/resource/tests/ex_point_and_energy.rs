@@ -356,7 +356,7 @@ fn del_ex_point_validates_and_emits_the_configured_loss() {
         .unwrap()
         .as_slice(),
         [RuleOp::Command(BattleCommand::ExPoint(
-            ExPointCommand::Change(ExPointChange {
+            ExPointCommand::Reduce(ExPointChange {
                 target_uid: 11,
                 delta: -1,
                 ..

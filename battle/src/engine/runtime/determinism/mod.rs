@@ -33,6 +33,14 @@ pub struct CrystalReuseChoice {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MoxieReductionResistanceChoice {
+    pub producer_id: i32,
+    pub source_uid: i64,
+    pub target_uid: i64,
+    pub resisted: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConditionRandomChoice {
     pub skill_id: i32,
     pub opcode: i32,
@@ -66,6 +74,7 @@ pub struct RoundDeterminism {
     indirect_heal_crit_choices: HashMap<(i32, i64, i64), VecDeque<bool>>,
     shell_moxie_choices: VecDeque<bool>,
     crystal_reuse_choices: VecDeque<CrystalReuseChoice>,
+    moxie_reduction_resistance_choices: VecDeque<MoxieReductionResistanceChoice>,
     additional_crit_choices: HashMap<(i32, i64, i64), VecDeque<bool>>,
     scripted_condition_random: HashSet<(i32, i32)>,
     next_ai_card_snapshots: VecDeque<Vec<CardInfo>>,
@@ -363,6 +372,39 @@ impl RoundDeterminism {
                 .success;
         }
         self.roll_permille(chance)
+    }
+
+    pub fn roll_moxie_reduction_resistance(
+        &mut self,
+        producer_id: i32,
+        source_uid: i64,
+        target_uid: i64,
+        chance: i32,
+    ) -> bool {
+        if let Some(index) = self
+            .moxie_reduction_resistance_choices
+            .iter()
+            .position(|choice| {
+                choice.producer_id == producer_id
+                    && choice.source_uid == source_uid
+                    && choice.target_uid == target_uid
+            })
+        {
+            return self
+                .moxie_reduction_resistance_choices
+                .remove(index)
+                .expect("matched Moxie reduction resistance choice remains queued")
+                .resisted;
+        }
+        self.roll_crit(producer_id, source_uid, target_uid, chance)
+    }
+
+    pub fn replace_moxie_reduction_resistance_choices(
+        &mut self,
+        choices: impl IntoIterator<Item = MoxieReductionResistanceChoice>,
+    ) {
+        self.moxie_reduction_resistance_choices.clear();
+        self.moxie_reduction_resistance_choices.extend(choices);
     }
 
     pub fn replace_crystal_reuse_choices(

@@ -52,6 +52,34 @@ fn layer_master_halo_refresh_repeats_its_wire_marker() {
 }
 
 #[test]
+fn command_refresh_markers_keep_their_registered_owner() {
+    crate::test_support::init_config();
+
+    assert_eq!(
+        BuffDefinition::get(103_374_114)
+            .unwrap()
+            .command_refresh_wire_markers(
+                Some(crate::engine::event::kind::EventKind::BuffChanged,)
+            ),
+        Vec::<i32>::new()
+    );
+    assert_eq!(
+        BuffDefinition::get(103_374_114)
+            .unwrap()
+            .command_refresh_wire_markers(None),
+        vec![sonettobuf::effect_type_enum::EffectType::Attr as i32]
+    );
+    assert_eq!(
+        BuffDefinition::get(31_130_122)
+            .unwrap()
+            .command_refresh_wire_markers(
+                Some(crate::engine::event::kind::EventKind::BuffChanged,)
+            ),
+        vec![sonettobuf::effect_type_enum::EffectType::None as i32]
+    );
+}
+
+#[test]
 fn initializes_common_params_for_stateful_buff_acts() {
     crate::test_support::init_config();
 
@@ -110,9 +138,18 @@ fn feature_kind_controls_post_apply_uid_reservation() {
     assert_eq!(hidden_attr.include_entries(), &[(10, 3)]);
     assert!(hidden_attr.uses_child_uid());
 
+    let hidden_action_point = BuffDefinition::get(51400215).unwrap();
+    assert_eq!(hidden_action_point.include_entries(), &[(10, 3)]);
+    assert!(hidden_action_point.uses_child_uid());
+    assert!(hidden_action_point.reserves_child_after_first_apply());
+
     let lucy_upgrade = BuffDefinition::get(30860113).unwrap();
     assert!(lucy_upgrade.uses_child_uid());
-    assert!(lucy_upgrade.reserves_child_after_first_apply());
+    assert!(!lucy_upgrade.reserves_child_after_first_apply());
+
+    let chromatic_progression = BuffDefinition::get(31440112).unwrap();
+    assert!(chromatic_progression.uses_child_uid());
+    assert!(!chromatic_progression.reserves_child_after_first_apply());
 
     let shell_stack = BuffDefinition::get(31090111).unwrap();
     assert!(shell_stack.uses_child_uid());

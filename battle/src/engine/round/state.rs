@@ -97,18 +97,18 @@ pub fn next_action_points(
 pub fn next_round_shell(
     fight: &Fight,
     state: &RoundState,
-    include_card_snapshots: bool,
+    include_next_round_card_snapshots: bool,
     current_hand: &[CardInfo],
     current_team_cards: &[CardInfo],
     ai_queue: &[CardInfo],
 ) -> FightRound {
     let attacker = fight.attacker.as_ref();
-    let before_cards1 = if include_card_snapshots {
+    let before_cards1 = if include_next_round_card_snapshots {
         round_before_cards1(current_hand)
     } else {
         Vec::new()
     };
-    let team_a_cards1 = if include_card_snapshots {
+    let team_a_cards1 = if include_next_round_card_snapshots {
         round_field_cards(current_team_cards)
     } else {
         Vec::new()
@@ -125,21 +125,13 @@ pub fn next_round_shell(
             .unwrap_or_default(),
         before_cards1,
         team_a_cards1,
-        before_cards2: if include_card_snapshots {
-            state
-                .before_cards2
-                .iter()
-                .filter(|card| !card.temp_card.unwrap_or_default())
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        },
-        team_a_cards2: if include_card_snapshots {
-            state.team_a_cards2.clone()
-        } else {
-            Vec::new()
-        },
+        before_cards2: state
+            .before_cards2
+            .iter()
+            .filter(|card| !card.temp_card.unwrap_or_default())
+            .cloned()
+            .collect(),
+        team_a_cards2: state.team_a_cards2.clone(),
         next_round_begin_step: Vec::new(),
         use_card_list: Vec::new(),
         cur_round: Some(state.cur_round),
@@ -235,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn finished_round_has_no_next_round_card_snapshots() {
+    fn finished_round_keeps_current_phase_snapshots_without_next_round_cards() {
         let cards = vec![CardInfo {
             skill_id: Some(1),
             ..Default::default()
@@ -251,8 +243,8 @@ mod tests {
 
         assert!(round.before_cards1.is_empty());
         assert!(round.team_a_cards1.is_empty());
-        assert!(round.before_cards2.is_empty());
-        assert!(round.team_a_cards2.is_empty());
+        assert_eq!(round.before_cards2, cards);
+        assert_eq!(round.team_a_cards2, cards);
     }
 
     #[test]

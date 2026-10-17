@@ -136,6 +136,94 @@ fn layered_refresh_plans_update_and_capped_noop() {
 }
 
 #[test]
+fn timed_stacks_share_the_configured_cap_across_durations() {
+    crate::test_support::init_config();
+    let manager = |states: &[(i64, i64, i32, i32)]| {
+        let mut manager = BuffManager::default();
+        manager.seed(&Fight {
+            version: Some(7),
+            attacker: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(10),
+                    team_type: Some(1),
+                    current_hp: Some(100),
+                    buffs: states
+                        .iter()
+                        .map(|(uid, from_uid, layer, duration)| BuffInfo {
+                            uid: Some(*uid),
+                            buff_id: Some(103374114),
+                            from_uid: Some(*from_uid),
+                            layer: Some(*layer),
+                            duration: Some(*duration),
+                            ..Default::default()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            defender: Some(FightTeam {
+                entitys: vec![FightEntityInfo {
+                    uid: Some(-4),
+                    team_type: Some(2),
+                    current_hp: Some(100),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        manager
+    };
+    let grant = BuffGrant {
+        origin: CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(1, "AddBuff"),
+        },
+        source_uid: -4,
+        target_uid: 10,
+        buff_id: 103374114,
+        amount: None,
+        occurrences: 1,
+        child_uid_reservations: 0,
+    };
+
+    let capped_manager = manager(&[(1001, -2, 2, 1)]);
+    let capped = capped_manager
+        .plan(&HpManager::default(), BuffCommand::Grant(grant))
+        .unwrap();
+    assert_eq!(grant_plan(&capped).action, GrantAction::KeepExisting);
+
+    let independent = capped_manager
+        .plan(&HpManager::default(), BuffCommand::GrantIndependent(grant))
+        .unwrap();
+    assert_eq!(grant_plan(&independent).action, GrantAction::KeepExisting);
+    let independent = capped_manager
+        .clone()
+        .commit(&HpManager::default(), independent);
+    assert!(independent.change.added.is_none());
+
+    let mut remaining_manager = manager(&[(1001, -2, 1, 1)]);
+    let remaining = remaining_manager
+        .plan(&HpManager::default(), BuffCommand::Grant(grant))
+        .unwrap();
+    assert_eq!(grant_plan(&remaining).action, GrantAction::Add);
+    let remaining = remaining_manager.commit(&HpManager::default(), remaining);
+    assert_eq!(remaining.change.added.unwrap().buff.layer, Some(1));
+
+    let mut over_cap_manager = manager(&[(1001, -2, 2, 1), (1002, -3, 1, 2)]);
+    let over_cap = over_cap_manager
+        .plan(&HpManager::default(), BuffCommand::Grant(grant))
+        .unwrap();
+    assert_eq!(
+        grant_plan(&over_cap).layer_refresh,
+        Some(LayerRefreshPlan::NoChange)
+    );
+    let over_cap = over_cap_manager.commit(&HpManager::default(), over_cap);
+    assert!(over_cap.change.refreshed.is_empty());
+}
+
+#[test]
 fn version_seven_capped_layer_refresh_consumes_its_attempt_uid() {
     crate::test_support::init_config();
     let mut manager = BuffManager::default();

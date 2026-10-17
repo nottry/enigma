@@ -1,6 +1,6 @@
 use sonettobuf::{
-    BuffInfo, CardInfo, Fight, FightEntityInfo, FightTeam, HeroAttribute, HeroExAttribute,
-    PowerInfo,
+    BuffActInfo, BuffInfo, CardInfo, Fight, FightEntityInfo, FightTeam, HeroAttribute,
+    HeroExAttribute, PowerInfo,
 };
 
 use super::*;
@@ -9,7 +9,7 @@ use crate::engine::{
     manager::{
         buff::{
             BuffCommand, BuffGrant, BuffGrantRelation, BuffRemove, BuffRemoveSelector,
-            CommandOrigin, RelatedBuffGrant,
+            CommandOrigin, RelatedBuffGrant, SourceRelativeBuffGrant,
         },
         card::{CARD_PLAY_ORIGIN, CardChangeKind, CardCommand, CardReplaceOwnerSkills, CardSetup},
         eureka::{EUREKA_RESOURCE_ID, EurekaChange, EurekaCommand},
@@ -65,4 +65,54 @@ fn normal_buff_consequence_selects_the_root_uid_lane() {
             }
         )))
     );
+}
+
+#[test]
+fn source_relative_grant_keeps_snapshot_when_selecting_a_uid_lane() {
+    let grant = BuffGrant {
+        origin: CommandOrigin {
+            domain: RuleDomain::Behavior,
+            key: DefinitionKey::new(1, "AddBuff"),
+        },
+        source_uid: 10,
+        target_uid: 11,
+        buff_id: 31440116,
+        amount: None,
+        occurrences: 2,
+        child_uid_reservations: 0,
+    };
+    let act_info = vec![BuffActInfo {
+        act_id: Some(1131),
+        str_param: Some("203#600".to_owned()),
+        ..Default::default()
+    }];
+
+    use crate::engine::skill::condition::registry::ConsequencePolicy;
+    for (consequence, relation) in [
+        (ConsequencePolicy::ChildBuffGrant, BuffGrantRelation::Child),
+        (
+            ConsequencePolicy::NormalBuffGrant,
+            BuffGrantRelation::Normal,
+        ),
+    ] {
+        assert_eq!(
+            attach_buff_grant_relation(
+                RuleOp::Command(BattleCommand::Buff(BuffCommand::GrantSourceRelative(
+                    SourceRelativeBuffGrant {
+                        grant,
+                        act_info: act_info.clone(),
+                        relation: None,
+                    },
+                ))),
+                consequence,
+            ),
+            RuleOp::Command(BattleCommand::Buff(BuffCommand::GrantSourceRelative(
+                SourceRelativeBuffGrant {
+                    grant,
+                    act_info: act_info.clone(),
+                    relation: Some(relation),
+                },
+            )))
+        );
+    }
 }

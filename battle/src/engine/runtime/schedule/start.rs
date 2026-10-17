@@ -164,6 +164,19 @@ pub fn run_before_ai_round_start(
             )?,
         );
     }
+    let action_phase_reactions = drain::run_grouped_owner_event(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        BattleEvent::Kind(EventKind::DefenderActionPhaseStart),
+        &setup_owner_uids,
+        drain::ReactionLane::Skills,
+    )?;
+    if !action_phase_reactions.outcomes.is_empty() {
+        append(&mut result, action_phase_reactions);
+    }
     Ok(result)
 }
 
@@ -198,6 +211,8 @@ pub fn run_round_start_after_ai_split(
     let round_start_duration_snapshot = duration_snapshot(managers, &owner_uids);
     let setup_layout =
         crate::engine::fight::versions::round_start_setup_layout(managers.fight_version());
+    let version_seven =
+        setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
     let mut fight_steps = DrainResult::default();
     push_cue(
         &mut fight_steps.frames,
@@ -209,6 +224,29 @@ pub fn run_round_start_after_ai_split(
         append(
             &mut fight_steps,
             run_wave_entry_setup(managers, pool, catalog, determinism, context, entering_uids)?,
+        );
+    }
+    if version_seven {
+        let mut defender_owner_uids = pool
+            .defender_main
+            .iter()
+            .filter(|entity| managers.hp.current(entity.uid) > 0)
+            .map(|entity| entity.uid)
+            .collect::<Vec<_>>();
+        defender_owner_uids
+            .extend(pool.assist_boss(crate::engine::fight::rules::DEFENDER_SIDE_UID));
+        append(
+            &mut fight_steps,
+            drain::run_setup_stage_for_owners(
+                managers,
+                pool,
+                catalog,
+                determinism,
+                context,
+                SetupStage::RoundStart,
+                -1,
+                &round_start_setup_owner_uids(&defender_owner_uids, 2),
+            )?,
         );
     }
     let (before_duration, settlement_plan, split_losses) = run_round_start_before_duration(
@@ -224,8 +262,6 @@ pub fn run_round_start_after_ai_split(
         false,
     )?;
     append(&mut fight_steps, before_duration);
-    let version_seven =
-        setup_layout == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7);
     let split_losses = if version_seven {
         split_losses
     } else {
@@ -813,6 +849,10 @@ pub fn run_start(
             let initial_deck_num = setup.deck_num;
             let supplemental =
                 determinism.draw_cards(&setup.draw_pile, hand_size.saturating_sub(free_deal_count));
+            let normal_deck_draws = supplemental
+                .iter()
+                .filter(|card| !card_mechanic.is_device_card(managers, card))
+                .count();
             append(
                 &mut result,
                 drain::run(
@@ -843,6 +883,7 @@ pub fn run_start(
                                         key: DefinitionKey::new(0, "OpeningDraw"),
                                     },
                                     cards: supplemental,
+                                    normal_deck_draws,
                                 },
                             ),
                         ))],
@@ -1087,19 +1128,18 @@ pub fn run_start(
     let (initial_deck_num, setup_deck_num) =
         opening_deck_counts.expect("start schedule has one CardSetup stage");
     let mut setup_deck_counts = DrainResult::default();
-    push_cues(
-        &mut setup_deck_counts.frames,
-        [
-            RoundCue::DeckCount {
-                count: initial_deck_num,
-                team_type: 1,
-            },
-            RoundCue::DeckCount {
-                count: setup_deck_num,
-                team_type: 1,
-            },
-        ],
-    );
+    let mut deck_counts = Vec::new();
+    if initial_deck_num > 0 {
+        deck_counts.push(RoundCue::DeckCount {
+            count: initial_deck_num,
+            team_type: 1,
+        });
+    }
+    deck_counts.push(RoundCue::DeckCount {
+        count: setup_deck_num,
+        team_type: 1,
+    });
+    push_cues(&mut setup_deck_counts.frames, deck_counts);
     append_round_phase(&mut opening_refill, setup_deck_counts);
     append(&mut result, opening_refill);
     let owner_uids = pool
@@ -1221,9 +1261,17 @@ fn run_round_start_before_duration(
         })
         .collect::<Vec<_>>();
     let mut result = drain::run(managers, pool, catalog, determinism, context, field_ops)?;
-    for &(stage, priority) in ROUND_START_BEFORE_DURATION_SETUP {
+    let setup = if team == 2
+        && crate::engine::fight::versions::round_start_setup_layout(managers.fight_version())
+            == Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7)
+    {
+        ROUND_START_DEFENDER_BEFORE_DURATION_SETUP_V7
+    } else {
+        ROUND_START_BEFORE_DURATION_SETUP
+    };
+    for &(stage, priority) in setup {
         if stage == SetupStage::RoundStartCondition
-            && priority == effect_time::ROUND_START_BEFORE_CONDITION_DURATION
+            && effect_time::ROUND_START_CONDITION_DURATION_STAGES.contains(&priority)
         {
             append(
                 &mut result,
@@ -1233,10 +1281,7 @@ fn run_round_start_before_duration(
                     catalog,
                     determinism,
                     context,
-                    duration_advance_rule(
-                        effect_time::ROUND_START_BEFORE_CONDITION_DURATION,
-                        &duration_snapshot,
-                    ),
+                    duration_advance_rule(priority, &duration_snapshot),
                 )?,
             );
         }

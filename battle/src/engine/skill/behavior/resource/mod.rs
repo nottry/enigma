@@ -241,14 +241,23 @@ impl BehaviorHandler for Handler {
     }
 
     fn output_owner(behavior: &ParsedBehavior, op: &RuleOp, _index: usize) -> Option<OutputOwner> {
-        (behavior.spec.kind == BehaviorKind::ConsumeBuffIntoChargeAndRewards
-            && matches!(
-                op,
+        match (behavior.spec.kind, op) {
+            (
+                BehaviorKind::ConsumeBuffIntoChargeAndRewards,
                 RuleOp::Command(BattleCommand::Buff(
-                    BuffCommand::Consume(_) | BuffCommand::Grant(_)
-                ))
-            ))
-        .then_some(OutputOwner::CausingEvent)
+                    BuffCommand::Consume(_) | BuffCommand::Grant(_),
+                )),
+            )
+            | (
+                BehaviorKind::ConsumeBuffResetDevice,
+                RuleOp::Command(BattleCommand::Buff(BuffCommand::Consume(_))),
+            ) => Some(OutputOwner::CausingEvent),
+            (
+                BehaviorKind::ConsumeBuffResetDevice,
+                RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice { .. })),
+            ) => Some(OutputOwner::ActionSkillReaction),
+            _ => None,
+        }
     }
 }
 
@@ -258,16 +267,17 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
         BehaviorKind::AddConduitExPoint | BehaviorKind::AddSynchronization => 0,
         _ => behavior.config_effect,
     };
+    let ex_point_change = |target_uid, delta| ExPointChange {
+        origin,
+        source_uid: context.source_uid,
+        target_uid,
+        delta,
+        config_effect: ex_point_config_effect,
+        effect_type: EffectType::Expointchange as i32,
+    };
     let ex_point = |target_uid, delta| {
         RuleOp::Command(BattleCommand::ExPoint(ExPointCommand::Change(
-            ExPointChange {
-                origin,
-                source_uid: context.source_uid,
-                target_uid,
-                delta,
-                config_effect: ex_point_config_effect,
-                effect_type: EffectType::Expointchange as i32,
-            },
+            ex_point_change(target_uid, delta),
         )))
     };
     let eureka = |power_id, delta| {
@@ -320,7 +330,12 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
                 delta.saturating_mul(context.transfer_count),
             )]
         }),
-        BehaviorKind::DelExPoint | BehaviorKind::DelExPointNotImmunity => behavior
+        BehaviorKind::DelExPoint => behavior.arg(0).map(|amount| {
+            vec![RuleOp::Command(BattleCommand::ExPoint(
+                ExPointCommand::Reduce(ex_point_change(context.target_uid, -amount.max(0))),
+            ))]
+        }),
+        BehaviorKind::DelExPointNotImmunity => behavior
             .arg(0)
             .map(|amount| vec![ex_point(context.target_uid, -amount.max(0))]),
         BehaviorKind::AbsorbExPoint => {
@@ -624,14 +639,14 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
             let [buff_id, amount] = behavior.args.as_slice() else {
                 return None;
             };
-            let Some(crate::engine::event::payload::BattleEvent::AllyAction(action)) =
-                context.event
+            let Some(crate::engine::event::payload::BattleEvent::AllyAction(_)) = context.event
             else {
                 return None;
             };
-            if action.source_uid != context.target_uid
-                || action.mode != SkillExecutionMode::Device
-                || !action.is_interval
+            if !context
+                .managers
+                .conduit
+                .has_stopped_skill(context.target_uid)
             {
                 return Some(Vec::new());
             }
@@ -649,7 +664,7 @@ pub fn rule_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Op
                     target_uid: context.target_uid,
                     selector: BuffSelector::IdOrType(*buff_id),
                     amount: *amount,
-                    depleted: DepletedBuff::Remove,
+                    depleted: DepletedBuff::RemoveWithZeroLayer,
                 }))),
                 RuleOp::Command(BattleCommand::Conduit(ConduitCommand::RestartDevice {
                     source_uid: context.target_uid,

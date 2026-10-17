@@ -32,15 +32,23 @@ impl CapturedBattle {
     /// A battle saved as its own folder with fixed file names.
     pub(super) fn from_folder(round_path: &Path) -> anyhow::Result<Self> {
         let parent = round_path.parent().unwrap_or_else(|| Path::new("."));
-        let start = ["StartDungeonReply.json", "StartTowerBattleReply.json"]
-            .map(|name| parent.join(name))
-            .into_iter()
-            .find(|path| path.exists())
-            .unwrap_or_else(|| parent.join("StartTowerBattleReply.json"));
-        let start_request = ["StartDungeonRequest.json", "StartTowerBattleRequest.json"]
-            .map(|name| parent.join(name))
-            .into_iter()
-            .find(|path| path.exists());
+        let start = [
+            "StartDungeonReply.json",
+            "StartTowerBattleReply.json",
+            "StartAct229BattleReply.json",
+        ]
+        .map(|name| parent.join(name))
+        .into_iter()
+        .find(|path| path.exists())
+        .unwrap_or_else(|| parent.join("StartTowerBattleReply.json"));
+        let start_request = [
+            "StartDungeonRequest.json",
+            "StartTowerBattleRequest.json",
+            "StartAct229BattleRequest.json",
+        ]
+        .map(|name| parent.join(name))
+        .into_iter()
+        .find(|path| path.exists());
         let legacy = super::uses_legacy_round_names(round_path);
         let rounds = super::round_indices(round_path, i32::MAX)?
             .into_iter()
@@ -86,6 +94,22 @@ impl CapturedBattle {
         files.sort();
         Ok(split_session(&files))
     }
+
+    /// The session battle and round selected by one timestamped reply.
+    pub(super) fn from_session_reply(path: &Path) -> anyhow::Result<(Self, i32)> {
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        Self::from_session(parent)?
+            .into_iter()
+            .find_map(|battle| {
+                battle
+                    .rounds
+                    .iter()
+                    .find(|round| round.reply == path)
+                    .map(|round| round.index)
+                    .map(|index| (battle, index))
+            })
+            .ok_or_else(|| anyhow::anyhow!("{} is not paired in a captured battle", path.display()))
+    }
 }
 
 pub(super) fn is_session_dir(path: &Path) -> bool {
@@ -95,6 +119,10 @@ pub(super) fn is_session_dir(path: &Path) -> bool {
                 .filter_map(Result::ok)
                 .any(|entry| command(&entry.path()).is_some_and(is_start_reply))
         })
+}
+
+pub(super) fn is_session_round_reply(path: &Path) -> bool {
+    path.is_file() && command(path) == Some("BeginRoundReply")
 }
 
 fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
@@ -108,7 +136,7 @@ fn split_session(files: &[PathBuf]) -> Vec<CapturedBattle> {
             continue;
         };
         match command {
-            "StartDungeonRequest" | "StartTowerBattleRequest" => {
+            "StartDungeonRequest" | "StartTowerBattleRequest" | "StartAct229BattleRequest" => {
                 last_start_request = Some(file.clone());
             }
             command if is_start_reply(command) => {
@@ -170,7 +198,10 @@ fn cloth_inputs(parent: &Path, round_index: i32) -> io::Result<Vec<CapturedCloth
 }
 
 fn is_start_reply(command: &str) -> bool {
-    matches!(command, "StartDungeonReply" | "StartTowerBattleReply")
+    matches!(
+        command,
+        "StartDungeonReply" | "StartTowerBattleReply" | "StartAct229BattleReply"
+    )
 }
 
 // Timeline packets are named `<date>_<time>_<millis>_<sequence>_<Command>.json`.
@@ -261,5 +292,48 @@ mod tests {
             battles[0].rounds[0].cloth[0].reply.as_ref(),
             Some(&files[2])
         );
+    }
+
+    #[test]
+    fn activity_timeline_pairs_the_wrapped_start_request_and_reply() {
+        let files = [
+            "20260927_080404_694_000408_StartAct229BattleRequest.json",
+            "20260927_080404_757_000410_StartAct229BattleReply.json",
+            "20260927_080411_302_000420_BeginRoundRequest.json",
+            "20260927_080411_371_000421_BeginRoundReply.json",
+        ]
+        .map(PathBuf::from);
+
+        let battles = split_session(&files);
+
+        assert_eq!(battles.len(), 1);
+        assert_eq!(battles[0].start, files[1]);
+        assert_eq!(battles[0].start_request.as_ref(), Some(&files[0]));
+        assert_eq!(battles[0].rounds.len(), 1);
+    }
+
+    #[test]
+    fn selects_one_timestamped_reply_from_a_session() {
+        let directory = std::env::temp_dir().join(format!(
+            "enigma-session-reply-selection-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        for name in [
+            "20260927_080404_757_000410_StartDungeonReply.json",
+            "20260927_080411_302_000420_BeginRoundRequest.json",
+            "20260927_080411_371_000421_BeginRoundReply.json",
+            "20260927_080420_569_000424_BeginRoundRequest.json",
+            "20260927_080420_623_000425_BeginRoundReply.json",
+        ] {
+            fs::write(directory.join(name), "{}").unwrap();
+        }
+        let selected = directory.join("20260927_080411_371_000421_BeginRoundReply.json");
+
+        let (battle, through) = CapturedBattle::from_session_reply(&selected).unwrap();
+
+        assert_eq!(through, 1);
+        assert_eq!(battle.rounds.len(), 2);
+        fs::remove_dir_all(directory).unwrap();
     }
 }

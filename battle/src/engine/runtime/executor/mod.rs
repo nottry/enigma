@@ -22,6 +22,7 @@ use crate::engine::{
         buff_precast::{BuffPrecastChanges, BuffPrecastError},
         field_transfer::{FieldTransferChanges, FieldTransferError},
         focus_all_entity_buff::{FocusAllEntityBuffChanges, FocusAllEntityBuffError},
+        monster_change::{MonsterChangeChanges, MonsterChangeError},
         shell::{ShellChanges, ShellError},
     },
     runtime::change::BattleChange,
@@ -64,6 +65,7 @@ pub(crate) enum RuleOutcome {
     NuoDiKa(crate::engine::mechanic::nuo_di_ka::NuoDiKaChange),
     Emitter(EmitterChange),
     Entity(Box<EntityChanges>),
+    MonsterChange(Box<MonsterChangeChanges>),
     Card(Box<CardChanges>),
     BuffPrecast(Box<BuffPrecastChanges>),
     Conduit(ConduitChange),
@@ -109,6 +111,22 @@ impl RuleOutcome {
                     BattleChange::Buff(Box::new(changes.buff.clone())),
                 ),
             ],
+            Self::MonsterChange(changes) => {
+                let mut owned = Vec::new();
+                if let Some(toughness) = changes.toughness {
+                    owned.push((
+                        OutputOwner::NestedLifecycleMechanic,
+                        BattleChange::ToughnessReset(toughness),
+                    ));
+                }
+                if let Some(cards) = &changes.cards {
+                    owned.push((
+                        OutputOwner::Skill,
+                        BattleChange::Card(Box::new(cards.clone())),
+                    ));
+                }
+                owned
+            }
             _ => Vec::new(),
         }
     }
@@ -162,6 +180,26 @@ impl RuleOutcome {
                 .flat_map(|execution| execution.changes.take_deaths_with_shares())
                 .collect(),
             _ => Vec::new(),
+        }
+    }
+
+    pub(crate) fn settles_death_immediately(&self) -> bool {
+        let immediate = |changes: &HpChanges| {
+            crate::engine::skill::behavior::registry::find_key(
+                changes.origin.key.opcode,
+                changes.origin.key.type_name,
+            )
+            .is_some_and(|definition| {
+                definition.death_settlement
+                    == crate::engine::skill::behavior::registry::DeathSettlement::Immediate
+            })
+        };
+        match self {
+            Self::Hp(execution) => immediate(&execution.changes),
+            Self::HpBatch(changes) => changes
+                .iter()
+                .any(|execution| immediate(&execution.changes)),
+            _ => false,
         }
     }
 
@@ -271,6 +309,9 @@ impl RuleOutcome {
             Self::NuoDiKa(change) => vec![BattleChange::NuoDiKa(*change)],
             Self::Emitter(change) => vec![BattleChange::Emitter(*change)],
             Self::Entity(change) => vec![BattleChange::Entity(change.clone())],
+            Self::MonsterChange(changes) => {
+                vec![BattleChange::Entity(Box::new(changes.entity.clone()))]
+            }
             Self::Card(change) => vec![BattleChange::Card(change.clone())],
             Self::BuffPrecast(changes) => vec![
                 BattleChange::Buff(Box::new(changes.buff.clone())),
@@ -333,6 +374,7 @@ pub(crate) enum RuleExecutionError {
     ExPoint(ExPointCommandError),
     Eureka(EurekaCommandError),
     Entity(EntityCommandError),
+    MonsterChange(MonsterChangeError),
     Gauge(GaugeCommandError),
     BloodtitheSpend(crate::engine::mechanic::bloodtithe::spend::SpendError),
     NuoDiKa(crate::engine::mechanic::nuo_di_ka::NuoDiKaError),
@@ -385,6 +427,12 @@ impl From<EurekaCommandError> for RuleExecutionError {
 impl From<EntityCommandError> for RuleExecutionError {
     fn from(value: EntityCommandError) -> Self {
         Self::Entity(value)
+    }
+}
+
+impl From<MonsterChangeError> for RuleExecutionError {
+    fn from(value: MonsterChangeError) -> Self {
+        Self::MonsterChange(value)
     }
 }
 
@@ -504,6 +552,9 @@ pub(crate) fn execute_rule_op_with(
             Ok(RuleOutcome::PublishedEvent)
         }
         RuleOp::DeathSettlement(death) => Ok(RuleOutcome::DeathSettlement(death)),
+        RuleOp::DeathEventGroupComplete(_) => {
+            unreachable!("death event group completion is owned by the runtime drain")
+        }
         RuleOp::SubscriberGroupComplete => {
             unreachable!("subscriber group completion is owned by the runtime drain")
         }
@@ -566,6 +617,12 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::HpBatch(batch))
         }
+        RuleOp::Command(BattleCommand::ImmediateReservePromotion(command)) => {
+            managers
+                .battle_rule
+                .enable_immediate_reserve_promotion(command);
+            Ok(RuleOutcome::StateChanged)
+        }
         RuleOp::Command(BattleCommand::MaxRound(command)) => managers
             .battle_rule
             .add_max_round(command)
@@ -609,7 +666,7 @@ pub(crate) fn execute_rule_op_with(
             Ok(RuleOutcome::Shield(Box::new(changes)))
         }
         RuleOp::Command(BattleCommand::ExPoint(command)) => {
-            let changes = managers.execute_ex_point(command)?;
+            let changes = managers.execute_ex_point_rolled(command, determinism)?;
             for event in changes.events() {
                 events.push(event);
             }
@@ -693,6 +750,13 @@ pub(crate) fn execute_rule_op_with(
             }
             Ok(RuleOutcome::Entity(Box::new(changes)))
         }
+        RuleOp::Command(BattleCommand::MonsterChange(command)) => {
+            let changes = crate::engine::mechanic::monster_change::execute(managers, command)?;
+            for event in changes.entity.events() {
+                events.push(event);
+            }
+            Ok(RuleOutcome::MonsterChange(Box::new(changes)))
+        }
         RuleOp::Command(BattleCommand::EntitySkill(command)) => {
             managers.execute_entity_skill(command)?;
             Ok(RuleOutcome::StateChanged)
@@ -739,9 +803,11 @@ pub(crate) fn execute_rule_op_with(
         RuleOp::Command(BattleCommand::FightProgress(command)) => Ok(RuleOutcome::FightProgress(
             managers.fight_progress.initialize(command)?,
         )),
-        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(
-            RuleOutcome::FightProgressValue(managers.fight_progress.change_value(command)?),
-        ),
+        RuleOp::Command(BattleCommand::FightProgressValue(command)) => Ok(managers
+            .fight_progress
+            .change_value(command)?
+            .map(RuleOutcome::FightProgressValue)
+            .unwrap_or(RuleOutcome::StateChanged)),
         RuleOp::Command(BattleCommand::FieldTransfer(command)) => {
             let changes = crate::engine::mechanic::field_transfer::execute(managers, command)?;
             for buff in &changes.buffs {
@@ -923,6 +989,9 @@ pub(crate) fn execute_rule_op_with(
         }
         RuleOp::ModifyActiveSkillTargets { additional_count } => {
             Ok(RuleOutcome::ActiveSkillTargetsModified(additional_count))
+        }
+        RuleOp::ImmediateReservePromotion => {
+            unreachable!("reserve promotion is owned by the action drain")
         }
         RuleOp::FreezeActiveSkillRates => unreachable!("rate freezing is owned by the skill drain"),
     }

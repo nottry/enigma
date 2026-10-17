@@ -13,6 +13,8 @@ pub(crate) enum ReportKind {
 #[derive(Debug, Default)]
 pub(crate) struct Options {
     pub(crate) hero_ids: Vec<i32>,
+    pub(crate) skill_ids: Vec<i32>,
+    pub(crate) buff_ids: Vec<i32>,
     pub(crate) episode_id: Option<i32>,
     pub(crate) psychube_id: Option<i32>,
     pub(crate) psychube_level: Option<i32>,
@@ -22,6 +24,7 @@ pub(crate) struct Options {
     pub(crate) include_plan: bool,
     pub(crate) simulate_opening: bool,
     pub(crate) explain: bool,
+    pub(crate) json: bool,
     pub(crate) capture_roots: Vec<PathBuf>,
     pub(crate) battle_report: Option<ReportKind>,
     pub(crate) report_dir: Option<PathBuf>,
@@ -35,7 +38,7 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
             "--help" | "-h" => {
                 println!("battle_check --battle-report all|hero|psychube|stage --report-dir PATH");
                 println!(
-                    "battle_check [--hero ID]... [--episode ID] [--explain]\n\
+                    "battle_check [--hero ID]... [--skill ID]... [--buff ID]... [--episode ID] [--explain] [--json]\n\
                      battle_check --episode ID --simulate-opening\n\
                      battle_check --coverage-plan [--hero ID]...\n\
                      battle_check --include-plan [--hero ID]...\n\
@@ -48,6 +51,10 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
             }
             "--explain" => {
                 options.explain = true;
+                continue;
+            }
+            "--json" => {
+                options.json = true;
                 continue;
             }
             "--coverage-plan" => {
@@ -98,8 +105,8 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
                 ));
                 continue;
             }
-            "--hero" | "--episode" | "--psychube" | "--psychube-level" | "--destiny-stone"
-            | "--destiny-rank" => args
+            "--hero" | "--skill" | "--buff" | "--episode" | "--psychube" | "--psychube-level"
+            | "--destiny-stone" | "--destiny-rank" => args
                 .next()
                 .with_context(|| format!("missing value for {arg}"))?,
             _ => bail!("unknown argument {arg}"),
@@ -109,6 +116,8 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
             .with_context(|| format!("invalid value for {arg}: {value}"))?;
         match arg.as_str() {
             "--hero" => options.hero_ids.push(value),
+            "--skill" => options.skill_ids.push(value),
+            "--buff" => options.buff_ids.push(value),
             "--episode" => options.episode_id = Some(value),
             "--psychube" => options.psychube_id = Some(value),
             "--psychube-level" => options.psychube_level = Some(value),
@@ -127,11 +136,20 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
     if options.destiny_stone.is_some() != options.destiny_rank.is_some() {
         bail!("--destiny-stone and --destiny-rank must be provided together");
     }
+    if options
+        .skill_ids
+        .iter()
+        .chain(&options.buff_ids)
+        .any(|id| *id <= 0)
+    {
+        bail!("--skill and --buff IDs must be positive");
+    }
 
     if let Some(kind) = options.battle_report {
-        if options.coverage_plan || options.include_plan || options.simulate_opening {
+        if options.coverage_plan || options.include_plan || options.simulate_opening || options.json
+        {
             bail!(
-                "--battle-report cannot be combined with --coverage-plan, --include-plan, or --simulate-opening"
+                "--battle-report cannot be combined with --coverage-plan, --include-plan, --simulate-opening, or --json"
             );
         }
         if options.destiny_stone.is_some() {
@@ -144,19 +162,21 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
         }
 
         let has_hero = !options.hero_ids.is_empty();
+        let has_skill = !options.skill_ids.is_empty();
+        let has_buff = !options.buff_ids.is_empty();
         let has_psychube = options.psychube_id.is_some();
         let has_episode = options.episode_id.is_some();
         match kind {
-            ReportKind::All if has_hero || has_psychube || has_episode => {
+            ReportKind::All if has_hero || has_skill || has_buff || has_psychube || has_episode => {
                 bail!("--battle-report all does not accept narrowing selectors")
             }
-            ReportKind::Hero if has_psychube || has_episode => {
+            ReportKind::Hero if has_skill || has_buff || has_psychube || has_episode => {
                 bail!("--battle-report hero accepts --hero but not --psychube or --episode")
             }
-            ReportKind::Psychube if has_hero || has_episode => {
+            ReportKind::Psychube if has_hero || has_skill || has_buff || has_episode => {
                 bail!("--battle-report psychube accepts --psychube but not --hero or --episode")
             }
-            ReportKind::Stage if has_hero || has_psychube => {
+            ReportKind::Stage if has_hero || has_skill || has_buff || has_psychube => {
                 bail!("--battle-report stage accepts --episode but not --hero or --psychube")
             }
             _ => {}
@@ -169,14 +189,21 @@ pub(crate) fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Optio
     }
 
     if options.hero_ids.is_empty()
+        && options.skill_ids.is_empty()
+        && options.buff_ids.is_empty()
         && options.episode_id.is_none()
         && !options.coverage_plan
         && !options.include_plan
     {
-        bail!("provide --hero, --episode, --coverage-plan, --include-plan, or both");
+        bail!("provide --hero, --skill, --buff, --episode, --coverage-plan, or --include-plan");
+    }
+    if options.json && (options.coverage_plan || options.include_plan || options.simulate_opening) {
+        bail!("--json is only supported for closure scans");
     }
     if (options.coverage_plan || options.include_plan)
         && (options.episode_id.is_some()
+            || !options.skill_ids.is_empty()
+            || !options.buff_ids.is_empty()
             || options.psychube_id.is_some()
             || options.destiny_stone.is_some())
     {
@@ -301,6 +328,27 @@ mod tests {
         )
         .unwrap();
         assert!(simulation.simulate_opening);
+    }
+
+    #[test]
+    fn accepts_machine_readable_skill_and_buff_roots() {
+        let options = parse_args(
+            ["--skill", "116371018", "--buff", "116371017", "--json"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .unwrap();
+
+        assert_eq!(options.skill_ids, vec![116371018]);
+        assert_eq!(options.buff_ids, vec![116371017]);
+        assert!(options.json);
+    }
+
+    #[test]
+    fn rejects_empty_skill_and_buff_roots() {
+        for args in [["--skill", "0", "--json"], ["--buff", "0", "--json"]] {
+            assert!(parse_args(args.into_iter().map(str::to_owned)).is_err());
+        }
     }
 
     #[test]

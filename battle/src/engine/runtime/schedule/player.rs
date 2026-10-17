@@ -1,5 +1,5 @@
 use super::*;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Allocates configured card energy before the owning action phase begins.
 pub fn run_card_energy_allocation(
@@ -25,7 +25,7 @@ pub fn run_action_queue_committed(
     context: TargetContext,
     team: i32,
     emitter_uid: i64,
-    device_actions: usize,
+    include_device_action: bool,
 ) -> Result<DrainResult, DrainError> {
     drain::run(
         managers,
@@ -37,7 +37,7 @@ pub fn run_action_queue_committed(
             CardCommand::CommitActionQueue {
                 team,
                 emitter_uid,
-                device_actions,
+                include_device_action,
             },
         ))],
     )
@@ -59,6 +59,38 @@ pub fn run_action_phase_start(
     drain::run_command_group(managers, pool, catalog, determinism, context, ops)
 }
 
+fn free_skill_consumed_remaining_buff(action: &DrainResult, source_uid: i64) -> bool {
+    let mut amounts = HashMap::new();
+    let mut record = |changes: &crate::engine::manager::buff::BuffChanges| {
+        for event in changes.events() {
+            let change = match event {
+                BattleEvent::BuffAdded(change)
+                | BattleEvent::BuffChanged(change)
+                | BattleEvent::BuffRemoved(change) => change,
+                _ => continue,
+            };
+            if change.target_uid != source_uid {
+                continue;
+            }
+            amounts
+                .entry((change.target_uid, change.buff_uid))
+                .and_modify(|(_, after)| *after = change.after_amount)
+                .or_insert((change.before_amount, change.after_amount));
+        }
+    };
+    for outcome in &action.outcomes {
+        match outcome {
+            RuleOutcome::Buff(changes) => record(changes),
+            RuleOutcome::BuffBatch(changes) => changes.iter().for_each(&mut record),
+            _ => {}
+        }
+    }
+
+    amounts
+        .into_values()
+        .any(|(before, after)| after > 0 && after < before)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run_conduit_phase(
     battle_catalog: crate::catalog::BattleCatalog,
@@ -71,6 +103,9 @@ pub fn run_conduit_phase(
     operations: &[sonettobuf::FightDeviceOper],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
+    if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+        return Ok(result);
+    }
     let devices = operations
         .iter()
         .filter_map(|operation| Some((operation.uid?, operation.index?)))
@@ -78,13 +113,9 @@ pub fn run_conduit_phase(
         .map(|(index, (source_uid, selected_group))| (source_uid, selected_group, index as i32 + 1))
         .collect::<Vec<_>>();
     let mut used_free_skills = HashSet::new();
-    let mut ran_devices = HashSet::new();
     loop {
         let mut pass_ran = false;
         for &(source_uid, selected_group, device_index) in &devices {
-            if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-                break;
-            }
             let skills = managers
                 .conduit
                 .selected_skills(source_uid)
@@ -95,11 +126,8 @@ pub fn run_conduit_phase(
                 std::iter::empty(),
             );
             let mut ran = false;
+            let mut stop_emitted_this_pass = false;
             for (position, skill) in skills.into_iter().enumerate() {
-                if skill.cost_value <= 0 && used_free_skills.contains(&(source_uid, skill.skill_id))
-                {
-                    continue;
-                }
                 let cost_modifier = crate::engine::skill::buff_act::device_cost_reduce::modifier(
                     managers,
                     source_uid,
@@ -109,12 +137,6 @@ pub fn run_conduit_phase(
                     .as_ref()
                     .map(|(reduction, _)| *reduction)
                     .unwrap_or_default();
-                if !managers
-                    .conduit
-                    .can_begin_skill(source_uid, skill.skill_id, cost_reduction)
-                {
-                    continue;
-                }
                 let invocation: crate::engine::skill::action::SkillInvocation =
                     crate::engine::skill::action::SkillRequest {
                         source_uid,
@@ -122,14 +144,40 @@ pub fn run_conduit_phase(
                     }
                     .into();
                 let current_pool = pool.runtime_view(managers);
-                if drain::attack_has_no_target(
-                    &invocation,
-                    catalog,
-                    &current_pool,
-                    managers,
-                    determinism,
-                    context,
-                ) {
+                let unavailable = (skill.cost_value <= 0
+                    && used_free_skills.contains(&(source_uid, skill.skill_id)))
+                    || !managers.conduit.can_begin_skill(
+                        source_uid,
+                        skill.skill_id,
+                        cost_reduction,
+                    )
+                    || drain::attack_has_no_target(
+                        &invocation,
+                        catalog,
+                        &current_pool,
+                        managers,
+                        determinism,
+                        context,
+                    );
+                if unavailable {
+                    if !crate::engine::round::outcome::battle_ended(fight, pool, managers)
+                        || !stop_emitted_this_pass
+                    {
+                        append(
+                            &mut result,
+                            drain::run_conduit_stop(
+                                managers,
+                                pool,
+                                catalog,
+                                determinism,
+                                context,
+                                source_uid,
+                                device_index,
+                                position as i32 + 1,
+                            )?,
+                        );
+                        stop_emitted_this_pass = true;
+                    }
                     continue;
                 }
                 let frame_target_uid = (catalog.logic_target(skill.skill_id)
@@ -168,42 +216,36 @@ pub fn run_conduit_phase(
                         _ => None,
                     })
                     .collect::<HashSet<_>>();
+                let group_changed = action.outcomes.iter().any(|outcome| {
+                    matches!(
+                        outcome,
+                        RuleOutcome::Conduit(
+                            crate::engine::manager::conduit::ConduitChange::SkillGroupChanged {
+                                source_uid: changed_uid,
+                                ..
+                            }
+                        ) if *changed_uid == source_uid
+                    )
+                });
+                let can_repeat = skill.cost_value <= 0
+                    && free_skill_consumed_remaining_buff(&action, source_uid);
                 used_free_skills.retain(|(uid, _)| !restarted_devices.contains(uid));
                 append(&mut result, action);
                 ran = true;
-                if skill.cost_value <= 0 && !restarted_devices.contains(&source_uid) {
+                if skill.cost_value <= 0 && !can_repeat && !restarted_devices.contains(&source_uid)
+                {
                     used_free_skills.insert((source_uid, skill.skill_id));
                 }
-                if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+                if group_changed {
                     break;
                 }
             }
             if ran {
                 pass_ran = true;
-                ran_devices.insert((source_uid, selected_group));
             }
         }
-        if !pass_ran || crate::engine::round::outcome::battle_ended(fight, pool, managers) {
+        if !pass_ran {
             break;
-        }
-    }
-    if !crate::engine::round::outcome::battle_ended(fight, pool, managers) {
-        for (source_uid, selected_group, device_index) in devices {
-            if !ran_devices.contains(&(source_uid, selected_group)) {
-                continue;
-            }
-            append(
-                &mut result,
-                drain::run_conduit_stop(
-                    managers,
-                    pool,
-                    catalog,
-                    determinism,
-                    context,
-                    source_uid,
-                    device_index,
-                )?,
-            );
         }
     }
     Ok(result)
@@ -449,7 +491,7 @@ fn run_player_card_ops(
     fight: Option<&sonettobuf::Fight>,
     before_actions: Vec<SemanticFrame>,
 ) -> Result<DrainResult, DrainError> {
-    let device_actions = committed_client_conduit_selections(&before_actions);
+    let include_device_action = has_committed_client_conduit_selection(&before_actions);
     let mut result = DrainResult::default();
     let mut skills = Vec::new();
     let mut pending_rewards = Vec::new();
@@ -713,7 +755,7 @@ fn run_player_card_ops(
         context,
         team,
         emitter_uid,
-        device_actions,
+        include_device_action,
     )?;
     skills.extend(committed.outcomes.iter().filter_map(|outcome| {
         let RuleOutcome::Card(changes) = outcome else {
@@ -766,6 +808,10 @@ fn run_player_card_ops(
         {
             break;
         }
+        let current_pool = pool
+            .roster_changed(managers)
+            .then(|| pool.runtime_view(managers));
+        let pool = current_pool.as_ref().unwrap_or(pool);
         let QueuedPlayerAction {
             mut skill,
             source,
@@ -928,29 +974,25 @@ fn run_player_card_ops(
     Ok(result)
 }
 
-fn committed_client_conduit_selections(frames: &[SemanticFrame]) -> usize {
-    fn count(frame: &SemanticFrame) -> usize {
-        frame
-            .items
-            .iter()
-            .map(|item| match item {
-                FrameItem::Change(change)
-                    if matches!(
-                        change.as_ref(),
-                        BattleChange::Conduit(
-                            crate::engine::manager::conduit::ConduitChange::GroupSelected { .. }
-                        )
-                    ) =>
-                {
-                    1
-                }
-                FrameItem::Child(child) => count(child),
-                FrameItem::Change(_) | FrameItem::Cue(_) => 0,
-            })
-            .sum()
+fn has_committed_client_conduit_selection(frames: &[SemanticFrame]) -> bool {
+    fn contains(frame: &SemanticFrame) -> bool {
+        frame.items.iter().any(|item| match item {
+            FrameItem::Change(change)
+                if matches!(
+                    change.as_ref(),
+                    BattleChange::Conduit(
+                        crate::engine::manager::conduit::ConduitChange::GroupSelected { .. }
+                    )
+                ) =>
+            {
+                true
+            }
+            FrameItem::Child(child) => contains(child),
+            FrameItem::Change(_) | FrameItem::Cue(_) => false,
+        })
     }
 
-    frames.iter().map(count).sum()
+    frames.iter().any(contains)
 }
 
 fn queue_preparation_ops(
@@ -1189,7 +1231,7 @@ pub(super) fn run_active_action(
     });
     append(
         &mut result,
-        drain::run_action_with_cost(
+        drain::run_round_action_with_cost(
             managers,
             pool,
             catalog,

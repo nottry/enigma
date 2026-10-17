@@ -1308,7 +1308,9 @@ pub(crate) fn configured_ex_point_max(
     let model_id = model_id?;
     let rank = crate::engine::entity::stats::configured_rank(game_data, model_id, level);
     if let Some(spec) = configured_unique_skill_point(game_data, model_id, rank) {
-        return spec.split('#').nth(1)?.trim().parse().ok();
+        let (_, maximum) = crate::engine::manager::ex_point::parse_unique_skill_point(spec)
+            .expect("configured unique skill point must be type#positive_maximum");
+        return Some(maximum);
     }
 
     let monster = game_data.monster.get(model_id)?;

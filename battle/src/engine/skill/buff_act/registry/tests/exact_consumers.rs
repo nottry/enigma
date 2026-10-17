@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn hurt_to_progress_owns_the_pre_damage_hit_route() {
+    let definition = find(1148, "HurtToProgress").unwrap();
+
+    assert_eq!(definition.kind, BuffActKind::HurtToProgress);
+    assert_eq!(
+        runtime_event(1148, "HurtToProgress", 0),
+        Some(EventKind::BeAttacked)
+    );
+    assert_eq!(
+        definition.runtime.publication,
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        definition.runtime.frame_scope,
+        RuntimeFrameScope::CausingFrame
+    );
+    let wire = definition.wire.unwrap();
+    for phase in [
+        super::super::super::wire::WirePhase::Add,
+        super::super::super::wire::WirePhase::Static,
+        super::super::super::wire::WirePhase::Refresh,
+    ] {
+        assert_eq!(
+            wire.markers(phase),
+            &[sonettobuf::effect_type_enum::EffectType::None as i32]
+        );
+    }
+}
+
+#[test]
+fn attr_transactions_follow_the_buff_lifecycle_boundary() {
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffAdded),
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffChanged),
+        PublicationPhase::AfterPublish
+    );
+    assert_eq!(
+        runtime_publication(100, "Attr", EventKind::BuffRemoved),
+        PublicationPhase::BeforePublish
+    );
+}
+
+#[test]
 fn registry_requires_exact_id_and_type() {
     assert_eq!(
         find(1075, "CardLimitAdd").unwrap().kind,
@@ -78,6 +124,18 @@ fn registry_requires_exact_id_and_type() {
     );
     let device_bank = find(1149, "DeviceExPointOverflowBank").unwrap();
     assert_eq!(device_bank.kind, BuffActKind::DeviceExPointOverflowBank);
+    assert_eq!(
+        runtime_publication(
+            1149,
+            "DeviceExPointOverflowBank",
+            EventKind::ExPointOverflow,
+        ),
+        PublicationPhase::BeforePublish
+    );
+    assert_eq!(
+        runtime_publication(1149, "DeviceExPointOverflowBank", EventKind::ExPointChanged,),
+        PublicationPhase::AfterPublish
+    );
     assert!(has_destination(1149, "DeviceExPointOverflowBank", &[50]));
     assert!(!has_destination(1149, "DeviceExPointOverflowBank", &[0]));
     let device_bank_wire = device_bank.wire.unwrap();
@@ -426,6 +484,23 @@ fn hp_loss_floor_is_an_exact_static_consumer() {
     assert!(has_destination(1008, "BanLostLife", &[160]));
     assert!(!has_destination(1008, "BanLostLife", &[500]));
     assert!(find(1008, "DamageNotMoreThan").is_none());
+}
+
+#[test]
+fn hp_lock_is_an_exact_static_consumer() {
+    let definition = find(796, "LockHp").unwrap();
+
+    assert_eq!(definition.kind, BuffActKind::LockHp);
+    assert!(definition.state.consumer);
+    assert!(has_destination(796, "LockHp", &[10]));
+    assert!(!has_destination(796, "LockHp", &[0]));
+    assert!(find(796, "BanLostLife").is_none());
+
+    let wire = super::super::super::wire::find(796, "LockHp").unwrap();
+    assert_eq!(
+        wire.markers(super::super::super::wire::WirePhase::Add),
+        &[sonettobuf::effect_type_enum::EffectType::Lockhp as i32]
+    );
 }
 
 #[test]

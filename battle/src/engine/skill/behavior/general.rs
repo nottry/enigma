@@ -58,6 +58,26 @@ pub(super) struct AssassinateHandler;
 
 pub(super) struct AddMaxRoundHandler;
 
+pub(super) struct ImmediatelyMonsterHandler;
+
+impl BehaviorHandler for ImmediatelyMonsterHandler {
+    const VALIDATES_ARGUMENTS: bool = true;
+
+    fn supports(behavior: &ParsedBehavior) -> bool {
+        behavior.args.is_empty()
+    }
+
+    fn emit_ops(context: BehaviorOpContext<'_>, behavior: &ParsedBehavior) -> Option<Vec<RuleOp>> {
+        Self::supports(behavior).then(|| {
+            vec![RuleOp::Command(BattleCommand::ImmediateReservePromotion(
+                crate::engine::manager::battle_rule::ImmediateReservePromotionCommand {
+                    team_type: context.source_team,
+                },
+            ))]
+        })
+    }
+}
+
 impl BehaviorHandler for AddMaxRoundHandler {
     const VALIDATES_ARGUMENTS: bool = true;
 

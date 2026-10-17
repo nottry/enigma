@@ -1,13 +1,17 @@
 use super::SocialManager;
 use crate::error::AppError;
+use database::db::game::player_infos::PlayerInfoData;
 use database::db::game::{friends, player_card, player_infos};
 use sonettobuf::{
-    AddBlacklistReply, FriendExtInfo, FriendInfo, GetApplyListReply, GetBlacklistReply,
-    GetFriendInfoListReply, GetRecommendedFriendsReply, LoadFriendInfosReply, PlayerCardExtInfo,
-    RemoveBlacklistReply, RemoveFriendReply, SearchReply,
+    AddBlacklistReply, FriendExtInfo, FriendModuleFriendInfo, GetApplyListReply, GetBlacklistReply,
+    GetFriendInfoListReply, GetRecommendedFriendsReply, HeroInfo, LoadFriendInfosReply,
+    PlayerCardExtInfo, RemoveBlacklistReply, RemoveFriendReply, SearchReply,
 };
 use sqlx::SqlitePool;
 use std::collections::HashSet;
+
+#[cfg(test)]
+mod tests;
 
 impl SocialManager {
     pub async fn assist_candidates(
@@ -47,21 +51,13 @@ impl SocialManager {
         db: &SqlitePool,
     ) -> Result<GetFriendInfoListReply, AppError> {
         Ok(GetFriendInfoListReply {
-            info: friends::get_friend_ids(db, self.player_id)
-                .await?
-                .into_iter()
-                .map(friend_info)
-                .collect(),
+            info: friend_infos(db, friends::get_friend_ids(db, self.player_id).await?).await?,
         })
     }
 
     pub async fn get_blacklist(&self, db: &SqlitePool) -> Result<GetBlacklistReply, AppError> {
         Ok(GetBlacklistReply {
-            info: friends::get_blacklist_ids(db, self.player_id)
-                .await?
-                .into_iter()
-                .map(friend_info)
-                .collect(),
+            info: friend_infos(db, friends::get_blacklist_ids(db, self.player_id).await?).await?,
         })
     }
 
@@ -136,17 +132,74 @@ impl SocialManager {
     }
 }
 
-fn friend_info(user_id: u64) -> FriendInfo {
-    FriendInfo {
-        user_id: Some(user_id),
-        state: None,
+async fn friend_infos(
+    db: &SqlitePool,
+    user_ids: Vec<u64>,
+) -> Result<Vec<FriendModuleFriendInfo>, AppError> {
+    let mut infos = Vec::with_capacity(user_ids.len());
+    for user_id in user_ids {
+        let data = player_infos::get_player_info_data(db, user_id as i64).await?;
+        infos.push(friend_info(db, user_id, data.as_ref()).await?);
     }
+    Ok(infos)
+}
+
+// time (0 = online, else last logout ms) and desc (the viewer's remark) stay unset:
+// the server tracks neither.
+async fn friend_info(
+    db: &SqlitePool,
+    user_id: u64,
+    data: Option<&PlayerInfoData>,
+) -> Result<FriendModuleFriendInfo, AppError> {
+    let mut info = FriendModuleFriendInfo {
+        user_id: Some(user_id),
+        ..Default::default()
+    };
+    let Some(data) = data else {
+        return Ok(info);
+    };
+
+    info.name = Some(data.user_info.username.clone());
+    info.level = u32::try_from(data.user_info.level).ok();
+    info.portrait = u32::try_from(data.player_info.portrait).ok();
+    info.bg = Some(data.player_info.bg);
+    info.infos = show_hero_infos(db, data.player_id).await?;
+    Ok(info)
+}
+
+async fn show_hero_infos(db: &SqlitePool, user_id: i64) -> Result<Vec<HeroInfo>, AppError> {
+    let rows = sqlx::query_as::<_, (i64, i32, i32, i32, i32, i32)>(
+        "SELECT heroes.uid, shown.hero_id, shown.level, shown.rank, shown.ex_skill_level, shown.skin
+         FROM player_show_heroes AS shown
+         JOIN heroes ON heroes.user_id = shown.player_id AND heroes.hero_id = shown.hero_id
+         WHERE shown.player_id = ?
+         ORDER BY shown.display_order",
+    )
+    .bind(user_id)
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(uid, hero_id, level, rank, ex_skill_level, skin)| HeroInfo {
+                uid,
+                user_id,
+                hero_id,
+                level: Some(level),
+                rank: Some(rank),
+                ex_skill_level: Some(ex_skill_level),
+                skin: Some(skin),
+                ..Default::default()
+            },
+        )
+        .collect())
 }
 
 async fn friend_ext_info(db: &SqlitePool, user_id: u64) -> Result<FriendExtInfo, AppError> {
-    let player_info = player_infos::get_player_info_data(db, user_id as i64)
-        .await?
-        .map(Into::into);
+    let data = player_infos::get_player_info_data(db, user_id as i64).await?;
+    let friend_info = friend_info(db, user_id, data.as_ref()).await?;
+    let player_info: Option<sonettobuf::PlayerInfo> = data.map(Into::into);
 
     let player_card_info = match player_info {
         Some(_) => Some(
@@ -158,7 +211,7 @@ async fn friend_ext_info(db: &SqlitePool, user_id: u64) -> Result<FriendExtInfo,
     };
 
     Ok(FriendExtInfo {
-        friend_info: Some(friend_info(user_id)),
+        friend_info: Some(friend_info),
         player_card_ext_info: Some(PlayerCardExtInfo {
             player_info,
             player_card_info,

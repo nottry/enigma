@@ -5,6 +5,28 @@ pub enum DamageKind {
     Genesis,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MinimumDamage {
+    Absolute(i32),
+    AttackTenth,
+}
+
+impl MinimumDamage {
+    fn floor(self, attack: i32) -> i32 {
+        match self {
+            Self::Absolute(amount) => amount,
+            Self::AttackTenth => (attack / 10).max(1),
+        }
+    }
+
+    fn numerator_thousandths(self, attack: i32) -> i128 {
+        match self {
+            Self::Absolute(amount) => i128::from(amount) * 1000,
+            Self::AttackTenth => i128::from(attack.max(10)) * 100,
+        }
+    }
+}
+
 const MIN_CRITICAL_DAMAGE_MULTIPLIER: i32 = 1_100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,7 +36,7 @@ pub struct DamageFormulaInput {
     pub defense: i32,
     pub defense_multiplier: i32,
     pub penetration: i32,
-    pub minimum: i32,
+    pub minimum: MinimumDamage,
     pub base_rate: i32,
     pub added_rate: i32,
     pub career: i32,
@@ -37,7 +59,7 @@ impl DamageFormulaInput {
             defense: 0,
             defense_multiplier: 1_000,
             penetration: 0,
-            minimum: 0,
+            minimum: MinimumDamage::Absolute(0),
             base_rate,
             added_rate: 0,
             career: 1_000,
@@ -97,22 +119,61 @@ pub(crate) fn calculate_with_trace_for_version_and_remainder(
     fight_version: i32,
     critical_multiplier_remainder: i32,
 ) -> DamageTrace {
+    calculate_with_trace_for_policy_and_remainder(
+        input,
+        fight_version,
+        critical_multiplier_remainder,
+        false,
+    )
+}
+
+pub(crate) fn calculate_with_trace_for_formula_and_remainder(
+    input: DamageFormulaInput,
+    fight_version: i32,
+    critical_multiplier_remainder: i32,
+    formula: super::DamageFormula,
+) -> DamageTrace {
+    calculate_with_trace_for_policy_and_remainder(
+        input,
+        fight_version,
+        critical_multiplier_remainder,
+        formula.rules().truncates_signed_defense_rate_delta,
+    )
+}
+
+fn calculate_with_trace_for_policy_and_remainder(
+    input: DamageFormulaInput,
+    fight_version: i32,
+    critical_multiplier_remainder: i32,
+    truncates_signed_defense_rate_delta: bool,
+) -> DamageTrace {
     let preserve_effective_defense = fight_version == 7;
     let (defense, post_defense_fraction) = match input.kind {
         kind @ (DamageKind::Reality | DamageKind::Mental) => {
             let defense_multiplier = input.defense_multiplier.max(0);
             let penetration = input.penetration.clamp(0, 1000);
-            let modified_defense =
-                ((i64::from(input.defense.max(0)) * i64::from(defense_multiplier) + 500) / 1000)
-                    .min(i64::from(i32::MAX)) as i32;
+            let base_defense = i64::from(input.defense.max(0));
+            let modified_defense = if fight_version == 7 && truncates_signed_defense_rate_delta {
+                let defense_delta = base_defense * i64::from(defense_multiplier - 1_000) / 1_000;
+                base_defense + defense_delta
+            } else {
+                (base_defense * i64::from(defense_multiplier) + 500) / 1_000
+            }
+            .clamp(0, i64::from(i32::MAX)) as i32;
             let effective_numerator = i128::from(modified_defense) * i128::from(1000 - penetration);
             let effective_defense = (effective_numerator / 1000).min(i128::from(i32::MAX)) as i32;
+            let minimum = input.minimum.floor(input.attack);
+            let minimum_numerator = if preserve_effective_defense {
+                input.minimum.numerator_thousandths(input.attack)
+            } else {
+                i128::from(minimum) * 1000
+            };
             let post_defense_fraction = if preserve_effective_defense {
                 let numerator = i128::from(input.attack) * 1000 - effective_numerator;
-                (numerator.max(i128::from(input.minimum) * 1000), 1000)
+                (numerator.max(minimum_numerator), 1000)
             } else {
                 (
-                    i128::from((input.attack - effective_defense).max(input.minimum)),
+                    i128::from((input.attack - effective_defense).max(minimum)),
                     1,
                 )
             };
@@ -126,7 +187,9 @@ pub(crate) fn calculate_with_trace_for_version_and_remainder(
                     modified_defense,
                     penetration,
                     effective_defense,
-                    minimum: input.minimum,
+                    minimum,
+                    minimum_numerator,
+                    minimum_denominator: 1000,
                     calculated_output,
                     output: calculated_output,
                 },

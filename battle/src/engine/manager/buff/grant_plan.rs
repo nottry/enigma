@@ -220,9 +220,27 @@ impl BuffManager {
         args: BuffAddArgs,
     ) -> i32 {
         let layer = definition.raw_layer(args.layer, args.layer_specified, args.count);
-        let limit = self.grant_stack_limit(route, definition);
+        let mut limit = self.grant_stack_limit(route, definition);
+        if limit > 0 && definition.shares_timed_stack_cap() {
+            let other_duration_layers = self
+                .buffs
+                .iter()
+                .filter(|active| {
+                    active.effective
+                        && active.owner_uid == route.target_uid
+                        && active.buff.buff_id == Some(route.buff_id)
+                        && active.buff.duration != Some(definition.duration)
+                })
+                .map(|active| super::count_or_layer_from(&active.buff, active.definition.as_ref()))
+                .sum::<i32>();
+            limit = limit.saturating_sub(other_duration_layers);
+        }
         if limit <= 0 {
-            return definition.cap_layer(layer);
+            return if definition.stack_max_layer() > 0 {
+                0
+            } else {
+                definition.cap_layer(layer)
+            };
         }
         layer.min(limit)
     }
@@ -302,6 +320,7 @@ impl BuffManager {
         policy: &BuffPolicy,
         args: BuffAddArgs,
         repeat: i32,
+        stack_layer: i32,
     ) -> GrantAction {
         if let Some(blocker) = self.blocking_buff_id(route.target_uid, definition) {
             return GrantAction::Reject(blocker);
@@ -321,6 +340,13 @@ impl BuffManager {
             .buffs
             .iter()
             .any(|active| policy.matches(active, route));
+        if policy.storage == BuffStorage::Layered
+            && has_same_id
+            && !has_matching
+            && stack_layer <= 0
+        {
+            return GrantAction::KeepExisting;
+        }
         if policy.instance_limit.is_some_and(|limit| {
             self.buffs
                 .iter()
@@ -387,16 +413,19 @@ impl BuffManager {
             .buffs
             .iter()
             .find(|active| policy.matches(active, route))?;
-        let next_layer = self.grant_layer(
-            route,
-            definition,
-            BuffAddArgs {
-                layer: active.buff.layer.unwrap_or_default()
-                    + definition.raw_layer(args.layer, args.layer_specified, args.count),
-                layer_specified: true,
-                count: 0,
-            },
-        );
+        let current_layer = active.buff.layer.unwrap_or_default();
+        let next_layer = self
+            .grant_layer(
+                route,
+                definition,
+                BuffAddArgs {
+                    layer: current_layer
+                        + definition.raw_layer(args.layer, args.layer_specified, args.count),
+                    layer_specified: true,
+                    count: 0,
+                },
+            )
+            .max(current_layer);
         let next_duration = active
             .buff
             .duration
@@ -491,7 +520,7 @@ impl BuffManager {
                     HaloScope::AlliedTeam | HaloScope::OtherAllies => entity.team_type == team_type,
                     HaloScope::OpposingTeam => entity.team_type != team_type,
                 })
-                .filter(|entity| hp.current(entity.uid) > 0)
+                .filter(|entity| carrier.kind == HaloKind::Base || hp.current(entity.uid) > 0)
                 .filter(|entity| include_owner || entity.uid != emitter_uid)
             {
                 if self.has_fanout_buff(target.uid, fanout_buff_id, emitter_uid) {

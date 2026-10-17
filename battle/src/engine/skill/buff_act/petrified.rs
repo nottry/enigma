@@ -78,6 +78,7 @@ mod tests {
             target_uid: 10,
             skill_id,
             amount: 1,
+            resolved_damage: 1,
             shield_absorbed: 0,
             career_restraint: false,
             damage_from: HurtDamageFromType::Skill,

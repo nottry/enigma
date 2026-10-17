@@ -329,6 +329,10 @@ fn run_round_end_transition(
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
     push_cue(&mut result.frames, RoundCue::SmallRoundEnd { team_type: 1 });
+    append(
+        &mut result,
+        run_terminal_conduit_roster_refresh(managers, pool, catalog, determinism, context)?,
+    );
     push_cue(&mut result.frames, RoundCue::ClearUniversalCard);
     append(
         &mut result,
@@ -341,7 +345,36 @@ fn run_round_end_transition(
             settled_buffs,
         )?,
     );
+    append(
+        &mut result,
+        run_terminal_conduit_roster_refresh(managers, pool, catalog, determinism, context)?,
+    );
     Ok(result)
+}
+
+pub(crate) fn run_terminal_conduit_roster_refresh(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+) -> Result<DrainResult, DrainError> {
+    if managers.terminal_outcome().is_none() {
+        return Ok(DrainResult::default());
+    }
+    let defeated_uids = managers
+        .conduit
+        .selections()
+        .into_iter()
+        .map(|(uid, _)| uid)
+        .filter(|uid| managers.hp.current(*uid) == 0)
+        .collect::<Vec<_>>();
+    let commands = managers
+        .conduit
+        .terminal_roster_refresh_commands(&defeated_uids)
+        .into_iter()
+        .map(|command| RuleOp::Command(BattleCommand::Conduit(command)));
+    drain::run_command_group(managers, pool, catalog, determinism, context, commands)
 }
 
 pub fn run_entity_settlement(
@@ -395,6 +428,18 @@ pub fn run_entity_settlement(
                         skills.events.remove(0);
                     }
                     append(&mut result, skills);
+                    append(
+                        &mut result,
+                        run_duration_advances_for_event(
+                            managers,
+                            pool,
+                            catalog,
+                            determinism,
+                            context,
+                            *kind,
+                            &active_owner_uids,
+                        )?,
+                    );
                     let owner_settled = BattleEvent::Kind(EventKind::RoundEndAfterOwnerSettlement);
                     let after_owners = drain::run_grouped_owner_event(
                         managers,
@@ -506,7 +551,7 @@ pub fn run_round_end_final_settlement(
 ) -> Result<DrainResult, DrainError> {
     let owner_uids = final_settlement_owner_order(pool, managers);
     let event = BattleEvent::BuffsSettled(settled_buffs);
-    let mut result = drain::run_grouped_owner_event(
+    let mut result = drain::run_grouped_owner_event_lanes(
         managers,
         pool,
         catalog,
@@ -514,22 +559,8 @@ pub fn run_round_end_final_settlement(
         context,
         event.clone(),
         &owner_uids,
-        drain::ReactionLane::BuffActs,
+        &[drain::ReactionLane::BuffActs, drain::ReactionLane::Skills],
     )?;
-    let mut skills = drain::run_group_event(
-        managers,
-        pool,
-        catalog,
-        determinism,
-        context,
-        event.clone(),
-        drain::ReactionLane::Skills,
-        None,
-    )?;
-    if skills.events.first() == Some(&event) {
-        skills.events.remove(0);
-    }
-    append(&mut result, skills);
     append(
         &mut result,
         run_duration_advances_for_event(

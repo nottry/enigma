@@ -3,6 +3,7 @@ use sonettobuf::effect_type_enum::EffectType;
 use crate::engine::{
     damage::{
         AttackPlan, DamageFormula, DamageFormulaInput as DamageInputs, DamageKind, DamageRateTerm,
+        MinimumDamage,
     },
     entity::attr::AttrId,
     manager::{
@@ -587,6 +588,18 @@ pub(super) fn direct_damage(
     direct_damage_trace(request, runtime, source, target, options).amount
 }
 
+pub(super) fn minimum_damage_for_direct_formula(
+    formula: DamageFormula,
+    is_crit: bool,
+    attack: i32,
+) -> MinimumDamage {
+    if formula == DamageFormula::StandardSkill && !is_crit {
+        MinimumDamage::AttackTenth
+    } else {
+        MinimumDamage::Absolute((attack / 10).max(1))
+    }
+}
+
 fn direct_damage_trace(
     request: DamageRequest<'_>,
     runtime: DamageRuntime<'_>,
@@ -839,7 +852,6 @@ fn direct_damage_trace(
     } else {
         final_atk
     };
-    let minimum = (final_atk / 10).max(1);
     let defense_attr =
         if source.damage_type == crate::engine::skill::target::EntityDamageType::Mental {
             AttrId::MentalDef
@@ -1036,7 +1048,7 @@ fn direct_damage_trace(
         defense: target_defense,
         defense_multiplier,
         penetration,
-        minimum,
+        minimum: minimum_damage_for_direct_formula(formula, is_crit, final_atk),
         base_rate,
         added_rate,
         career,
@@ -1058,10 +1070,11 @@ fn direct_damage_trace(
         );
     }
     let damage_trace =
-        crate::engine::damage::pipeline::calculate_with_trace_for_version_and_remainder(
+        crate::engine::damage::pipeline::calculate_with_trace_for_formula_and_remainder(
             inputs,
             runtime.fight_version,
             critical_multiplier_remainder,
+            formula,
         );
     if crate::engine::damage::trace::enabled() {
         let local_damage_bonus = source_active_features

@@ -1,6 +1,161 @@
 use super::*;
 
 #[test]
+fn immediately_monster_promotes_only_the_marked_team_after_the_action() {
+    init_config();
+    let entity = |uid, team_type, position, hp, attack| FightEntityInfo {
+        uid: Some(uid),
+        team_type: Some(team_type),
+        current_hp: Some(hp),
+        position: Some(position),
+        attr: Some(HeroAttribute {
+            hp: Some(hp),
+            attack: Some(attack),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![entity(10, 1, 1, 100, 100), entity(12, 1, 2, 100, 1)],
+            sub_entitys: vec![entity(11, 1, -1, 100, 1)],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![entity(-1, 2, 1, 1, 1)],
+            sub_entitys: vec![entity(-2, 2, -1, 1_000, 1)],
+            ..Default::default()
+        }),
+        version: Some(7),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut determinism = RoundDeterminism::default();
+    let mut modifiers = crate::engine::skill::action::SkillModifiers::default();
+    let mut target = TargetContext::default();
+    let behavior = ParsedBehavior::new(40020, "ImmediatelyMonster", Vec::new());
+    let ops = crate::engine::skill::behavior::rule_ops(
+        crate::engine::skill::behavior::BehaviorOpContext {
+            source_uid: -1,
+            source_team: 2,
+            target_uid: -1,
+            active_skill_id: 116362012,
+            transfer_count: 1,
+            event: None,
+            managers: &managers,
+            pool: &pool,
+            determinism: &mut determinism,
+            modifiers: &mut modifiers,
+            target: &mut target,
+        },
+        &behavior,
+    )
+    .unwrap();
+    drain::run_command_group(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut determinism,
+        TargetContext::default(),
+        ops,
+    )
+    .unwrap();
+    managers.hp.lose(12, 100, -1);
+    managers
+        .execute_card(CardCommand::Setup(CardSetup {
+            hand: vec![
+                CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(100),
+                    ..Default::default()
+                },
+                CardInfo {
+                    uid: Some(10),
+                    skill_id: Some(200),
+                    ..Default::default()
+                },
+            ],
+            draw_pile: Vec::new(),
+            deck_num: 2,
+        }))
+        .unwrap();
+    let mut catalog = SkillEffectCatalog::default();
+    for skill_id in [100, 200] {
+        catalog.insert(ParsedSkillEffect {
+            skill_id,
+            slots: Vec::new(),
+        });
+        catalog.insert_logic_target(skill_id, 1);
+        catalog.insert_damage_rate(skill_id, 1_000);
+    }
+
+    let result = run_player_phase(
+        &fight,
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut determinism,
+        TargetContext::default(),
+        [
+            RoundCommand::PlayCard {
+                card_index: 0,
+                target_uid: Some(-1),
+                chosen_skill_id: None,
+                recorded_skill: None,
+            },
+            RoundCommand::PlayCard {
+                card_index: 0,
+                target_uid: Some(-1),
+                chosen_skill_id: None,
+                recorded_skill: None,
+            },
+        ],
+        Vec::new(),
+        1,
+        0,
+    )
+    .unwrap();
+
+    assert_eq!(managers.hp.current(-1), 0);
+    assert_eq!(
+        managers.entity.roster_lane(-2),
+        Some(crate::engine::manager::entity::RosterLane::Main)
+    );
+    assert_eq!(
+        managers.entity.roster_lane(11),
+        Some(crate::engine::manager::entity::RosterLane::Reserve)
+    );
+
+    fn collect(step: &sonettobuf::FightStep, order: &mut Vec<&'static str>) {
+        if step.act_id == Some(200) {
+            order.push("next action");
+        }
+        for effect in &step.act_effect {
+            match effect.effect_type {
+                Some(value) if value == sonettobuf::effect_type_enum::EffectType::Dead as i32 => {
+                    order.push("death");
+                }
+                Some(value)
+                    if value == sonettobuf::effect_type_enum::EffectType::Changehero as i32 =>
+                {
+                    order.push("promotion");
+                }
+                _ => {}
+            }
+            if let Some(child) = &effect.fight_step {
+                collect(child, order);
+            }
+        }
+    }
+    let mut order = Vec::new();
+    for step in crate::engine::packet::timeline::project(&result.frames).unwrap() {
+        collect(&step, &mut order);
+    }
+    assert_eq!(order, ["death", "promotion", "next action"]);
+}
+
+#[test]
 fn reserve_promotion_records_roster_change_and_removes_the_old_ai_cards() {
     init_config();
     let entity = |uid, hp, position| FightEntityInfo {
@@ -24,6 +179,7 @@ fn reserve_promotion_records_roster_change_and_removes_the_old_ai_cards() {
     let mut managers = BattleManagers::seeded(&fight);
     managers.hp.lose(-1, 100, 10);
     let promotions = managers.promote_reserves(&mut fight);
+    let pool = TargetPool::from_fight(&fight);
     managers
         .execute_card(CardCommand::SetAiQueue(
             crate::engine::manager::card::CardSetAiQueue {
@@ -41,7 +197,7 @@ fn reserve_promotion_records_roster_change_and_removes_the_old_ai_cards() {
         .unwrap();
 
     let result = run_promotions(
-        &fight,
+        &pool,
         &mut managers,
         &SkillEffectCatalog::default(),
         &mut RoundDeterminism::default(),
@@ -60,9 +216,18 @@ fn reserve_promotion_records_roster_change_and_removes_the_old_ai_cards() {
             .map(|effect| effect.effect_type.unwrap())
             .collect::<Vec<_>>(),
         vec![
-            sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32,
+            sonettobuf::effect_type_enum::EffectType::Fightstep as i32,
             sonettobuf::effect_type_enum::EffectType::Changehero as i32,
         ]
+    );
+    assert_eq!(
+        steps[0].act_effect[0]
+            .fight_step
+            .as_ref()
+            .unwrap()
+            .act_effect[0]
+            .effect_type,
+        Some(sonettobuf::effect_type_enum::EffectType::Removeentitycards as i32)
     );
     assert_eq!(
         steps[0].act_effect[1].entity.as_ref().unwrap().uid,
@@ -116,7 +281,7 @@ fn promoted_defender_joins_the_normal_round_start_once() {
     };
 
     run_promotions(
-        &fight,
+        &pool,
         &mut managers,
         &catalog,
         &mut determinism,

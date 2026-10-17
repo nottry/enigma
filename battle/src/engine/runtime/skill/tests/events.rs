@@ -310,6 +310,7 @@ fn hit_context_uses_the_explicit_skill_catalog_rank() {
         target_uid: -1,
         skill_id,
         amount: 1,
+        resolved_damage: 1,
         shield_absorbed: 0,
         career_restraint: true,
         damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,

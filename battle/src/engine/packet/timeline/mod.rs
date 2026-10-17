@@ -180,8 +180,15 @@ fn project_frame(
         FrameOwner::ConduitStopped {
             source_uid,
             device_index,
+            skill_position,
         } => Ok(Some(normalize_framed_step(
-            EffectPacket::conduit_fight_step(*source_uid, 0, *device_index, 1, effects),
+            EffectPacket::conduit_fight_step(
+                *source_uid,
+                0,
+                *device_index,
+                *skill_position,
+                effects,
+            ),
         ))),
         FrameOwner::BuffAct {
             owner_uid,
@@ -201,10 +208,12 @@ fn project_frame(
             EffectPacket::effect_fight_step_action(*source_uid, *target_uid, 0, effects),
         ))),
         FrameOwner::SetupBuffAct { .. } => Ok(StepPacket::effect(effects)),
-        FrameOwner::SetupMechanic => Ok(StepPacket::effect(effects).map(|mut step| {
-            step.fake_timeline = Some(true);
-            step
-        })),
+        FrameOwner::SetupMechanic | FrameOwner::LifecycleMechanic => {
+            Ok(StepPacket::effect(effects).map(|mut step| {
+                step.fake_timeline = Some(true);
+                step
+            }))
+        }
         FrameOwner::SetupSide(_)
         | FrameOwner::SetupEntity { .. }
         | FrameOwner::StageWave { .. }
@@ -498,16 +507,34 @@ fn project_change(
                         .and_then(|definition| definition.max_hp)
                     })
                     .flatten();
-                for _ in 0..wire.map_or(1, |rule| rule.repeats) {
+                let plan = wire.map_or(
+                    crate::engine::skill::buff_act::wire::MaxHpWirePlan {
+                        max_hp_repeats: 1,
+                        current_hp_repeats: 1,
+                        buff_act_id: 0,
+                    },
+                    |rule| {
+                        rule.plan(
+                            changes.source_uid,
+                            changes.target_uid,
+                            max_hp.before_current,
+                            max_hp.after_current,
+                            max_hp.delta,
+                        )
+                    },
+                );
+                for index in 0..plan.max_hp_repeats {
                     effects.push(EffectPacket::max_hp_change(
                         max_hp.target_uid,
                         max_hp.after_max,
-                        wire.map_or(0, |rule| rule.buff_act_id),
+                        plan.buff_act_id,
                     ));
-                    effects.push(EffectPacket::current_hp_change(
-                        max_hp.target_uid,
-                        max_hp.after_current,
-                    ));
+                    if index < plan.current_hp_repeats {
+                        effects.push(EffectPacket::current_hp_change(
+                            max_hp.target_uid,
+                            max_hp.after_current,
+                        ));
+                    }
                 }
             }
             if let Some(death) = changes.death {
@@ -572,6 +599,10 @@ fn project_change(
         {
             vec![EffectPacket::ex_point(*change)]
         }
+        BattleChange::ExPoint(ExPointChanges::Resisted {
+            target_uid,
+            resistance_id,
+        }) => vec![EffectPacket::ex_point_resisted(*target_uid, *resistance_id)],
         BattleChange::ExPoint(ExPointChanges::Max { change, .. }) if change.applied_delta != 0 => {
             vec![EffectPacket::ex_point_max(*change)]
         }
@@ -679,6 +710,9 @@ fn project_change(
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::Initialized(
             area,
         )) => vec![EffectPacket::conduit_initialized(area)],
+        BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::RosterRefreshed(
+            area,
+        )) => vec![EffectPacket::conduit_initialized(area)],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::GroupSelected {
             source_uid,
             team,
@@ -778,15 +812,10 @@ fn project_change(
             *after,
         )],
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersCleared {
-            origin,
-            source_uid,
             team,
+            spent_by_power,
             ..
-        }) => vec![EffectPacket::conduit_powers_cleared(
-            *source_uid,
-            *team,
-            origin.key.opcode,
-        )],
+        }) => EffectPacket::conduit_powers_consumed(*team, spent_by_power),
         BattleChange::Conduit(crate::engine::manager::conduit::ConduitChange::PowersReset {
             team,
         }) => vec![EffectPacket::conduit_powers_reset(*team)],
@@ -837,6 +866,19 @@ fn project_change(
             .map(|removal| EffectPacket::remove_entity_cards(removal.owner_uid, removal.team_type))
             .into_iter()
             .collect(),
+        BattleChange::Card(changes) if changes.kind == CardChangeKind::AiCardsInvalidated => {
+            changes
+                .ai_invalidations
+                .iter()
+                .map(|invalidated| {
+                    CardPacket::card_invalid(
+                        invalidated.card_index,
+                        invalidated.team_type,
+                        invalidated.config_effect,
+                    )
+                })
+                .collect()
+        }
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Moved => Vec::new(),
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Dissolved => changes
             .operation
@@ -1105,6 +1147,9 @@ fn project_change(
         BattleChange::Card(changes) if changes.kind == CardChangeKind::TemporaryExpired => {
             Vec::new()
         }
+        BattleChange::Card(changes) if changes.kind == CardChangeKind::TemporaryPersisted => {
+            Vec::new()
+        }
         BattleChange::Card(changes) if changes.kind == CardChangeKind::Drawn => {
             vec![CardPacket::cards_push(changes.after.clone(), 1)]
         }
@@ -1245,6 +1290,9 @@ fn project_change(
                 )]
             }
         },
+        BattleChange::ToughnessReset(change) => {
+            vec![EffectPacket::toughness_reset(*change)]
+        }
         BattleChange::ToughnessRecovered(change) => {
             vec![EffectPacket::toughness_recover(*change)]
         }

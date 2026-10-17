@@ -33,6 +33,7 @@ impl EffectPacket {
                 && refreshed.before.layer.unwrap_or_default() > 0
             {
                 effects.push(Self::buff_update(&BuffUpdateResult {
+                    source_uid: refreshed.source_uid,
                     target_uid: refreshed.target_uid,
                     before: refreshed.before.clone(),
                     after: refreshed.before.clone(),
@@ -147,6 +148,7 @@ impl EffectPacket {
                 let mut echoed = refreshed.before.clone();
                 echoed.duration = refreshed.after.duration;
                 effects.push(Self::buff_update(&BuffUpdateResult {
+                    source_uid: refreshed.source_uid,
                     target_uid: refreshed.target_uid,
                     before: echoed.clone(),
                     after: echoed,
@@ -265,7 +267,11 @@ impl EffectPacket {
         }
         ActEffect {
             target_id: Some(change.target_uid),
-            effect_type: Some(EffectType::Buffdel as i32),
+            effect_type: Some(if change.effective {
+                EffectType::Buffdel as i32
+            } else {
+                EffectType::Buffdelnoeffect as i32
+            }),
             effect_num: Some(0),
             config_effect: Some(change.config_effect),
             buff_act_id: Some(0),

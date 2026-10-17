@@ -88,8 +88,10 @@ pub mod forbid;
 pub mod frozen;
 pub mod heat_scale_tag;
 pub mod heat_scale_use_skill;
+pub mod hurt_to_progress;
 pub mod injury_bank;
 pub mod life_attack_fix_rate;
+pub mod lock_hp;
 pub mod lost_hp_add_extra_blood_pool_value;
 pub mod lost_hp_count_add_buff;
 pub mod lost_hp_to_fake_hp;
@@ -320,13 +322,31 @@ fn attribute_transaction_rule_ops(
     kind: registry::BuffActKind,
     rule_op: fn(&BattleManagers, &ActiveBuffFeature, i32) -> Option<RuleOp>,
 ) -> Vec<(ActiveBuffFeature, RuleOp)> {
+    attribute_transaction_rule_ops_with_refresh_marker_ownership(
+        managers, event, kind, rule_op, false,
+    )
+}
+
+fn attribute_transaction_rule_ops_with_refresh_marker_ownership(
+    managers: &BattleManagers,
+    event: &BattleEvent,
+    kind: registry::BuffActKind,
+    rule_op: fn(&BattleManagers, &ActiveBuffFeature, i32) -> Option<RuleOp>,
+    owns_refresh_markers: bool,
+) -> Vec<(ActiveBuffFeature, RuleOp)> {
     changed_features(managers, event, kind)
         .into_iter()
         .flat_map(|(feature, amount_delta)| {
-            let Some(op) = rule_op(managers, &feature, amount_delta) else {
+            let op = rule_op(managers, &feature, amount_delta);
+            let owns_marker = op.is_some()
+                || (owns_refresh_markers && matches!(event, BattleEvent::BuffChanged(_)));
+            if !owns_marker {
                 return Vec::new();
-            };
-            let mut ops = vec![(feature.clone(), op)];
+            }
+            let mut ops = op
+                .into_iter()
+                .map(|op| (feature.clone(), op))
+                .collect::<Vec<_>>();
             if !matches!(event, BattleEvent::BuffRemoved(_))
                 && let Some(wire) =
                     wire::find(feature.act_id().unwrap_or_default(), &feature.act_type)

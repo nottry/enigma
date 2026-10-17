@@ -436,6 +436,7 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
     };
 
     let update = [EffectPacket::buff_update(&BuffUpdateResult {
+        source_uid: 0,
         target_uid: 10,
         before,
         after: after.clone(),
@@ -444,6 +445,7 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
         target_uid: 10,
         before_amount: 1,
         buff: after,
+        effective: true,
         config_effect: 0,
         delete_reason: None,
         depleted: false,
@@ -464,12 +466,28 @@ fn buff_update_and_delete_use_snapshot_without_scalar_buff_id() {
             duration: Some(1),
             ..Default::default()
         },
+        effective: true,
         config_effect: 0,
         delete_reason: None,
         depleted: true,
         fixed_max_hp_delta: 0,
     });
     assert_eq!(depleted.buff.unwrap().duration, Some(1));
+
+    let inactive = EffectPacket::buff_delete(&BuffRemoveResult {
+        target_uid: 10,
+        before_amount: 1,
+        buff: BuffInfo::default(),
+        effective: false,
+        config_effect: 0,
+        delete_reason: None,
+        depleted: false,
+        fixed_max_hp_delta: 0,
+    });
+    assert_eq!(
+        inactive.effect_type,
+        Some(EffectType::Buffdelnoeffect as i32)
+    );
 }
 
 #[test]
@@ -489,6 +507,7 @@ fn duration_only_refresh_does_not_emit_an_attribute_marker() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,
@@ -507,7 +526,7 @@ fn duration_only_refresh_does_not_emit_an_attribute_marker() {
 }
 
 #[test]
-fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
+fn capped_timed_layer_refresh_keeps_command_marker_without_transaction_event() {
     use crate::engine::{
         manager::{
             buff::{BuffCommand, BuffConsume, BuffGrant, BuffManager, BuffSelector, DepletedBuff},
@@ -561,6 +580,10 @@ fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
 
     let effects = EffectPacket::recorded_buff_changes(&changes);
 
+    assert!(!changes.events().iter().any(|event| matches!(
+        event,
+        crate::engine::event::payload::BattleEvent::BuffChanged(_)
+    )));
     assert_eq!(
         effects
             .iter()
@@ -593,6 +616,10 @@ fn capped_timed_layer_refresh_echoes_fresh_duration_and_attribute_marker() {
             }),
         )
         .unwrap();
+    assert!(!unchanged.events().iter().any(|event| matches!(
+        event,
+        crate::engine::event::payload::BattleEvent::BuffChanged(_)
+    )));
     assert_eq!(
         EffectPacket::recorded_buff_changes(&unchanged)
             .iter()
@@ -669,6 +696,7 @@ fn stack_consumption_does_not_emit_an_attribute_marker() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,
@@ -704,6 +732,7 @@ fn stack_refresh_emits_configured_refresh_markers() {
         removed: Vec::new(),
         added: None,
         refreshed: vec![BuffUpdateResult {
+            source_uid: 0,
             target_uid: 10,
             before,
             after,

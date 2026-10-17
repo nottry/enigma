@@ -242,7 +242,7 @@ impl ActiveBattle {
         self.runtime.current_round()
     }
 
-    pub fn star(&self) -> i32 {
+    pub fn star(&self) -> Result<i32, AppError> {
         crate::dungeon::battle_star(&self.runtime, self.battle_id)
     }
 

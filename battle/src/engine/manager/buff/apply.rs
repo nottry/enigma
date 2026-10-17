@@ -282,6 +282,7 @@ impl BuffManager {
             }
             GrantAction::RefreshCount => {
                 result.refreshed = self.refresh_typed_count_using_uids(
+                    route.source_uid,
                     route.target_uid,
                     route.buff_id,
                     definition,
@@ -291,9 +292,12 @@ impl BuffManager {
             }
             GrantAction::RefreshLayer => {
                 result.refreshed = match layer_refresh {
-                    Some(plan) => {
-                        self.commit_layer_refresh(route.target_uid, plan, layer_refresh_uid)
-                    }
+                    Some(plan) => self.commit_layer_refresh(
+                        route.source_uid,
+                        route.target_uid,
+                        plan,
+                        layer_refresh_uid,
+                    ),
                     None => self.refresh_stack_layer(
                         route.source_uid,
                         route.target_uid,
@@ -334,6 +338,7 @@ impl BuffManager {
                 });
                 if result.added.is_some() && repeat > 1 {
                     result.refreshed = self.refresh_typed_count_using_uids(
+                        route.source_uid,
                         route.target_uid,
                         route.buff_id,
                         definition,
@@ -364,6 +369,7 @@ impl BuffManager {
                 .max(definition.duration),
         );
         Some(BuffUpdateResult {
+            source_uid: route.source_uid,
             target_uid: route.target_uid,
             before,
             after: active.buff.clone(),
@@ -395,6 +401,7 @@ impl BuffManager {
                 .saturating_add(definition.duration),
         );
         Some(BuffUpdateResult {
+            source_uid: route.source_uid,
             target_uid: route.target_uid,
             before,
             after: active.buff.clone(),
@@ -551,6 +558,7 @@ impl BuffManager {
 
     fn refresh_typed_count_using_uids(
         &mut self,
+        source_uid: i64,
         target_uid: i64,
         buff_id: i32,
         definition: &BuffDefinition,
@@ -577,6 +585,7 @@ impl BuffManager {
             active.buff.duration =
                 Some(before.duration.unwrap_or_default().max(definition.duration));
             updates.push(BuffUpdateResult {
+                source_uid,
                 target_uid,
                 before,
                 after: active.buff.clone(),
@@ -611,11 +620,12 @@ impl BuffManager {
             );
             uid_policy::commit(self, target_uid, planned)
         });
-        self.commit_layer_refresh(target_uid, plan, promoted_uid)
+        self.commit_layer_refresh(source_uid, target_uid, plan, promoted_uid)
     }
 
     fn commit_layer_refresh(
         &mut self,
+        source_uid: i64,
         target_uid: i64,
         plan: LayerRefreshPlan,
         promoted_uid: Option<i64>,
@@ -627,6 +637,7 @@ impl BuffManager {
                     active.owner_uid == target_uid && active.buff.uid == Some(buff_uid)
                 })?;
                 return Some(BuffUpdateResult {
+                    source_uid,
                     target_uid,
                     before: active.buff.clone(),
                     after: active.buff.clone(),
@@ -663,6 +674,7 @@ impl BuffManager {
         active.buff.layer = Some(next_layer);
         active.buff.duration = Some(next_duration);
         let result = BuffUpdateResult {
+            source_uid,
             target_uid,
             before,
             after: active.buff.clone(),

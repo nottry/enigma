@@ -25,6 +25,12 @@ pub enum BuffAddedScope {
     Team,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConduitActivationScope {
+    Owner,
+    Team,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedConditionKind {
     Any(Vec<Vec<ParsedCondition>>),
@@ -67,6 +73,10 @@ pub enum ParsedConditionKind {
         type_ids: Vec<i32>,
         threshold: i32,
     },
+    AllTargetBuffTypeCount {
+        type_ids: Vec<i32>,
+        threshold: i32,
+    },
     BuffGroup(Vec<i32>),
     PerBuffGroupCount {
         group_id: i32,
@@ -95,6 +105,16 @@ pub enum ParsedConditionKind {
         max: i32,
     },
     BuffStatusCount {
+        status_ids: Vec<i32>,
+        compare: ConditionCompare,
+        threshold: i32,
+    },
+    VisibleBuffStatusTypeCount {
+        status_ids: Vec<i32>,
+        compare: ConditionCompare,
+        threshold: i32,
+    },
+    VisibleStackedStatusTypeCount {
         status_ids: Vec<i32>,
         compare: ConditionCompare,
         threshold: i32,
@@ -201,6 +221,7 @@ pub enum ParsedConditionKind {
     },
     PerConduitCurrentCost {
         threshold: i32,
+        scope: ConduitActivationScope,
     },
     PerConduitCounter {
         kind: crate::engine::manager::conduit::ConduitCounterKind,
@@ -254,6 +275,11 @@ pub enum ParsedConditionKind {
     PerTargetCareerCount {
         careers: Vec<i32>,
         threshold: i32,
+    },
+    PerTeamCareerCount {
+        career: i32,
+        divisor: i32,
+        opposing_team: bool,
     },
     TeamCareerCount {
         careers: Vec<i32>,
@@ -654,6 +680,24 @@ fn negate_kind(kind: ParsedConditionKind) -> ParsedConditionKind {
             compare,
             threshold,
         } => ParsedConditionKind::BuffStatusCount {
+            status_ids,
+            compare: negate_compare(compare),
+            threshold,
+        },
+        ParsedConditionKind::VisibleBuffStatusTypeCount {
+            status_ids,
+            compare,
+            threshold,
+        } => ParsedConditionKind::VisibleBuffStatusTypeCount {
+            status_ids,
+            compare: negate_compare(compare),
+            threshold,
+        },
+        ParsedConditionKind::VisibleStackedStatusTypeCount {
+            status_ids,
+            compare,
+            threshold,
+        } => ParsedConditionKind::VisibleStackedStatusTypeCount {
             status_ids,
             compare: negate_compare(compare),
             threshold,

@@ -47,6 +47,7 @@ pub enum BattleChange {
     RaspberryCapacity(Box<crate::engine::skill::buff_act::raspberry::CapacityResult>),
     Summon(SummonChanges),
     Upgrade(UpgradeChange),
+    ToughnessReset(crate::engine::manager::toughness::ToughnessReset),
     ToughnessRecovered(crate::engine::manager::toughness::ToughnessRecovery),
     UpgradeApplied(Box<crate::engine::manager::upgrade::UpgradeApplied>),
     EntityPromotion(Box<crate::engine::fight::reserve::Promotion>),

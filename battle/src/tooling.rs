@@ -15,7 +15,8 @@ pub mod replay {
         runtime::{
             BattleRuntime as ReplayBattle,
             determinism::{
-                CrystalReuseChoice, HandRankChoice, RoundDeterminism, SkillTargetChoice,
+                CrystalReuseChoice, HandRankChoice, MoxieReductionResistanceChoice,
+                RoundDeterminism, SkillTargetChoice,
             },
         },
     };
@@ -115,6 +116,10 @@ pub fn start_reply(runtime: &replay::ReplayBattle) -> sonettobuf::StartDungeonRe
 
 pub fn opening_hand_size(fight: &sonettobuf::Fight) -> usize {
     crate::engine::manager::card::hand_size(fight)
+}
+
+pub fn moxie_down_resistance_attribute_id() -> i32 {
+    crate::engine::entity::attr::AttrId::MoxieDownResistance.id()
 }
 
 pub fn ultimate_ignores_limit(

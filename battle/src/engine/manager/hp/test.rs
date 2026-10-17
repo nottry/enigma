@@ -118,6 +118,7 @@ fn damage_command_commits_shield_hp_crit_and_death_once() {
                 target_uid: 10,
                 skill_id: 0,
                 amount: 50,
+                resolved_damage: 80,
                 shield_absorbed: 20,
                 career_restraint: true,
                 damage_from: HurtDamageFromType::Skill,
@@ -189,6 +190,7 @@ fn shield_only_damage_is_a_hit_but_not_hp_loss() {
             target_uid: 10,
             skill_id: 123,
             amount: 0,
+            resolved_damage: 10,
             shield_absorbed: 10,
             career_restraint: false,
             damage_from: HurtDamageFromType::Skill,
@@ -430,6 +432,37 @@ fn max_hp_adjustment_mutates_current_and_max_without_hp_loss() {
         })
     );
     assert!(changes.events().is_empty());
+}
+
+#[test]
+fn max_hp_reduction_only_clamps_current_above_the_new_maximum() {
+    for (current, expected_current) in [(50, 50), (90, 80)] {
+        let mut hp = HpManager::default();
+        hp.states.insert(
+            10,
+            HpState {
+                current,
+                max: 100,
+                base_max: 100,
+            },
+        );
+
+        let changes = hp
+            .execute_command(HpCommand::AdjustMax(MaxHpAdjust {
+                origin: CommandOrigin {
+                    domain: RuleDomain::BuffAct,
+                    key: DefinitionKey::new(100, "Attr"),
+                },
+                source_uid: 10,
+                target_uid: 10,
+                delta: -20,
+            }))
+            .unwrap();
+
+        assert_eq!(changes.max_hp.unwrap().after_current, expected_current);
+        assert_eq!(hp.current(10), expected_current);
+        assert_eq!(hp.max(10), 80);
+    }
 }
 
 #[test]

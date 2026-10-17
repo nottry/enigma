@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sonettobuf::Fight;
 
 use crate::engine::fight::rules::{AdditionRuleType, OwnedBattleSkill};
@@ -9,10 +11,16 @@ pub struct MaxRoundCommand {
     pub config_effect: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImmediateReservePromotionCommand {
+    pub team_type: i32,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct BattleRuleManager {
     owned_skills: Vec<(i64, i32)>,
     max_round: Option<i32>,
+    immediate_reserve_promotion_teams: HashSet<i32>,
 }
 
 impl BattleRuleManager {
@@ -38,6 +46,7 @@ impl BattleRuleManager {
         Self {
             owned_skills,
             max_round: catalog.battle_max_round(fight.battle_id.unwrap_or_default()),
+            immediate_reserve_promotion_teams: HashSet::new(),
         }
     }
 
@@ -56,6 +65,18 @@ impl BattleRuleManager {
 
     pub fn max_round(&self) -> Option<i32> {
         self.max_round
+    }
+
+    pub fn enable_immediate_reserve_promotion(
+        &mut self,
+        command: ImmediateReservePromotionCommand,
+    ) {
+        self.immediate_reserve_promotion_teams
+            .insert(command.team_type);
+    }
+
+    pub fn promotes_reserves_immediately(&self, team_type: i32) -> bool {
+        self.immediate_reserve_promotion_teams.contains(&team_type)
     }
 
     pub fn add_max_round(

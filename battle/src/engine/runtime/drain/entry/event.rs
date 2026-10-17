@@ -274,6 +274,29 @@ pub fn run_grouped_owner_event(
     owner_uids: &[i64],
     lane: ReactionLane,
 ) -> Result<DrainResult, DrainError> {
+    run_grouped_owner_event_lanes(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        event,
+        owner_uids,
+        &[lane],
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_grouped_owner_event_lanes(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    event: BattleEvent,
+    owner_uids: &[i64],
+    lanes: &[ReactionLane],
+) -> Result<DrainResult, DrainError> {
     managers.buff.begin_transaction();
     let result = (|| {
         let mut result = DrainResult::default();
@@ -282,49 +305,51 @@ pub fn run_grouped_owner_event(
             FrameOwner::Command,
             FrameTrigger::Active,
         );
-        for owner_uid in owner_uids {
-            let scope = match lane {
-                ReactionLane::Skills => push_child(
-                    &mut result.frames,
-                    &root,
-                    FrameOwner::EventRule,
-                    FrameTrigger::Event(event.clone()),
-                ),
-                _ => root.clone(),
-            };
-            let current_pool = subscriber_view(pool, managers, &event);
-            let mut reactions = dispatch_reactions(
-                &current_pool,
-                managers,
-                catalog,
-                determinism,
-                &event,
-                Some(&scope),
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(lane),
-                Some(std::slice::from_ref(owner_uid)),
-                context.current_round > 0,
-                None,
-                None,
-            )?;
-            reactions.assign_subscriber_death_groups(None);
-            let mut queue = reactions.into_ordered().into();
-            let next = drain_queue_with_frames(
-                managers,
-                pool,
-                catalog,
-                determinism,
-                context,
-                &mut queue,
-                std::mem::take(&mut result.frames),
-            )?;
-            result.outcomes.extend(next.outcomes);
-            result.events.extend(next.events);
-            result.frames = next.frames;
+        for &lane in lanes {
+            for owner_uid in owner_uids {
+                let scope = match lane {
+                    ReactionLane::Skills => push_child(
+                        &mut result.frames,
+                        &root,
+                        FrameOwner::EventRule,
+                        FrameTrigger::Event(event.clone()),
+                    ),
+                    _ => root.clone(),
+                };
+                let current_pool = subscriber_view(pool, managers, &event);
+                let mut reactions = dispatch_reactions(
+                    &current_pool,
+                    managers,
+                    catalog,
+                    determinism,
+                    &event,
+                    Some(&scope),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(lane),
+                    Some(std::slice::from_ref(owner_uid)),
+                    context.current_round > 0,
+                    None,
+                    None,
+                )?;
+                reactions.assign_subscriber_death_groups(None);
+                let mut queue = reactions.into_ordered().into();
+                let next = drain_queue_with_frames(
+                    managers,
+                    pool,
+                    catalog,
+                    determinism,
+                    context,
+                    &mut queue,
+                    std::mem::take(&mut result.frames),
+                )?;
+                result.outcomes.extend(next.outcomes);
+                result.events.extend(next.events);
+                result.frames = next.frames;
+            }
         }
         result.events.insert(0, event);
         Ok(result)

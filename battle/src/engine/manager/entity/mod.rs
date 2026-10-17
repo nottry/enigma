@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use sonettobuf::{Fight, FightEntityInfo, HeroAttribute};
 
 use crate::engine::{
+    entity::passive::{Passive, PassiveSourceKind},
     event::payload::BattleEvent,
     fight::defender::Defender,
     manager::hp::HpManager,
@@ -27,6 +28,18 @@ pub enum EntityOperation {
     SummonSpecial { model_id: i32 },
     Transform { model_id: i32, parameters: [i32; 2] },
     ChangeCareer { career: i32 },
+}
+
+impl EntityOperation {
+    pub(crate) fn resets_state(self) -> bool {
+        matches!(
+            self,
+            Self::Transform {
+                parameters: [_, 1],
+                ..
+            }
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,26 +97,33 @@ pub struct EntityManager {
     teams: HashMap<i64, i32>,
     identities: HashMap<i64, FightEntityInfo>,
     roster_lanes: HashMap<i64, RosterLane>,
+    reserve_order: HashMap<i32, Vec<i64>>,
     order: Vec<i64>,
     identity_order: Vec<i64>,
     replacements: HashMap<i64, FightEntityInfo>,
+    passive_sources: HashMap<i64, HashMap<i32, PassiveSourceKind>>,
     ultimate_kinds: HashMap<i64, ExtraSkillKind>,
     next_special_uid: i64,
 }
 
 impl EntityManager {
     pub(crate) fn configured(catalog: crate::catalog::BattleCatalog, fight: &Fight) -> Self {
-        Self::from_fight(fight, catalog.defender_reservation_count(fight))
+        Self::from_fight(
+            catalog.game_data(),
+            fight,
+            catalog.defender_reservation_count(fight),
+        )
     }
 
     pub fn seed_with_game_data(game_data: &config::GameDB, fight: &Fight) -> Self {
         Self::from_fight(
+            game_data,
             fight,
             crate::catalog::configured_defender_reservation_count(game_data, fight),
         )
     }
 
-    fn from_fight(fight: &Fight, reserved_index: usize) -> Self {
+    fn from_fight(game_data: &config::GameDB, fight: &Fight, reserved_index: usize) -> Self {
         let entities = fight
             .attacker
             .iter()
@@ -146,6 +166,13 @@ impl EntityManager {
             .iter()
             .filter_map(|(_, _, entity)| Some((entity.uid?, entity.clone())))
             .collect();
+        let passive_sources = entities
+            .iter()
+            .filter_map(|(_, _, entity)| {
+                let sources = psychube_passive_sources(game_data, entity);
+                (!sources.is_empty()).then_some((entity.uid?, sources))
+            })
+            .collect();
         let roster_lanes = entities
             .iter()
             .filter_map(|(_, lane, entity)| Some((entity.uid?, *lane)))
@@ -154,6 +181,17 @@ impl EntityManager {
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
             .collect::<Vec<_>>();
+        let mut reserve_order = HashMap::<i32, Vec<i64>>::new();
+        for (side, lane, entity) in &entities {
+            if *lane == RosterLane::Reserve
+                && let Some(uid) = entity.uid
+            {
+                reserve_order
+                    .entry(entity.team_type.unwrap_or(*side))
+                    .or_default()
+                    .push(uid);
+            }
+        }
         let largest_existing_index = entities
             .iter()
             .filter_map(|(_, _, entity)| entity.uid)
@@ -165,9 +203,11 @@ impl EntityManager {
             teams,
             identities,
             roster_lanes,
+            reserve_order,
             identity_order: order.clone(),
             order,
             replacements: HashMap::new(),
+            passive_sources,
             ultimate_kinds: HashMap::new(),
             next_special_uid: -(largest_existing_index.max(reserved_index) as i64 + 1),
         }
@@ -308,7 +348,9 @@ impl EntityManager {
                 entity.ex_point = current.ex_point;
                 entity.expoint_max_add = current.expoint_max_add;
                 entity.shield_value = current.shield_value;
-                entity.buffs = current.buffs.clone();
+                if !command.operation.resets_state() {
+                    entity.buffs = current.buffs.clone();
+                }
                 entity.power_infos = current.power_infos.clone();
                 self.identities.insert(command.target_uid, entity.clone());
                 self.replacements.insert(command.target_uid, entity.clone());
@@ -341,11 +383,18 @@ impl EntityManager {
 
     pub(crate) fn update(&mut self, entity: FightEntityInfo) {
         let Some(uid) = entity.uid else { return };
+        if let Some(sources) = self.passive_sources.get_mut(&uid) {
+            sources.retain(|skill_id, _| entity.passive_skill.contains(skill_id));
+        }
         self.identities.insert(uid, entity.clone());
         self.replacements.insert(uid, entity);
     }
 
-    pub(crate) fn register(&mut self, entity: &FightEntityInfo) {
+    pub(crate) fn register(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        entity: &FightEntityInfo,
+    ) {
         let lane = entity
             .uid
             .and_then(|uid| self.roster_lanes.get(&uid).copied())
@@ -354,19 +403,31 @@ impl EntityManager {
             } else {
                 RosterLane::Main
             });
-        self.register_in_lane(entity, lane);
+        self.register_in_lane(catalog, entity, lane);
     }
 
-    pub(crate) fn register_in_lane(&mut self, entity: &FightEntityInfo, lane: RosterLane) {
+    pub(crate) fn register_in_lane(
+        &mut self,
+        catalog: crate::catalog::BattleCatalog,
+        entity: &FightEntityInfo,
+        lane: RosterLane,
+    ) {
         let (Some(uid), Some(team_type)) = (entity.uid, entity.team_type) else {
             return;
         };
         self.teams.insert(uid, team_type);
         self.roster_lanes.insert(uid, lane);
+        if lane == RosterLane::Reserve {
+            let reserves = self.reserve_order.entry(team_type).or_default();
+            if !reserves.contains(&uid) {
+                reserves.push(uid);
+            }
+        }
         if !self.identities.contains_key(&uid) {
             self.order.push(uid);
             self.identity_order.push(uid);
         }
+        self.refresh_passive_sources(catalog.game_data(), entity);
         self.identities.insert(uid, entity.clone());
     }
 
@@ -374,51 +435,88 @@ impl EntityManager {
         &mut self,
         hp: &HpManager,
     ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        self.promote_reserves_matching(hp, |_| true)
+    }
+
+    pub(crate) fn promote_immediate_reserves(
+        &mut self,
+        hp: &HpManager,
+        promotes_immediately: impl Fn(i32) -> bool,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        self.promote_reserves_matching(hp, promotes_immediately)
+    }
+
+    fn promote_reserves_matching(
+        &mut self,
+        hp: &HpManager,
+        promotes: impl Fn(i32) -> bool,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
         let mut promotions = Vec::new();
-        for team_type in [1, 2] {
-            let mains = self.roster_uids(team_type, RosterLane::Main);
-            let mut reserves = self
-                .roster_uids(team_type, RosterLane::Reserve)
-                .into_iter()
-                .filter(|uid| hp.current(*uid) > 0)
-                .collect::<Vec<_>>();
-            for defeated_uid in mains {
-                if hp.current(defeated_uid) > 0 || reserves.is_empty() {
-                    continue;
-                }
-                let entering_uid = reserves.remove(0);
-                let Some(mut defeated) = self.identities.get(&defeated_uid).cloned() else {
-                    continue;
-                };
-                let Some(mut entering) = self.identities.get(&entering_uid).cloned() else {
-                    continue;
-                };
-                std::mem::swap(&mut defeated.position, &mut entering.position);
-                let main_position = entering.position;
-                if let (Some(defeated_index), Some(entering_index)) = (
-                    self.order.iter().position(|uid| *uid == defeated_uid),
-                    self.order.iter().position(|uid| *uid == entering_uid),
-                ) {
-                    self.order.swap(defeated_index, entering_index);
-                }
-                self.identities.insert(defeated_uid, defeated.clone());
-                self.identities.insert(entering_uid, entering.clone());
-                self.roster_lanes.insert(defeated_uid, RosterLane::Reserve);
-                self.roster_lanes.insert(entering_uid, RosterLane::Main);
-                promotions.push(crate::engine::fight::reserve::Promotion {
-                    defeated_uid,
-                    entering_uid,
-                    position: main_position.unwrap_or_default(),
-                    team_type,
-                    entering,
-                });
+        for (defeated_uid, entering_uid, team_type) in self
+            .pending_reserve_promotions(hp)
+            .into_iter()
+            .filter(|(_, _, team_type)| promotes(*team_type))
+        {
+            let Some(mut defeated) = self.identities.get(&defeated_uid).cloned() else {
+                continue;
+            };
+            let Some(mut entering) = self.identities.get(&entering_uid).cloned() else {
+                continue;
+            };
+            std::mem::swap(&mut defeated.position, &mut entering.position);
+            let main_position = entering.position;
+            if let (Some(defeated_index), Some(entering_index)) = (
+                self.order.iter().position(|uid| *uid == defeated_uid),
+                self.order.iter().position(|uid| *uid == entering_uid),
+            ) {
+                self.order.swap(defeated_index, entering_index);
             }
+            let reserves = self.reserve_order.entry(team_type).or_default();
+            reserves.retain(|uid| *uid != entering_uid && *uid != defeated_uid);
+            reserves.push(defeated_uid);
+            self.identities.insert(defeated_uid, defeated.clone());
+            self.identities.insert(entering_uid, entering.clone());
+            self.roster_lanes.insert(defeated_uid, RosterLane::Reserve);
+            self.roster_lanes.insert(entering_uid, RosterLane::Main);
+            promotions.push(crate::engine::fight::reserve::Promotion {
+                defeated_uid,
+                entering_uid,
+                position: main_position.unwrap_or_default(),
+                team_type,
+                entering,
+            });
         }
         promotions
     }
 
+    pub(crate) fn has_pending_reserve_promotion(&self, uid: i64, hp: &HpManager) -> bool {
+        self.pending_reserve_promotions(hp)
+            .iter()
+            .any(|(defeated_uid, _, _)| *defeated_uid == uid)
+    }
+
+    fn pending_reserve_promotions(&self, hp: &HpManager) -> Vec<(i64, i64, i32)> {
+        [1, 2]
+            .into_iter()
+            .flat_map(|team_type| {
+                self.roster_uids(team_type, RosterLane::Main)
+                    .into_iter()
+                    .filter(|uid| hp.current(*uid) <= 0)
+                    .zip(
+                        self.roster_uids(team_type, RosterLane::Reserve)
+                            .into_iter()
+                            .filter(|uid| hp.current(*uid) > 0),
+                    )
+                    .map(move |(defeated_uid, entering_uid)| {
+                        (defeated_uid, entering_uid, team_type)
+                    })
+            })
+            .collect()
+    }
+
     pub(crate) fn replace_team_roster(
         &mut self,
+        catalog: crate::catalog::BattleCatalog,
         team_type: i32,
         mains: &[FightEntityInfo],
         reserves: &[FightEntityInfo],
@@ -438,15 +536,26 @@ impl EntityManager {
         {
             self.roster_lanes.insert(uid, RosterLane::Inactive);
         }
+        self.reserve_order.insert(team_type, Vec::new());
         for entity in mains {
-            self.register_in_lane(entity, RosterLane::Main);
+            self.register_in_lane(catalog, entity, RosterLane::Main);
         }
         for entity in reserves {
-            self.register_in_lane(entity, RosterLane::Reserve);
+            self.register_in_lane(catalog, entity, RosterLane::Reserve);
         }
     }
 
     fn roster_uids(&self, team_type: i32, lane: RosterLane) -> Vec<i64> {
+        if lane == RosterLane::Reserve {
+            return self
+                .reserve_order
+                .get(&team_type)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|uid| self.roster_lanes.get(uid) == Some(&lane))
+                .collect();
+        }
         self.order
             .iter()
             .copied()
@@ -494,6 +603,21 @@ impl EntityManager {
             .get(&uid)
             .or_else(|| self.identities.get(&uid))
             .map(|entity| entity.passive_skill.as_slice())
+    }
+
+    pub(crate) fn passive_source(&self, uid: i64, skill_id: i32) -> PassiveSourceKind {
+        self.passive_sources
+            .get(&uid)
+            .and_then(|sources| sources.get(&skill_id))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    fn refresh_passive_sources(&mut self, game_data: &config::GameDB, entity: &FightEntityInfo) {
+        let Some(uid) = entity.uid else { return };
+        let sources = self.passive_sources.entry(uid).or_default();
+        sources.retain(|skill_id, _| entity.passive_skill.contains(skill_id));
+        sources.extend(psychube_passive_sources(game_data, entity));
     }
 
     pub(crate) fn passive_overrides(&self) -> impl Iterator<Item = (i64, &[i32])> {
@@ -656,6 +780,21 @@ impl EntityManager {
             })
             .collect()
     }
+}
+
+fn psychube_passive_sources(
+    game_data: &config::GameDB,
+    entity: &FightEntityInfo,
+) -> HashMap<i32, PassiveSourceKind> {
+    entity
+        .equips
+        .iter()
+        .chain(entity.trial_equip.iter())
+        .filter_map(|equip| Some((equip.equip_id?, equip.refine_lv.map(|level| level.max(1)))))
+        .flat_map(|(equip_id, refine_lv)| Passive::psychube_from(game_data, equip_id, refine_lv))
+        .filter(|passive| entity.passive_skill.contains(&passive.skill_id))
+        .map(|passive| (passive.skill_id, passive.source.kind))
+        .collect()
 }
 
 fn replace_intrinsic_passives(

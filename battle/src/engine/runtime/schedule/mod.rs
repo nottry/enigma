@@ -8,8 +8,9 @@ use crate::engine::{
         buff::{BuffCommand, BuffDurationAdvance},
         card::{
             CARD_ENERGY_CLEAR_ORIGIN, CARD_PLAY_ORIGIN, CardCommand, CardInvalidatePlayed,
-            CardRefillOne, CardRefreshAiQueue, CardSetup,
+            CardPersistTemporary, CardRefillOne, CardRefreshAiQueue, CardSetAiQueue, CardSetup,
         },
+        entity::RosterLane,
         eureka::{EurekaChange, EurekaCommand, PowerType},
         ex_point::{ExPointChange, ExPointCommand},
     },
@@ -50,6 +51,7 @@ pub const START: &[(SetupStage, i32)] = &[
     (SetupStage::BuffSync, 0),
     (SetupStage::RoundStartLate, 0),
     (SetupStage::RoundStart, 3),
+    (SetupStage::OpeningSync, 0),
     (SetupStage::CardSetup, 0),
     (SetupStage::AfterRoundStart, 0),
     (SetupStage::RoundStart, 4),
@@ -62,6 +64,12 @@ const ROUND_START_EVENT_SETUP: &[(SetupStage, i32)] = &[
 
 const ROUND_START_BEFORE_DURATION_SETUP: &[(SetupStage, i32)] = &[
     (SetupStage::RoundStart, -1),
+    (SetupStage::RoundStartCondition, 100),
+    (SetupStage::RoundStartCondition, 101),
+    (SetupStage::RoundStartCondition, 102),
+];
+
+const ROUND_START_DEFENDER_BEFORE_DURATION_SETUP_V7: &[(SetupStage, i32)] = &[
     (SetupStage::RoundStartCondition, 100),
     (SetupStage::RoundStartCondition, 101),
     (SetupStage::RoundStartCondition, 102),
@@ -272,7 +280,61 @@ fn append_to_event(items: &mut Vec<FrameItem>, frame: SemanticFrame, event: &Bat
     }
 }
 
+pub(crate) struct AiTurnPlan {
+    choices: Vec<AiSkillChoice>,
+}
+
+impl AiTurnPlan {
+    pub(crate) fn new(
+        captured: Option<Vec<AiSkillChoice>>,
+        cards: &[sonettobuf::CardInfo],
+    ) -> Self {
+        let choices = captured.unwrap_or_else(|| {
+            cards
+                .iter()
+                .filter_map(|card| {
+                    Some(AiSkillChoice {
+                        source_uid: card.uid?,
+                        skill_id: card.skill_id?,
+                        target_uid: card.target_uid.unwrap_or_default(),
+                    })
+                })
+                .collect()
+        });
+        Self { choices }
+    }
+
+    pub(crate) fn observe(&mut self, result: &DrainResult) {
+        let mut canceled_owners = Vec::new();
+        for outcome in &result.outcomes {
+            let changes = match outcome {
+                RuleOutcome::Card(changes) => Some(changes.as_ref()),
+                RuleOutcome::MonsterChange(changes) => changes.cards.as_ref(),
+                _ => None,
+            };
+            let Some(changes) = changes.filter(|changes| {
+                changes.kind == crate::engine::manager::card::CardChangeKind::AiCardsInvalidated
+            }) else {
+                continue;
+            };
+            canceled_owners.extend(
+                changes
+                    .ai_invalidations
+                    .iter()
+                    .filter_map(|invalidated| invalidated.card.uid),
+            );
+        }
+        self.choices
+            .retain(|choice| !canceled_owners.contains(&choice.source_uid));
+    }
+
+    pub(crate) fn into_choices(self) -> Vec<AiSkillChoice> {
+        self.choices
+    }
+}
+
 /// Executes registered AI choices through the same skill and manager pipeline.
+#[allow(clippy::too_many_arguments)]
 pub fn run_ai_actions(
     fight: &sonettobuf::Fight,
     managers: &mut BattleManagers,
@@ -281,14 +343,46 @@ pub fn run_ai_actions(
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     choices: impl IntoIterator<Item = AiSkillChoice>,
+    promotions: &[crate::engine::fight::reserve::Promotion],
 ) -> Result<DrainResult, DrainError> {
     let mut result = DrainResult::default();
+    append(
+        &mut result,
+        drain::run_command_group(
+            managers,
+            pool,
+            catalog,
+            determinism,
+            context,
+            [RuleOp::Command(BattleCommand::Card(
+                CardCommand::SetAiQueue(CardSetAiQueue {
+                    origin: CommandOrigin {
+                        domain: RuleDomain::Lifecycle,
+                        key: DefinitionKey::new(0, "AiActionQueueSettlement"),
+                    },
+                    cards: Vec::new(),
+                }),
+            ))],
+        )?,
+    );
     for (index, choice) in choices.into_iter().enumerate() {
         if crate::engine::round::outcome::battle_ended(fight, pool, managers) {
             break;
         }
+        let current_pool = pool
+            .roster_changed(managers)
+            .then(|| pool.runtime_view(managers));
+        let pool = current_pool.as_ref().unwrap_or(pool);
         let card_index = index as i32 + 1;
         if managers.hp.current(choice.source_uid) <= 0 {
+            let resource_owner_uid = promotions
+                .iter()
+                .find(|promotion| promotion.defeated_uid == choice.source_uid)
+                .map(|promotion| promotion.entering_uid)
+                .or_else(|| {
+                    (managers.entity.roster_lane(choice.source_uid) != Some(RosterLane::Replaced))
+                        .then_some(choice.source_uid)
+                });
             push_attributed_cue(
                 &mut result.frames,
                 choice.source_uid,
@@ -308,12 +402,15 @@ pub fn run_ai_actions(
                     entity,
                 )
             });
-            if let Some(delta) = card_play_resource_delta(
-                managers,
-                choice.source_uid,
-                catalog.grants_resource_on_card_play(choice.skill_id),
-                is_ultimate,
-            ) {
+            if let Some((resource_owner_uid, delta)) = resource_owner_uid.and_then(|owner_uid| {
+                card_play_resource_delta(
+                    managers,
+                    owner_uid,
+                    catalog.grants_resource_on_card_play(choice.skill_id),
+                    is_ultimate,
+                )
+                .map(|delta| (owner_uid, delta))
+            }) {
                 append(
                     &mut result,
                     run_card_composition_rewards(
@@ -323,7 +420,7 @@ pub fn run_ai_actions(
                         determinism,
                         context,
                         CARD_PLAY_ORIGIN,
-                        [(choice.source_uid, delta)],
+                        [(resource_owner_uid, delta)],
                     )?,
                 );
             }
@@ -436,14 +533,14 @@ pub fn run_no_action_round(
 
 #[allow(clippy::too_many_arguments)]
 pub fn run_promotions(
-    fight: &sonettobuf::Fight,
+    pool: &TargetPool,
     managers: &mut BattleManagers,
     catalog: &SkillEffectCatalog,
     determinism: &mut RoundDeterminism,
     context: TargetContext,
     promotions: impl IntoIterator<Item = crate::engine::fight::reserve::Promotion>,
 ) -> Result<DrainResult, DrainError> {
-    let pool = TargetPool::from_fight_with_catalog(managers.catalog(), fight);
+    let pool = pool.runtime_view(managers);
     let mut result = DrainResult::default();
     for promotion in promotions {
         let entering_uid = promotion.entering_uid;
@@ -500,13 +597,12 @@ pub fn run_promotions(
                     .items,
             );
         debug_assert!(rewards.frames.is_empty());
-        let command_items = promoted
+        let command_frame = promoted
             .frames
             .pop()
-            .expect("a promotion command group owns one root frame")
-            .items;
+            .expect("a promotion command group owns one root frame");
         debug_assert!(promoted.frames.is_empty());
-        let mut items = command_items;
+        let mut items = vec![FrameItem::Child(Box::new(command_frame))];
         items.push(FrameItem::Change(Box::new(BattleChange::EntityPromotion(
             Box::new(promotion),
         ))));

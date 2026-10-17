@@ -21,6 +21,7 @@ fn active_hit_deferral_carries_its_primary_skill_hp_transaction() {
             target_uid,
             skill_id,
             amount: 100,
+            resolved_damage: 100,
             shield_absorbed: 0,
             career_restraint: false,
             damage_from,

@@ -12,7 +12,7 @@ use battle::tooling::scan::{
 use crate::scan::{Pending, Report, collect_episode_roots, collect_hero_build_roots, scan_closure};
 
 use super::capture::Evidence;
-use super::model::{Buff, BuffAct, Node, Scan, Skill, Slot, Subject, Variant};
+use super::model::{Buff, BuffAct, Node, Scan, Skill, Slot, StageRoute, Subject, Variant};
 
 pub(crate) fn heroes(
     db: &config::GameDB,
@@ -88,6 +88,7 @@ pub(crate) fn heroes(
                 name,
                 variants,
                 chapter_id: None,
+                route: None,
             })
         })
         .collect()
@@ -188,6 +189,7 @@ pub(crate) fn psychubes(
                     scan,
                 }],
                 chapter_id: None,
+                route: None,
             })
         })
         .collect::<Vec<_>>();
@@ -229,6 +231,7 @@ pub(crate) fn stages(
                 ));
             }
             let name = stage_name(db, episode);
+            let route = stage_route(db, episode);
             let report_slug = slug(&name);
             Ok(Subject {
                 id: episode.id,
@@ -250,6 +253,7 @@ pub(crate) fn stages(
                     scan: scan(db, battle_catalog, roots, report, evidence, wire_evidence),
                 }],
                 chapter_id: Some(episode.chapter_id),
+                route: Some(route),
             })
         })
         .collect()
@@ -720,6 +724,33 @@ fn stage_name(db: &config::GameDB, episode: &config::episode::Episode) -> String
     }
 }
 
+fn stage_route(db: &config::GameDB, episode: &config::episode::Episode) -> StageRoute {
+    let chapter_name = db.chapter.get(episode.chapter_id).and_then(|chapter| {
+        let localized_name = localized(db, &chapter.name);
+        let name = if localized_name.is_empty() {
+            localized(db, &chapter.name_en)
+        } else {
+            localized_name
+        };
+        route_name(name)
+    });
+    let localized_name = localized(db, &episode.name);
+    let episode_name = if localized_name.is_empty() {
+        let english = localized(db, &episode.name_en);
+        route_name(english)
+    } else {
+        route_name(localized_name)
+    };
+    StageRoute {
+        chapter_name,
+        episode_name,
+    }
+}
+
+fn route_name(name: String) -> Option<String> {
+    (!name.is_empty() && name != "?").then_some(name)
+}
+
 fn slug(value: &str) -> String {
     let mut output = String::new();
     let mut dash = false;
@@ -750,6 +781,16 @@ mod text_tests {
             "In [Silence], gains 2 stacks."
         );
         assert_eq!(clean_rich_text("HP < 50%"), "HP < 50%");
+    }
+
+    #[test]
+    fn route_names_hide_config_placeholders() {
+        assert_eq!(route_name("?".to_owned()), None);
+        assert_eq!(route_name(String::new()), None);
+        assert_eq!(
+            route_name("Focused Flashback".to_owned()).as_deref(),
+            Some("Focused Flashback")
+        );
     }
 
     #[test]

@@ -75,6 +75,7 @@ pub struct BuffActTriggerResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuffUpdateResult {
+    pub source_uid: i64,
     pub target_uid: i64,
     pub before: BuffInfo,
     pub after: BuffInfo,
@@ -85,6 +86,7 @@ pub struct BuffRemoveResult {
     pub target_uid: i64,
     pub before_amount: i32,
     pub buff: BuffInfo,
+    pub effective: bool,
     pub config_effect: i32,
     pub delete_reason: Option<BuffDeleteReason>,
     pub depleted: bool,
@@ -145,6 +147,7 @@ impl BuffReplaceResult {
         let mut events = self
             .removed
             .iter()
+            .filter(|removed| removed.effective)
             .map(|removed| {
                 BattleEvent::BuffRemoved(BuffChangeEvent {
                     source_uid: removed.buff.from_uid.unwrap_or_default(),
@@ -181,7 +184,7 @@ impl BuffReplaceResult {
             let before_amount = super::count_or_layer(&refresh.before);
             let after_amount = super::count_or_layer(&refresh.after);
             (before_amount != after_amount).then_some(BattleEvent::BuffChanged(BuffChangeEvent {
-                source_uid: refresh.after.from_uid.unwrap_or_default(),
+                source_uid: refresh.source_uid,
                 target_uid: refresh.target_uid,
                 buff_uid: refresh.after.uid.unwrap_or_default(),
                 buff_id: refresh.after.buff_id.unwrap_or_default(),
@@ -208,7 +211,7 @@ impl BuffReplaceResult {
             let after_ex_info = refresh.after.ex_info.unwrap_or_default();
             (before_ex_info != after_ex_info).then_some(BattleEvent::BuffStateChanged(
                 BuffStateChangeEvent {
-                    source_uid: refresh.after.from_uid.unwrap_or_default(),
+                    source_uid: refresh.source_uid,
                     target_uid: refresh.target_uid,
                     buff_uid: refresh.after.uid.unwrap_or_default(),
                     buff_id: refresh.after.buff_id.unwrap_or_default(),

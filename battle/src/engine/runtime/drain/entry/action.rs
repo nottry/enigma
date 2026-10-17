@@ -82,6 +82,55 @@ pub fn run_action_with_cost(
     action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
     invocation: crate::engine::skill::action::SkillInvocation,
 ) -> Result<DrainResult, DrainError> {
+    run_action_with_cost_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        prelude,
+        action_cost,
+        invocation,
+        DefenderCardCleanupOwner::DeathAction,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn run_round_action_with_cost(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    prelude: impl IntoIterator<Item = RuleOp>,
+    action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
+    invocation: crate::engine::skill::action::SkillInvocation,
+) -> Result<DrainResult, DrainError> {
+    run_action_with_cost_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        prelude,
+        action_cost,
+        invocation,
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_action_with_cost_and_cleanup_owner(
+    managers: &mut BattleManagers,
+    pool: &TargetPool,
+    catalog: &SkillEffectCatalog,
+    determinism: &mut RoundDeterminism,
+    context: TargetContext,
+    prelude: impl IntoIterator<Item = RuleOp>,
+    action_cost: Option<crate::engine::manager::ex_point::ExPointCommand>,
+    invocation: crate::engine::skill::action::SkillInvocation,
+    cleanup_owner: DefenderCardCleanupOwner,
+) -> Result<DrainResult, DrainError> {
     let current_pool = pool.runtime_view(managers);
     if attack_has_no_target(
         &invocation,
@@ -131,7 +180,7 @@ pub fn run_action_with_cost(
         subscriber: None,
         caster_frame: None,
     });
-    drain_queue_with_frames(
+    drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -139,6 +188,7 @@ pub fn run_action_with_cost(
         context,
         &mut queue,
         frames,
+        cleanup_owner,
     )
 }
 
@@ -340,25 +390,8 @@ pub fn run_conduit_action(
             subscriber: None,
             caster_frame: None,
         },
-        QueuedOp {
-            op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Conduit(
-                crate::engine::manager::conduit::ConduitCommand::FinishSkill {
-                    source_uid,
-                    skill_id,
-                },
-            )),
-            trigger: SkillOpTrigger::Active,
-            skill_execution: None,
-            frame_path: None,
-            parent_path: Some(root),
-            frame_group: Some(skill_frame),
-            independent_parent_group: None,
-            frame_owner: None,
-            subscriber: None,
-            caster_frame: None,
-        },
     ]);
-    drain_queue_with_frames(
+    let mut result = drain_queue_with_frames_and_cleanup_owner(
         managers,
         pool,
         catalog,
@@ -366,9 +399,46 @@ pub fn run_conduit_action(
         context,
         &mut queue,
         frames,
-    )
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )?;
+    let frame_path = skill_frame
+        .borrow()
+        .clone()
+        .ok_or(DrainError::MissingActiveSkillContext)?;
+    let mut completion = VecDeque::from([QueuedOp {
+        op: RuleOp::Command(crate::engine::skill::rule::output::BattleCommand::Conduit(
+            crate::engine::manager::conduit::ConduitCommand::FinishSkill {
+                source_uid,
+                skill_id,
+            },
+        )),
+        trigger: SkillOpTrigger::Active,
+        skill_execution: None,
+        frame_path: Some(frame_path),
+        parent_path: None,
+        frame_group: None,
+        independent_parent_group: None,
+        frame_owner: None,
+        subscriber: None,
+        caster_frame: None,
+    }]);
+    let mut completed = drain_queue_with_frames_and_cleanup_owner(
+        managers,
+        pool,
+        catalog,
+        determinism,
+        context,
+        &mut completion,
+        std::mem::take(&mut result.frames),
+        DefenderCardCleanupOwner::ScheduledRoundPhase,
+    )?;
+    result.outcomes.append(&mut completed.outcomes);
+    result.events.append(&mut completed.events);
+    result.frames = completed.frames;
+    Ok(result)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_conduit_stop(
     managers: &mut BattleManagers,
     pool: &TargetPool,
@@ -377,6 +447,7 @@ pub fn run_conduit_stop(
     context: TargetContext,
     source_uid: i64,
     device_index: i32,
+    skill_position: i32,
 ) -> Result<DrainResult, DrainError> {
     let mut frames = Vec::new();
     let root = push_root(
@@ -384,6 +455,7 @@ pub fn run_conduit_stop(
         FrameOwner::ConduitStopped {
             source_uid,
             device_index,
+            skill_position,
         },
         FrameTrigger::Active,
     );

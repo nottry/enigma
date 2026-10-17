@@ -509,6 +509,7 @@ mod tests {
                 target_uid: 10,
                 skill_id: 109380001,
                 amount: 20,
+                resolved_damage: 20,
                 shield_absorbed: 0,
                 career_restraint: false,
                 damage_from,

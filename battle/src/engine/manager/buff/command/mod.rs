@@ -53,6 +53,13 @@ pub struct BuffGrantChild {
     pub act_info: Option<Vec<BuffActInfo>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceRelativeBuffGrant {
+    pub grant: BuffGrant,
+    pub act_info: Vec<BuffActInfo>,
+    pub relation: Option<BuffGrantRelation>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct GrantRequest {
     pub source_uid: i64,
@@ -340,6 +347,7 @@ pub enum BuffCommand {
     GrantIndependent(BuffGrant),
     Accumulate(BuffGrant),
     GrantStateful(BuffGrantChild),
+    GrantSourceRelative(SourceRelativeBuffGrant),
     GrantUsingChildUid(BuffGrant),
     GrantUsingNormalUid(BuffGrant),
     GrantChild(BuffGrantChild),
@@ -379,8 +387,6 @@ pub(crate) struct BuffPlan {
     pub origin: CommandOrigin,
     action: BuffPlanAction,
 }
-
-type SourceRelativeAttributeFeatures = (i64, Vec<(i32, i32, i32, i32)>);
 
 impl BuffPlan {
     pub(crate) fn fanout_source_uids(&self) -> Vec<i64> {
@@ -432,15 +438,13 @@ impl BuffPlan {
             .flatten()
     }
 
-    pub(crate) fn source_relative_attribute_features(
-        &self,
-    ) -> Option<SourceRelativeAttributeFeatures> {
+    pub(crate) fn source_relative_attribute_source(&self) -> Option<(i64, i32)> {
         let plan = match &self.action {
             BuffPlanAction::Grant(plan) => plan.as_ref(),
             _ => return None,
         };
         self.added_buff_uid()?;
-        let features = plan
+        let act_ids = plan
             .definition
             .features()
             .iter()
@@ -451,12 +455,18 @@ impl BuffPlan {
                         crate::engine::skill::buff_act::registry::BuffActKind::EachChangeAttrOneWay,
                     )
             })
-            .filter_map(|feature| match feature.values.as_slice() {
-                [act_id, raw_attr, rate, cap] => Some((*act_id, *raw_attr, *rate, *cap)),
-                _ => None,
-            })
+            .filter_map(|feature| feature.values.first().copied())
             .collect::<Vec<_>>();
-        (!features.is_empty()).then_some((plan.route.source_uid, features))
+        if act_ids.is_empty()
+            || plan.initial_act_info.as_ref().is_some_and(|infos| {
+                act_ids
+                    .iter()
+                    .all(|act_id| infos.iter().any(|info| info.act_id == Some(*act_id)))
+            })
+        {
+            return None;
+        }
+        Some((plan.route.source_uid, plan.route.buff_id))
     }
 
     pub(crate) fn initialize_added_act_info_without_markers(&mut self, values: Vec<BuffActInfo>) {

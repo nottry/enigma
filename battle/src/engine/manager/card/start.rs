@@ -6,7 +6,9 @@ use crate::engine::manager::card::{
         generate_ai_deck_with_extra_actions, generated_ai_action_count, resolve_configured_targets,
     },
     draw::draw_guaranteed_by_uid,
-    pool::{active_enemy_entities, active_player_uids, card_for},
+    pool::{
+        active_enemy_entities, active_player_uids, card_for, normal_player_candidate_pool_with,
+    },
 };
 
 const CARDS_PER_HERO: i32 = 16;
@@ -41,6 +43,42 @@ pub fn hand_size_from_count(characters: usize, fight_version: i32) -> usize {
         }
         characters => (characters * 2 + 1).min(MAX_NORMAL_HAND_SIZE),
     }
+}
+
+pub(crate) fn preserve_generated_basic_coverage(fight: &Fight, cards: &mut [CardInfo]) {
+    if crate::engine::fight::versions::round_start_setup_layout(fight.version.unwrap_or_default())
+        != Some(crate::engine::fight::versions::RoundStartSetupLayout::Version7)
+    {
+        return;
+    }
+    let basics = normal_player_candidate_pool_with(fight, |_| false);
+    preserve_basic_coverage(&basics, cards);
+}
+
+pub(crate) fn preserve_basic_coverage(basics: &[CardInfo], cards: &mut [CardInfo]) {
+    if basics.len() > cards.len() {
+        return;
+    }
+    for basic in basics {
+        if cards.iter().any(|card| same_card(card, basic)) {
+            continue;
+        }
+        if let Some(index) = (0..cards.len()).rev().find(|index| {
+            let candidate = &cards[*index];
+            !basics.iter().any(|basic| same_card(basic, candidate))
+                || cards
+                    .iter()
+                    .filter(|card| same_card(card, candidate))
+                    .count()
+                    > 1
+        }) {
+            cards[index] = basic.clone();
+        }
+    }
+}
+
+fn same_card(left: &CardInfo, right: &CardInfo) -> bool {
+    left.uid == right.uid && left.skill_id == right.skill_id
 }
 
 pub fn configured_opening_deal(
@@ -465,6 +503,75 @@ mod tests {
         assert_eq!(ai[0].uid, Some(-1));
         assert_eq!(ai[0].skill_id, Some(301));
         assert!(matches!(ai[0].target_uid, Some(10 | 11)));
+    }
+
+    #[test]
+    fn generated_basic_coverage_is_versioned_and_does_not_require_device_owners() {
+        let fight = Fight {
+            version: Some(7),
+            attacker: Some(FightTeam {
+                entitys: vec![
+                    entity(10, 1001, 1, &[101], &[201]),
+                    entity(11, 1002, 2, &[102], &[202]),
+                    entity(12, 1003, 3, &[103], &[203]),
+                    entity(13, 1004, 4, &[], &[]),
+                ],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let card = |uid, skill_id| {
+            card_for(
+                fight
+                    .attacker
+                    .as_ref()
+                    .unwrap()
+                    .entitys
+                    .iter()
+                    .find(|entity| entity.uid == Some(uid))
+                    .unwrap(),
+                Some(skill_id),
+            )
+            .unwrap()
+        };
+        let original = vec![
+            card(10, 101),
+            card(11, 102),
+            card(12, 103),
+            card(10, 201),
+            card(11, 202),
+            card(13, 301),
+            card(13, 301),
+            card(13, 301),
+        ];
+        let mut covered = original.clone();
+        preserve_generated_basic_coverage(&fight, &mut covered);
+
+        for skill_id in [101, 201, 102, 202, 103, 203] {
+            assert!(covered.iter().any(|card| card.skill_id == Some(skill_id)));
+        }
+        assert_eq!(
+            covered.iter().filter(|card| card.uid == Some(13)).count(),
+            2
+        );
+
+        let mut legacy = original.clone();
+        let mut legacy_fight = fight.clone();
+        legacy_fight.version = Some(6);
+        preserve_generated_basic_coverage(&legacy_fight, &mut legacy);
+        assert_eq!(legacy, original);
+
+        let mut devices = vec![card(13, 301), card(13, 301)];
+        let device_fight = Fight {
+            version: Some(7),
+            attacker: Some(FightTeam {
+                entitys: vec![entity(13, 1004, 1, &[], &[])],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        preserve_generated_basic_coverage(&device_fight, &mut devices);
+        assert_eq!(devices, vec![card(13, 301), card(13, 301)]);
     }
 
     #[test]

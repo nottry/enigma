@@ -20,6 +20,7 @@ impl BuffManager {
             let before = active.buff.clone();
             active.buff.duration = Some(duration);
             refreshed.push(BuffUpdateResult {
+                source_uid: before.from_uid.unwrap_or_default(),
                 target_uid,
                 before,
                 after: active.buff.clone(),
@@ -58,6 +59,7 @@ impl BuffManager {
             let value = special_count_value(active.buff.act_common_params.as_deref()) + count;
             active.buff.act_common_params = Some(format!("1003#{value}"));
             changed.push(BuffUpdateResult {
+                source_uid: before.from_uid.unwrap_or_default(),
                 target_uid: owner_uid,
                 before,
                 after: active.buff.clone(),
@@ -89,6 +91,7 @@ impl BuffManager {
             active.buff.act_info = act_info;
         }
         Some(BuffUpdateResult {
+            source_uid: before.from_uid.unwrap_or_default(),
             target_uid,
             before,
             after: active.buff.clone(),
@@ -130,6 +133,7 @@ impl BuffManager {
         let added =
             (count_or_layer_from(&after, active.definition.as_ref()) - before_amount).max(0);
         let result = BuffUpdateResult {
+            source_uid: before.from_uid.unwrap_or_default(),
             target_uid,
             before,
             after,
@@ -304,6 +308,7 @@ impl BuffManager {
             target_uid: owner_uid,
             before_amount,
             buff,
+            effective: active.effective,
             config_effect,
             delete_reason: None,
             depleted: false,

@@ -46,6 +46,10 @@ pub enum ConduitCommand {
     Initialize {
         team: i32,
     },
+    ReconcileDefeatedDevices {
+        team: i32,
+        defeated_uids: Vec<i64>,
+    },
     SelectGroup {
         source_uid: i64,
         group: i32,
@@ -150,6 +154,7 @@ pub struct ConduitCounterChange {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConduitChange {
     Initialized(ConduitArea),
+    RosterRefreshed(ConduitArea),
     GroupSelected {
         source_uid: i64,
         team: i32,
@@ -213,7 +218,7 @@ pub enum ConduitChange {
         source_uid: i64,
         team: i32,
         skill_id: i32,
-        power_ids: Vec<i32>,
+        spent_by_power: Vec<(i32, i32)>,
         spent: i32,
     },
     PowersReset {
@@ -291,6 +296,24 @@ impl ConduitManager {
             .filter(|(_, area)| !area.devices.is_empty() || !area.powers.is_empty())
             .filter(|(team, _)| !self.initialized.contains(team))
             .map(|(team, _)| ConduitCommand::Initialize { team: *team })
+            .collect()
+    }
+
+    pub fn terminal_roster_refresh_commands(&self, defeated_uids: &[i64]) -> Vec<ConduitCommand> {
+        self.areas
+            .iter()
+            .filter_map(|(team, area)| {
+                let defeated_uids = area
+                    .devices
+                    .iter()
+                    .map(|device| device.uid)
+                    .filter(|uid| defeated_uids.contains(uid))
+                    .collect::<Vec<_>>();
+                (!defeated_uids.is_empty()).then_some(ConduitCommand::ReconcileDefeatedDevices {
+                    team: *team,
+                    defeated_uids,
+                })
+            })
             .collect()
     }
 
@@ -457,6 +480,20 @@ impl ConduitManager {
         self.running.contains(&source_uid)
     }
 
+    pub fn has_stopped_skill(&self, source_uid: i64) -> bool {
+        self.areas
+            .values()
+            .flat_map(|area| &area.devices)
+            .find(|device| device.uid == source_uid)
+            .is_some_and(|device| {
+                device
+                    .skill_groups
+                    .iter()
+                    .flatten()
+                    .any(|skill| skill.is_stopped)
+            })
+    }
+
     pub fn skill(&self, source_uid: i64, skill_id: i32) -> Option<(i32, ConduitSkill)> {
         self.areas.iter().find_map(|(team, area)| {
             let device = area
@@ -507,13 +544,6 @@ impl ConduitChange {
                 event.activation_cost,
                 event.spent,
             ),
-            Self::PowersCleared {
-                source_uid,
-                team,
-                skill_id,
-                spent,
-                ..
-            } => (*source_uid, *team, *skill_id, 0, *spent, *spent),
             _ => return Vec::new(),
         };
         (spent > 0)

@@ -47,10 +47,12 @@ pub(super) struct DrainState {
     open_actions: HashSet<FramePath>,
     completed_actions: HashSet<FramePath>,
     action_reactions: HashMap<FramePath, HashSet<ActionReactionKey>>,
+    action_skill_reaction_frames: HashMap<(FramePath, i64, i32), FramePath>,
     event_batch_reactions: HashMap<u64, HashSet<ActionReactionKey>>,
     next_event_batch_id: u64,
     injuries: HashMap<FramePath, Vec<i64>>,
     deaths: HashMap<FramePath, Vec<PendingDeath>>,
+    completed_death_event_groups: Vec<PendingDeath>,
     target_modifiers: HashMap<FramePath, i32>,
     budget: DrainBudget,
     context: TargetContext,
@@ -216,6 +218,37 @@ impl DrainState {
         self.after_action_casts
             .remove(action_path)
             .unwrap_or_default()
+    }
+
+    pub(super) fn action_skill_reaction_frame(
+        &mut self,
+        action_path: &[usize],
+        source_uid: i64,
+        skill_id: i32,
+        current: &[usize],
+    ) -> FramePath {
+        self.action_skill_reaction_frames
+            .entry((action_path.to_vec(), source_uid, skill_id))
+            .or_insert_with(|| current.to_vec())
+            .clone()
+    }
+
+    pub(super) fn retire_replaced_subscriber_casts(
+        &mut self,
+        owner_uid: i64,
+        active_skills: impl IntoIterator<Item = i32>,
+    ) {
+        let active_skills = active_skills.into_iter().collect::<HashSet<_>>();
+        for casts in self.after_action_casts.values_mut() {
+            casts.retain(|(_, queued)| {
+                !queued.subscriber.as_ref().is_some_and(|subscriber| {
+                    subscriber.owner_uid == owner_uid
+                        && subscriber
+                            .skill_id
+                            .is_some_and(|skill_id| !active_skills.contains(&skill_id))
+                })
+            });
+        }
     }
 
     pub(super) fn take_claimed_reaction_casts(
@@ -433,6 +466,26 @@ impl DrainState {
 
     pub(super) fn take_deaths(&mut self, action_path: &FramePath) -> Option<Vec<PendingDeath>> {
         self.deaths.remove(action_path)
+    }
+
+    pub(super) fn complete_death_event_group(&mut self, death: PendingDeath) {
+        self.completed_death_event_groups.push(death);
+    }
+
+    pub(super) fn take_completed_death_event_groups(
+        &mut self,
+        pending: &[PendingDeath],
+    ) -> Vec<PendingDeath> {
+        let mut completed = Vec::new();
+        self.completed_death_event_groups.retain(|death| {
+            if pending.contains(death) {
+                completed.push(*death);
+                false
+            } else {
+                true
+            }
+        });
+        completed
     }
 
     pub(super) fn record_subscriber_deaths(

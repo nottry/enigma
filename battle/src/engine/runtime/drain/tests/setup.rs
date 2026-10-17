@@ -382,6 +382,81 @@ fn transform_commit_publishes_the_exact_enter_fight_route() {
     assert!(transform_index < reactivated_index);
 }
 
+#[test]
+fn transform_retires_held_casts_from_replaced_passives() {
+    crate::test_support::init_config();
+    let mut target =
+        crate::engine::fight::defender::Defender::build_monster_with_uid(119382110, -1, 1, 2)
+            .unwrap();
+    target.current_hp = Some(1);
+    let fight = Fight {
+        battle_id: Some(119382110),
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(1),
+                current_hp: Some(100),
+                attr: Some(HeroAttribute {
+                    hp: Some(100),
+                    attack: Some(100),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        defender: Some(FightTeam {
+            entitys: vec![target.clone()],
+            ..Default::default()
+        }),
+        progress_list: vec![sonettobuf::FightProgressInfo {
+            id: Some(8),
+            max: Some(100),
+            value: Some(100),
+            show_id: Some(10),
+            skill_id: Some(119381117),
+        }],
+        ..Default::default()
+    };
+    let mut catalog = SkillEffectCatalog::from_roots(
+        config::configs::get(),
+        target.passive_skill.into_iter().chain([119381117]),
+        std::iter::empty(),
+    );
+    catalog.insert(ParsedSkillEffect {
+        skill_id: 200,
+        slots: Vec::new(),
+    });
+    catalog.insert_damage_rate(200, 1_000);
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    let mut attack: SkillInvocation = SkillRequest {
+        source_uid: 10,
+        skill_id: 200,
+    }
+    .into();
+    attack.mode = SkillExecutionMode::Active;
+    attack.target = SkillTarget::Explicit(-1);
+
+    let result = run(
+        &mut managers,
+        &pool,
+        &catalog,
+        &mut RoundDeterminism::default(),
+        TargetContext {
+            battle_id: 119382110,
+            ..Default::default()
+        },
+        [RuleOp::Skill(attack)],
+    )
+    .unwrap();
+
+    assert_eq!(managers.entity.model_id(-1), Some(119383111));
+    assert!(!result.events.iter().any(
+        |event| matches!(event, BattleEvent::SkillAction(action) if action.skill_id == 119381116)
+    ));
+}
+
 fn entry_halo_summon_fixture() -> (TargetPool, BattleManagers, SkillEffectCatalog) {
     crate::test_support::init_config();
     let fight = Fight {

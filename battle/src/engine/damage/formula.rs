@@ -18,6 +18,7 @@ pub struct DamageFormulaRules {
     pub includes_trigger_history: bool,
     pub combines_action_with_might: bool,
     pub nets_final_damage_in_regular: bool,
+    pub truncates_signed_defense_rate_delta: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,7 @@ impl DamageFormula {
                     includes_trigger_history: false,
                     combines_action_with_might: false,
                     nets_final_damage_in_regular: false,
+                    truncates_signed_defense_rate_delta: false,
                 }
             }
             Self::CreditedSourceAdditional | Self::AttributeReplacementAdditional => {
@@ -50,6 +52,7 @@ impl DamageFormula {
                     includes_trigger_history: false,
                     combines_action_with_might: false,
                     nets_final_damage_in_regular: false,
+                    truncates_signed_defense_rate_delta: false,
                 }
             }
             Self::MaxHpAdditionalDamage => DamageFormulaRules {
@@ -59,6 +62,7 @@ impl DamageFormula {
                 includes_trigger_history: false,
                 combines_action_with_might: false,
                 nets_final_damage_in_regular: true,
+                truncates_signed_defense_rate_delta: false,
             },
             Self::AttributeReplacement => DamageFormulaRules {
                 applies_career: true,
@@ -67,14 +71,25 @@ impl DamageFormula {
                 includes_trigger_history: true,
                 combines_action_with_might: true,
                 nets_final_damage_in_regular: false,
+                truncates_signed_defense_rate_delta: false,
             },
-            Self::StandardSkill | Self::HpSkillDamage => DamageFormulaRules {
+            Self::StandardSkill => DamageFormulaRules {
                 applies_career: true,
                 applies_target_base_critical_defense: true,
                 applies_target_buff_critical_defense: true,
                 includes_trigger_history: true,
                 combines_action_with_might: false,
                 nets_final_damage_in_regular: false,
+                truncates_signed_defense_rate_delta: true,
+            },
+            Self::HpSkillDamage => DamageFormulaRules {
+                applies_career: true,
+                applies_target_base_critical_defense: true,
+                applies_target_buff_critical_defense: true,
+                includes_trigger_history: true,
+                combines_action_with_might: false,
+                nets_final_damage_in_regular: false,
+                truncates_signed_defense_rate_delta: false,
             },
         }
     }
@@ -194,6 +209,16 @@ mod tests {
         assert_eq!(
             DamageFormula::HpSkillDamage.split_final_damage(-100),
             (0, -100)
+        );
+        assert!(
+            DamageFormula::StandardSkill
+                .rules()
+                .truncates_signed_defense_rate_delta
+        );
+        assert!(
+            !DamageFormula::AdditionalDamage
+                .rules()
+                .truncates_signed_defense_rate_delta
         );
     }
 

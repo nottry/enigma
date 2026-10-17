@@ -51,6 +51,18 @@ pub(crate) fn normal_player_candidate_pool_with(
         .collect()
 }
 
+pub(crate) fn target_basic_candidate_pool(entities: &[TargetEntity]) -> Vec<CardInfo> {
+    entities
+        .iter()
+        .filter_map(|entity| card_for_target(entity, *entity.skill_group1.first()?))
+        .chain(
+            entities
+                .iter()
+                .filter_map(|entity| card_for_target(entity, *entity.skill_group2.first()?)),
+        )
+        .collect()
+}
+
 pub(crate) fn device_draw_bag(game_data: &config::GameDB, fight: &Fight) -> Vec<CardInfo> {
     device_draw_bag_from(fight, |entity| {
         crate::catalog::configured_device_card_weights(game_data, entity)

@@ -613,6 +613,7 @@ fn received_skill_rank_applies_only_its_configured_extra_burn() {
                 target_uid: -1,
                 skill_id,
                 amount: 100,
+                resolved_damage: 100,
                 shield_absorbed: 0,
                 career_restraint: false,
                 damage_from: crate::engine::manager::hp::HurtDamageFromType::Skill,

@@ -303,6 +303,55 @@ fn overflow_bank_replenishes_only_after_actions_in_buff_owned_wire_order() {
 }
 
 #[test]
+fn full_hand_still_persists_a_temporary_device_card() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                current_hp: Some(100),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::Setup(CardSetup {
+            hand: std::iter::once(CardInfo {
+                uid: Some(10),
+                skill_id: Some(31490211),
+                temp_card: Some(true),
+                ..Default::default()
+            })
+            .chain((100..104).map(|skill_id| CardInfo {
+                uid: Some(10),
+                skill_id: Some(skill_id),
+                ..Default::default()
+            }))
+            .collect(),
+            draw_pile: Vec::new(),
+            deck_num: 0,
+        }))
+        .unwrap();
+
+    run_device_card_persistence(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut RoundDeterminism::default(),
+        TargetContext::default(),
+    )
+    .unwrap();
+
+    assert_eq!(managers.card.hand().len(), 5);
+    assert_eq!(managers.card.hand()[0].temp_card, Some(false));
+}
+
+#[test]
 fn round_refill_recycles_an_exhausted_draw_pile_and_finishes_the_hand() {
     init_config();
     let fight = Fight {
@@ -383,6 +432,76 @@ fn round_refill_recycles_an_exhausted_draw_pile_and_finishes_the_hand() {
             .filter_map(|effect| effect.effect_num)
             .collect::<Vec<_>>(),
         vec![1, 0]
+    );
+}
+
+#[test]
+fn temporary_device_card_occupies_a_refill_slot() {
+    init_config();
+    let fight = Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                model_id: Some(3149),
+                current_hp: Some(100),
+                skill_group1: vec![100],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let pool = TargetPool::from_fight(&fight);
+    let card = |skill_id| CardInfo {
+        uid: Some(10),
+        skill_id: Some(skill_id),
+        ..Default::default()
+    };
+    let device = CardInfo {
+        temp_card: Some(true),
+        ..card(31490211)
+    };
+    let first = card(100);
+    let second = card(200);
+    let mut managers = BattleManagers::seeded(&fight);
+    managers
+        .execute_card(CardCommand::Setup(CardSetup {
+            hand: vec![device.clone()],
+            draw_pile: vec![first.clone(), second.clone()],
+            deck_num: 2,
+        }))
+        .unwrap();
+    let mut determinism = RoundDeterminism::default();
+    determinism.enqueue_card_draws(vec![first.clone(), second]);
+
+    run_device_card_persistence(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut determinism,
+        TargetContext::default(),
+    )
+    .unwrap();
+    run_round_refill(
+        &mut managers,
+        &pool,
+        &SkillEffectCatalog::default(),
+        &mut determinism,
+        TargetContext::default(),
+        2,
+        1,
+    )
+    .unwrap();
+
+    assert_eq!(
+        managers.card.hand(),
+        &[
+            CardInfo {
+                temp_card: Some(false),
+                ..device
+            },
+            first,
+        ]
     );
 }
 

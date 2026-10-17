@@ -116,6 +116,12 @@ pub struct CardMarkTemporary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CardPersistTemporary {
+    pub origin: CommandOrigin,
+    pub indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CardEnergyAllocation {
     pub origin: CommandOrigin,
     pub energies: Vec<i32>,
@@ -166,6 +172,7 @@ pub struct CardDraw {
 pub struct CardOpeningDraw {
     pub origin: CommandOrigin,
     pub cards: Vec<CardInfo>,
+    pub normal_deck_draws: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -222,6 +229,21 @@ pub struct CardReplaceOwnerSkills {
 pub struct CardOwnerRemoval {
     pub owner_uid: i64,
     pub team_type: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CardInvalidateAiOwner {
+    pub origin: CommandOrigin,
+    pub owner_uid: i64,
+    pub team_type: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CardInvalidatedAi {
+    pub card_index: i32,
+    pub team_type: i32,
+    pub config_effect: i32,
+    pub card: CardInfo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -359,6 +381,7 @@ pub enum CardCommand {
     ChangeToTemporary(CardChangeToTemporary),
     EnchantHand(CardEnchantHand),
     MarkTemporary(CardMarkTemporary),
+    PersistTemporary(CardPersistTemporary),
     ExpireTemporary {
         origin: CommandOrigin,
     },
@@ -375,6 +398,7 @@ pub enum CardCommand {
     SetAiQueue(CardSetAiQueue),
     SetTeamCards(CardSetTeamCards),
     RemoveOwner(CardRemoveOwner),
+    InvalidateAiOwner(CardInvalidateAiOwner),
     ReplaceOwnerSkills(CardReplaceOwnerSkills),
     InvalidatePlayed(CardInvalidatePlayed),
     ComposeAdjacent {
@@ -409,7 +433,7 @@ pub enum CardCommand {
     CommitActionQueue {
         team: i32,
         emitter_uid: i64,
-        device_actions: usize,
+        include_device_action: bool,
     },
     ResolvePlayedRanks {
         origin: CommandOrigin,
@@ -450,6 +474,7 @@ pub enum CardChangeKind {
     PrecastAdded,
     TemporaryChanged,
     Enchanted,
+    TemporaryPersisted,
     TemporaryExpired,
     Played,
     Drawn,
@@ -461,6 +486,7 @@ pub enum CardChangeKind {
     AiQueueSet,
     TeamCardsSet,
     AiOwnerRemoved,
+    AiCardsInvalidated,
     OwnerSkillsReplaced,
     PlayedInvalidated,
     Composed,
@@ -501,6 +527,7 @@ pub struct CardChanges {
     pub entity: Option<FightEntityInfo>,
     pub hand_limit: Option<(i64, i32)>,
     pub owner_removal: Option<CardOwnerRemoval>,
+    pub ai_invalidations: Vec<CardInvalidatedAi>,
     pub ai_queue: Option<Vec<CardInfo>>,
     pub team_cards: Option<Vec<CardInfo>>,
 }
@@ -553,6 +580,7 @@ pub(super) fn execute(
     let mut consumption_kind = None;
     let mut hand_limit = None;
     let mut owner_removal = None;
+    let mut ai_invalidations = Vec::new();
     let mut ai_queue = None;
     let mut team_cards = None;
     let (origin, kind, added, played, drawn, composed_owners) = match command {
@@ -881,6 +909,19 @@ pub(super) fn execute(
                 Vec::new(),
             )
         }
+        CardCommand::PersistTemporary(change) => {
+            if !manager.persist_temporary(&change.indices) {
+                return Err(CardCommandError::InvalidCommand);
+            }
+            (
+                Some(change.origin),
+                CardChangeKind::TemporaryPersisted,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+        }
         CardCommand::ExpireTemporary { origin } => {
             manager.expire_temporary();
             (
@@ -941,7 +982,9 @@ pub(super) fn execute(
             )
         }
         CardCommand::DealOpening(draw) => {
-            if draw.cards.is_empty() || !manager.deal_opening_cards(&draw.cards) {
+            if draw.cards.is_empty()
+                || !manager.deal_opening_cards(&draw.cards, draw.normal_deck_draws)
+            {
                 return Err(CardCommandError::InvalidCommand);
             }
             (
@@ -1064,6 +1107,29 @@ pub(super) fn execute(
                 None,
                 Vec::new(),
                 owners.unwrap_or_default(),
+            )
+        }
+        CardCommand::InvalidateAiOwner(invalidate) => {
+            if invalidate.owner_uid == 0 || invalidate.team_type == 0 {
+                return Err(CardCommandError::InvalidCommand);
+            }
+            ai_invalidations = manager
+                .invalidate_ai_owner(invalidate.owner_uid)
+                .into_iter()
+                .map(|(card_index, card)| CardInvalidatedAi {
+                    card_index,
+                    team_type: invalidate.team_type,
+                    config_effect: invalidate.origin.key.opcode,
+                    card,
+                })
+                .collect();
+            (
+                Some(invalidate.origin),
+                CardChangeKind::AiCardsInvalidated,
+                None,
+                None,
+                Vec::new(),
+                Vec::new(),
             )
         }
         CardCommand::ReplaceOwnerSkills(replace) => {
@@ -1286,7 +1352,7 @@ pub(super) fn execute(
         CardCommand::CommitActionQueue {
             team,
             emitter_uid,
-            device_actions,
+            include_device_action,
         } => {
             let mut cards = manager
                 .played()
@@ -1297,19 +1363,21 @@ pub(super) fn execute(
                     card
                 })
                 .collect::<Vec<_>>();
-            cards.extend((0..device_actions).map(|_| CardInfo {
-                uid: Some(0),
-                skill_id: Some(0),
-                temp_card: Some(false),
-                card_type: Some(sonettobuf::card_info::CardType::Device as i32),
-                hero_id: Some(0),
-                status: Some(0),
-                target_uid: Some(0),
-                energy: Some(0),
-                area_red_or_blue: Some(0),
-                heat_id: Some(0),
-                ..Default::default()
-            }));
+            if include_device_action {
+                cards.push(CardInfo {
+                    uid: Some(0),
+                    skill_id: Some(0),
+                    temp_card: Some(false),
+                    card_type: Some(sonettobuf::card_info::CardType::Device as i32),
+                    hero_id: Some(0),
+                    status: Some(0),
+                    target_uid: Some(0),
+                    energy: Some(0),
+                    area_red_or_blue: Some(0),
+                    heat_id: Some(0),
+                    ..Default::default()
+                });
+            }
             if team == 0 || cards.is_empty() {
                 return Err(CardCommandError::InvalidCommand);
             }
@@ -1433,6 +1501,7 @@ pub(super) fn execute(
         entity: None,
         hand_limit,
         owner_removal,
+        ai_invalidations,
         ai_queue,
         team_cards,
     })

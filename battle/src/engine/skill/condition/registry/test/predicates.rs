@@ -317,6 +317,53 @@ fn after_damage_status_threshold_checks_the_actor() {
 }
 
 #[test]
+fn active_skill_status_thresholds_preserve_strictness() {
+    assert_eq!(
+        parse(42203, "HasTypeBuffMoreThan", &["6".into(), "1,5".into()]),
+        Some(ParsedConditionKind::VisibleStackedStatusTypeCount {
+            status_ids: vec![1, 5],
+            compare: crate::engine::skill::condition::ConditionCompare::GreaterThanOrEqual,
+            threshold: 6,
+        })
+    );
+    assert_eq!(
+        parse(43203, "HasTypeBuffLessThan", &["6".into(), "1,5".into()]),
+        Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
+            status_ids: vec![1, 5],
+            compare: crate::engine::skill::condition::ConditionCompare::LessThan,
+            threshold: 6,
+        })
+    );
+    for (opcode, type_name) in [
+        (42203, "HasTypeBuffMoreThan"),
+        (43203, "HasTypeBuffLessThan"),
+    ] {
+        assert_eq!(
+            find_key(opcode, type_name).unwrap().behavior_target_source,
+            BehaviorTargetSource::Resolved
+        );
+    }
+
+    assert_eq!(
+        find_key(42203, "HasTypeBuffMoreThan").unwrap().role,
+        ConditionRole::Trigger {
+            event: EventKind::SkillEffectStarted,
+            phase: Some(SkillPhase::Immediate),
+        }
+    );
+    assert!(
+        find_key(42203, "HasTypeBuffMoreThan")
+            .unwrap()
+            .skill_action_trigger
+            .requires_attack()
+    );
+    assert_eq!(
+        find_key(43203, "HasTypeBuffLessThan").unwrap().role,
+        ConditionRole::Predicate
+    );
+}
+
+#[test]
 fn post_hit_status_ceiling_is_inclusive() {
     assert_eq!(
         parse(
@@ -363,7 +410,7 @@ fn team_status_type_groups_keep_divisor_cap_and_categories() {
 }
 
 #[test]
-fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
+fn defender_action_phase_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
     assert_eq!(
         parse(
             1010301,
@@ -379,11 +426,22 @@ fn round_end_fight_progress_gate_keeps_its_exact_route_and_payload_order() {
     assert_eq!(
         find_key(1010301, "ProgressValue").map(|definition| definition.role),
         Some(ConditionRole::Trigger {
-            event: EventKind::SmallRoundEnd,
+            event: EventKind::DefenderActionPhaseStart,
             phase: None,
         })
     );
+    assert_eq!(
+        find_key(1010301, "ProgressValue").map(|definition| definition.reaction_frame_target),
+        Some(ReactionFrameTarget::Owner)
+    );
     assert!(find_key(1010101, "ProgressValue").is_none());
+    assert_eq!(
+        find_key(1010012, "ProgressValue").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::EntityDied,
+            phase: None,
+        })
+    );
     assert_eq!(
         parse(
             1010301,
@@ -647,6 +705,29 @@ fn active_life_more_gate_keeps_its_exact_static_route() {
         })
     );
     assert!(find_key(2204, "LifeMore").is_none());
+}
+
+#[test]
+fn hp_loss_life_less_gate_keeps_its_exact_identity() {
+    assert_eq!(
+        find_key(1, "LifeLess").map(|definition| definition.role),
+        Some(ConditionRole::Predicate)
+    );
+    assert_eq!(
+        find_key(1, "LifeLess").map(|definition| definition.dependencies),
+        Some([EventKind::HpLost].as_slice())
+    );
+    assert_eq!(
+        find_key(1, "LifeLess").map(|definition| definition.reaction_frame_target),
+        Some(ReactionFrameTarget::Owner)
+    );
+    assert_eq!(
+        parse(1, "LifeLess", &["11".into()]),
+        Some(ParsedConditionKind::HpPermille {
+            compare: super::super::super::parse::ConditionCompare::LessThan,
+            threshold: 11,
+        })
+    );
 }
 
 #[test]

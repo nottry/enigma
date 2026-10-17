@@ -12,7 +12,10 @@ fn shared_damage_reacts_once_per_event_batch() {
 fn damage_hp_threshold_reactions_wait_for_hit_skills() {
     for opcode in [1209, 1304] {
         let definition = find_key(opcode, "LifeLess").unwrap();
-        assert_eq!(definition.reaction_timing, ReactionTiming::AfterHitSkills);
+        assert_eq!(
+            definition.reaction_timing.resolve(Default::default()),
+            ReactionTiming::AfterHitSkills
+        );
         assert_eq!(
             definition.reaction_multiplicity,
             ReactionMultiplicity::OncePerAction
@@ -433,6 +436,38 @@ fn before_ap_resolution_keeps_its_exact_event_and_queue_preparation_roles() {
 }
 
 #[test]
+fn conduit_group_selection_conditions_run_when_the_action_queue_is_committed() {
+    for (opcode, type_name, args, expected) in [
+        (
+            19107,
+            "HasBuffId",
+            vec!["31450121".into()],
+            ParsedConditionKind::BuffId {
+                mode: crate::engine::skill::condition::buff::BuffConditionMode::Present,
+                buff_ids: vec![31450121],
+            },
+        ),
+        (
+            794107,
+            "DeviceSkillIndex",
+            vec!["2".into()],
+            ParsedConditionKind::ConduitSkillGroup { group: 2 },
+        ),
+    ] {
+        let definition = find_key(opcode, type_name).unwrap();
+
+        assert_eq!(parse(opcode, type_name, &args), Some(expected));
+        assert_eq!(
+            definition.role,
+            ConditionRole::Trigger {
+                event: EventKind::ActionQueueCommitted,
+                phase: None,
+            }
+        );
+    }
+}
+
+#[test]
 fn lethal_injury_add_buff_condition_owns_the_immediate_skill_phase() {
     assert_eq!(
         parse(205, "None", &[]),
@@ -536,6 +571,22 @@ fn static_team_battle_tag_threshold_runs_at_battle_start() {
             stage: SetupStage::RoundStart,
             priority: 1,
         })
+    );
+}
+
+#[test]
+fn received_hit_battle_tag_gate_checks_the_attacker_after_the_shared_hit() {
+    let definition = find_key(1021209, "BattleTagCheck").unwrap();
+
+    assert_eq!(
+        parse(1021209, "BattleTagCheck", &["131".into()]),
+        Some(ParsedConditionKind::TargetBattleTag(131))
+    );
+    assert_eq!(definition.role, ConditionRole::Predicate);
+    assert_eq!(definition.dependencies, &[EventKind::TargetAttacked]);
+    assert_eq!(
+        definition.reaction_timing.resolve(Default::default()),
+        ReactionTiming::AfterSharedHit
     );
 }
 

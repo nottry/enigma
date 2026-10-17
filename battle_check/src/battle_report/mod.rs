@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     env, fs,
     path::{Component, Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -11,8 +11,8 @@ use crate::options::{Options, ReportKind};
 
 mod capture;
 mod collect;
+mod data;
 mod model;
-mod render;
 
 const MANIFEST: &str = ".battle-report-generated.json";
 
@@ -47,7 +47,8 @@ fn generate_into(
     battle_catalog: battle::catalog::BattleCatalog,
     final_output: &Path,
 ) -> Result<()> {
-    let mut generated = vec!["battle-support.md".to_owned()];
+    let mut generated = Vec::new();
+    let mut reports = BTreeMap::new();
     let evidence = capture::Evidence::collect(&options.capture_roots);
     let wire_evidence = crate::wire_evidence::Evidence::collect(db, &options.capture_roots);
 
@@ -55,9 +56,6 @@ fn generate_into(
     let include_psychubes = matches!(kind, ReportKind::All | ReportKind::Psychube);
     let include_stages = matches!(kind, ReportKind::All | ReportKind::Stage);
 
-    if matches!(kind, ReportKind::All) {
-        render::overview(output, true, true, true)?;
-    }
     if include_heroes {
         let subjects = collect::heroes(
             db,
@@ -66,13 +64,7 @@ fn generate_into(
             &evidence,
             &wire_evidence,
         )?;
-        render::heroes(output, &subjects)?;
-        generated.push("hero-support.md".to_owned());
-        generated.extend(
-            subjects
-                .iter()
-                .map(|subject| format!("hero-support/{}-{}.md", subject.id, subject.slug)),
-        );
+        data::write_subjects(output, "hero", &subjects, &mut generated, &mut reports)?;
         println!("battle-report heroes={}", subjects.len());
     }
     if include_psychubes {
@@ -83,13 +75,7 @@ fn generate_into(
             &evidence,
             &wire_evidence,
         )?;
-        render::psychubes(output, &subjects)?;
-        generated.push("psychube-support.md".to_owned());
-        generated.extend(
-            subjects
-                .iter()
-                .map(|subject| format!("psychube-support/{}-{}.md", subject.id, subject.slug)),
-        );
+        data::write_subjects(output, "psychube", &subjects, &mut generated, &mut reports)?;
         println!("battle-report psychubes={}", subjects.len());
     }
     if include_stages {
@@ -100,18 +86,10 @@ fn generate_into(
             &evidence,
             &wire_evidence,
         )?;
-        render::stages(output, &subjects)?;
-        generated.push("stage-support.md".to_owned());
-        generated.extend(
-            subjects
-                .iter()
-                .map(|subject| format!("stage-support/{}-{}.md", subject.id, subject.slug)),
-        );
+        data::write_subjects(output, "stage", &subjects, &mut generated, &mut reports)?;
         println!("battle-report stages={}", subjects.len());
     }
-    if !matches!(kind, ReportKind::All) {
-        render::overview(output, include_heroes, include_psychubes, include_stages)?;
-    }
+    data::write_manifest(output, reports, &mut generated)?;
     generated.sort();
     generated.dedup();
     fs::write(
@@ -362,13 +340,13 @@ mod tests {
     #[test]
     fn unowned_collision_is_preserved_and_blocks_generation() {
         let root = temporary("collision");
-        fs::create_dir_all(&root).unwrap();
-        fs::write(root.join("battle-support.md"), "mine").unwrap();
+        fs::create_dir_all(root.join(data::ROOT)).unwrap();
+        fs::write(root.join(data::ROOT).join("manifest.json"), "mine").unwrap();
         let staging = prepare_staging(&root).unwrap();
 
-        assert!(render::overview(&staging, true, false, false).is_err());
+        assert!(data::write_manifest(&staging, BTreeMap::new(), &mut Vec::new()).is_err());
         assert_eq!(
-            fs::read_to_string(root.join("battle-support.md")).unwrap(),
+            fs::read_to_string(root.join(data::ROOT).join("manifest.json")).unwrap(),
             "mine"
         );
 

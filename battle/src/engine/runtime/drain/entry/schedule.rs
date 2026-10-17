@@ -18,7 +18,9 @@ pub fn run_command_group(
                 RuleOp::Command(_)
                 | RuleOp::Publish(_)
                 | RuleOp::SkillLifecycle(_)
+                | RuleOp::ImmediateReservePromotion
                 | RuleOp::DeathSettlement(_)
+                | RuleOp::DeathEventGroupComplete(_)
                 | RuleOp::SubscriberGroupComplete
                 | RuleOp::TerminalSettlement
                 | RuleOp::BeginSkillAction { .. }

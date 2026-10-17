@@ -237,6 +237,17 @@ pub fn any_target_buff_type_at_least(
     })
 }
 
+pub fn all_targets_buff_type_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::AllTargetBuffTypeCount {
+        type_ids: parse_buff_ids(raw_args.get(..1)?)?,
+        threshold: raw_args.get(1)?.parse().ok()?,
+    })
+}
+
 pub fn buff_type_pair_at_least(
     _: i32,
     _: &str,
@@ -277,6 +288,18 @@ pub fn team_buff_type_layer_at_most(
     })
 }
 
+pub fn team_buff_type_layer_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::BuffTypeCount {
+        threshold: raw_args.first()?.parse().ok()?,
+        type_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::GreaterThanOrEqual,
+    })
+}
+
 fn buff_type_count(raw_args: &[String], compare: ConditionCompare) -> Option<ParsedConditionKind> {
     Some(ParsedConditionKind::BuffTypeCount {
         type_ids: parse_buff_ids(raw_args.get(..1)?)?,
@@ -296,6 +319,42 @@ pub fn buff_status_at_most(_: i32, _: &str, raw_args: &[String]) -> Option<Parse
     Some(ParsedConditionKind::BuffStatusCount {
         status_ids: parse_buff_ids(raw_args.get(1..2)?)?,
         compare: ConditionCompare::LessThanOrEqual,
+        threshold: raw_args.first()?.parse().ok()?,
+    })
+}
+
+pub fn visible_buff_status_types_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
+        status_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::GreaterThanOrEqual,
+        threshold: raw_args.first()?.parse().ok()?,
+    })
+}
+
+pub fn visible_stacked_status_types_at_least(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::VisibleStackedStatusTypeCount {
+        status_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::GreaterThanOrEqual,
+        threshold: raw_args.first()?.parse().ok()?,
+    })
+}
+
+pub fn visible_buff_status_types_less_than(
+    _: i32,
+    _: &str,
+    raw_args: &[String],
+) -> Option<ParsedConditionKind> {
+    Some(ParsedConditionKind::VisibleBuffStatusTypeCount {
+        status_ids: parse_buff_ids(raw_args.get(1..2)?)?,
+        compare: ConditionCompare::LessThan,
         threshold: raw_args.first()?.parse().ok()?,
     })
 }

@@ -90,5 +90,12 @@ muipserver = { path = "muipserver" }
 [profile.dev]
 debug = 1
 
+# Debug serde parsing of the game data dominates test and battle tool startup.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev.package.config]
+opt-level = 2
+
 [profile.test]
 debug = 0

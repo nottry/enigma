@@ -41,19 +41,36 @@ fn main() -> Result<()> {
     let mut skills = VecDeque::new();
     let mut buffs = VecDeque::new();
 
+    skills.extend(options.skill_ids.iter().map(|id| scan::Pending {
+        id: *id,
+        path: format!("skill query {id}"),
+    }));
+    buffs.extend(options.buff_ids.iter().map(|id| scan::Pending {
+        id: *id,
+        path: format!("buff query {id}"),
+    }));
+
     for &hero_id in &options.hero_ids {
         scan::collect_hero_roots(&options, hero_id, db, &mut skills, &mut report)?;
-        println!("hero={hero_id} build=max");
+        if !options.json {
+            println!("hero={hero_id} build=max");
+        }
     }
     if let Some(episode_id) = options.episode_id {
         scan::collect_episode_roots(episode_id, db, &mut skills, &mut report)?;
-        println!("episode={episode_id}");
+        if !options.json {
+            println!("episode={episode_id}");
+        }
         if options.simulate_opening {
             opening::print(db, episode_id)?;
         }
     }
 
-    let mut catalog = SkillEffectCatalog::from_roots(db, skills.iter().map(|skill| skill.id), []);
+    let mut catalog = SkillEffectCatalog::from_roots(
+        db,
+        skills.iter().map(|skill| skill.id),
+        buffs.iter().map(|buff| buff.id),
+    );
     scan::scan_closure(
         db,
         battle_catalog,
@@ -62,7 +79,11 @@ fn main() -> Result<()> {
         &mut buffs,
         &mut report,
     );
-    report.print();
+    if options.json {
+        report.print_json();
+    } else {
+        report.print();
+    }
     if !report.is_ready() {
         std::process::exit(1);
     }

@@ -299,6 +299,20 @@ impl BattleManagers {
                     ),
                 })
             }
+            BuffCommand::GrantSourceRelative(stateful) => {
+                let grant = &stateful.grant;
+                let chance = self.buff.buff_resistance(grant.target_uid, grant.buff_id);
+                (chance > 0 && chance < 1000).then(|| buff::ResistRoll {
+                    target_uid: grant.target_uid,
+                    buff_id: grant.buff_id,
+                    resisted: determinism.roll_crit(
+                        grant.buff_id,
+                        grant.source_uid,
+                        grant.target_uid,
+                        chance,
+                    ),
+                })
+            }
             _ => None,
         };
         let plan = self.plan_buff_with(command, resist_roll)?;
@@ -332,6 +346,11 @@ impl BattleManagers {
             } else {
                 grant.target_uid
             }),
+            BuffCommand::GrantSourceRelative(stateful) => Some(if stateful.grant.source_uid != 0 {
+                stateful.grant.source_uid
+            } else {
+                stateful.grant.target_uid
+            }),
             BuffCommand::Convert(convert) => Some(convert.source_uid),
             BuffCommand::Replace(replace) => Some(if replace.source_uid != 0 {
                 replace.source_uid
@@ -358,22 +377,12 @@ impl BattleManagers {
             .map(|uid| (uid, self.attack(uid)))
             .collect();
         plan.initialize_fanout_source_attacks(&fanout_attacks);
-        if let Some((source_uid, features)) = plan.source_relative_attribute_features() {
-            let act_info = features
-                .into_iter()
-                .filter_map(|(act_id, raw_attr, rate, cap)| {
-                    let attr = crate::engine::entity::attr::AttrId::from_raw(raw_attr)?;
-                    let value = (i64::from(self.origin_attribute(source_uid, attr))
-                        * i64::from(rate)
-                        / 1000)
-                        .clamp(0, i64::from(cap)) as i32;
-                    Some(sonettobuf::BuffActInfo {
-                        act_id: Some(act_id),
-                        param: Vec::new(),
-                        str_param: Some(format!("{raw_attr}#{value}")),
-                    })
-                })
-                .collect();
+        if let Some((source_uid, buff_id)) = plan.source_relative_attribute_source()
+            && let Some(act_info) =
+                crate::engine::skill::buff_act::each_change_attr_one_way::definition_snapshot(
+                    self, buff_id, source_uid,
+                )
+        {
             plan.initialize_added_act_info_without_markers(act_info);
         }
         Ok(plan)
@@ -593,6 +602,27 @@ impl BattleManagers {
                 .min()
         {
             damage.amount = damage.amount.min(cap);
+        }
+        match &mut command {
+            hp::HpCommand::Damage(damage) => {
+                if let Some(cap) = crate::engine::skill::buff_act::lock_hp::max_loss(
+                    &self.buff,
+                    hp,
+                    damage.target_uid,
+                ) {
+                    damage.amount = damage.amount.min(cap);
+                }
+            }
+            hp::HpCommand::Lose(loss) => {
+                if let Some(cap) = crate::engine::skill::buff_act::lock_hp::max_loss(
+                    &self.buff,
+                    hp,
+                    loss.target_uid,
+                ) {
+                    loss.amount = loss.amount.min(cap);
+                }
+            }
+            _ => {}
         }
         hp.validate_command(command)?;
         let fake_hp_consumed = match command {
@@ -828,6 +858,65 @@ impl BattleManagers {
         &mut self,
         command: ex_point::ExPointCommand,
     ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        self.execute_ex_point_with(command, false)
+    }
+
+    pub(crate) fn execute_ex_point_rolled(
+        &mut self,
+        command: ex_point::ExPointCommand,
+        determinism: &mut crate::engine::runtime::determinism::RoundDeterminism,
+    ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        let reduction_allowed = match command {
+            ex_point::ExPointCommand::Reduce(change) => !self.buff.has_buff_act_kind(
+                change.target_uid,
+                crate::engine::skill::buff_act::registry::BuffActKind::MoxieReductionImmunity,
+            ),
+            _ => true,
+        };
+        let resisted = match command {
+            ex_point::ExPointCommand::Reduce(change) if reduction_allowed => {
+                let resistance_id = crate::engine::entity::attr::AttrId::MoxieDownResistance;
+                let base = self
+                    .entity
+                    .model_id(change.target_uid)
+                    .and_then(|model_id| self.catalog().monster_resistances(model_id))
+                    .map(|resistance| resistance.del_ex_point)
+                    .unwrap_or_default();
+                let chance = base.saturating_add(
+                    self.persistent_attribute_delta(change.target_uid, resistance_id),
+                );
+                chance >= 1000
+                    || (chance > 0
+                        && determinism.roll_moxie_reduction_resistance(
+                            change.origin.key.opcode,
+                            change.source_uid,
+                            change.target_uid,
+                            chance,
+                        ))
+            }
+            _ => false,
+        };
+        self.execute_ex_point_with(command, resisted)
+    }
+
+    fn execute_ex_point_with(
+        &mut self,
+        command: ex_point::ExPointCommand,
+        resisted: bool,
+    ) -> Result<ex_point::ExPointChanges, ex_point::ExPointCommandError> {
+        if let ex_point::ExPointCommand::Reduce(change) = command
+            && (change.target_uid == 0 || change.delta >= 0)
+        {
+            return Err(ex_point::ExPointCommandError::InvalidCommand);
+        }
+        if let ex_point::ExPointCommand::Reduce(change) = command
+            && resisted
+        {
+            return Ok(ex_point::ExPointChanges::Resisted {
+                target_uid: change.target_uid,
+                resistance_id: crate::engine::entity::attr::AttrId::MoxieDownResistance.id(),
+            });
+        }
         let command = match command {
             ex_point::ExPointCommand::Change(mut change) if change.delta > 0 => {
                 if let Some(source_uid) = self.buff.buff_act_source_uid(
@@ -838,10 +927,12 @@ impl BattleManagers {
                 }
                 ex_point::ExPointCommand::Change(change)
             }
+            ex_point::ExPointCommand::Reduce(change) => ex_point::ExPointCommand::Change(change),
             command => command,
         };
         let target_uid = match command {
             ex_point::ExPointCommand::Change(change) => Some(change.target_uid),
+            ex_point::ExPointCommand::Reduce(change) => Some(change.target_uid),
             ex_point::ExPointCommand::Spend(change) => Some(change.target_uid),
             ex_point::ExPointCommand::Set(change) => Some(change.target_uid),
             ex_point::ExPointCommand::ChangeMax(_)
@@ -907,6 +998,7 @@ impl BattleManagers {
             changes.operation,
             entity::EntityOperation::SummonCombatant { .. }
                 | entity::EntityOperation::SummonSpecial { .. }
+                | entity::EntityOperation::Transform { .. }
         ) {
             changes.entity.ex_point_max = catalog.entity_ex_point_max(
                 changes.entity.ex_point_max,
@@ -920,7 +1012,9 @@ impl BattleManagers {
             changes.entity.shield_value = Some(self.hp.shield(changes.target_uid));
             self.eureka
                 .sync_entity(changes.target_uid, &mut changes.entity);
-            self.buff.sync_entity(&mut changes.entity);
+            if !changes.operation.resets_state() {
+                self.buff.sync_entity(&mut changes.entity);
+            }
             self.entity.update(changes.entity.clone());
         }
         if !matches!(
@@ -1196,7 +1290,8 @@ impl BattleManagers {
     }
 
     pub fn register_entity(&mut self, entity: &FightEntityInfo) {
-        self.entity.register(entity);
+        let catalog = self.catalog();
+        self.entity.register(catalog, entity);
         self.register_entity_state(entity);
     }
 
@@ -1218,13 +1313,30 @@ impl BattleManagers {
         fight: &mut Fight,
     ) -> Vec<crate::engine::fight::reserve::Promotion> {
         let mut promotions = self.entity.promote_reserves(&self.hp);
-        for promotion in &mut promotions {
+        self.complete_promotions(&mut promotions);
+        self.sync_entities(fight);
+        promotions
+    }
+
+    pub(crate) fn promote_immediate_reserves(
+        &mut self,
+    ) -> Vec<crate::engine::fight::reserve::Promotion> {
+        let battle_rule = &self.battle_rule;
+        let mut promotions = self
+            .entity
+            .promote_immediate_reserves(&self.hp, |team_type| {
+                battle_rule.promotes_reserves_immediately(team_type)
+            });
+        self.complete_promotions(&mut promotions);
+        promotions
+    }
+
+    fn complete_promotions(&self, promotions: &mut [crate::engine::fight::reserve::Promotion]) {
+        for promotion in promotions {
             if let Some(entering) = self.entity_snapshot(promotion.entering_uid) {
                 promotion.entering = entering;
             }
         }
-        self.sync_entities(fight);
-        promotions
     }
 
     pub(crate) fn advance_wave(
@@ -1237,7 +1349,7 @@ impl BattleManagers {
             return Ok(None);
         };
         self.entity
-            .replace_team_roster(2, &roster.entitys, &roster.sub_entitys);
+            .replace_team_roster(catalog, 2, &roster.entitys, &roster.sub_entitys);
         for entity in roster.entitys.iter().chain(&roster.sub_entitys) {
             self.register_entity_state(entity);
         }

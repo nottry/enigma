@@ -1,7 +1,8 @@
 use battle::tooling::{
-    opening_hand_size,
+    moxie_down_resistance_attribute_id, opening_hand_size,
     replay::{
-        CrystalReuseChoice, HandRankChoice, ReplayBattle, RoundDeterminism, SkillTargetChoice,
+        CrystalReuseChoice, HandRankChoice, MoxieReductionResistanceChoice, ReplayBattle,
+        RoundDeterminism, SkillTargetChoice,
     },
     scan::{SkillEffectCatalog, SkillEffectSlot},
     ultimate_ignores_limit,
@@ -73,14 +74,7 @@ pub fn seed_round_determinism(
     round: &FightRound,
 ) {
     // The deal after actions draws teamACards2; the round-start refill then draws teamACards1.
-    runtime.seed_card_draws(
-        round
-            .team_a_cards2
-            .iter()
-            .chain(&round.team_a_cards1)
-            .cloned()
-            .collect(),
-    );
+    runtime.seed_card_draws(captured_round_draws(round));
     runtime.seed_crystal_cards(
         round
             .before_cards1
@@ -95,8 +89,128 @@ pub fn seed_round_determinism(
     runtime.seed_random_skills(random_skill_choices(catalog, round));
     runtime.seed_shell_moxie_choices(shell_moxie_choices(config::configs::get(), round));
     runtime.seed_crystal_reuse_choices(crystal_reuse_choices(catalog, round));
+    runtime.seed_moxie_reduction_resistance_choices(moxie_reduction_resistance_choices(
+        catalog, round,
+    ));
     let (hidden, additional, indirect_heals) = crit_choices(config::configs::get(), round);
     runtime.seed_crits(hidden, additional, indirect_heals);
+}
+
+fn captured_round_draws(round: &FightRound) -> Vec<CardInfo> {
+    fn visit(step: &FightStep, hand: &mut Option<Vec<CardInfo>>) {
+        for effect in &step.act_effect {
+            if effect.effect_type
+                == Some(sonettobuf::effect_type_enum::EffectType::Cardspush as i32)
+            {
+                *hand = Some(effect.card_info_list.clone());
+            }
+            if let Some(nested) = effect.fight_step.as_ref() {
+                visit(nested, hand);
+            }
+        }
+    }
+
+    let mut before_refill = None;
+    for step in &round.fight_step {
+        visit(step, &mut before_refill);
+    }
+    let mut existing_temporary = before_refill
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|card| card.temp_card.unwrap_or_default())
+        .collect::<Vec<_>>();
+    let after_actions = round.team_a_cards2.iter().filter(|card| {
+        let Some(index) = existing_temporary
+            .iter()
+            .position(|existing| existing.uid == card.uid && existing.skill_id == card.skill_id)
+        else {
+            return !card.temp_card.unwrap_or_default();
+        };
+        existing_temporary.remove(index);
+        false
+    });
+
+    after_actions
+        .chain(
+            round
+                .team_a_cards1
+                .iter()
+                .filter(|card| !card.temp_card.unwrap_or_default()),
+        )
+        .cloned()
+        .collect()
+}
+
+fn moxie_reduction_resistance_choices(
+    catalog: &SkillEffectCatalog,
+    round: &FightRound,
+) -> Vec<MoxieReductionResistanceChoice> {
+    use sonettobuf::{effect_type_enum::EffectType, fight_hurt_info::DamageFromType};
+
+    fn visit(
+        catalog: &SkillEffectCatalog,
+        step: &FightStep,
+        choices: &mut Vec<MoxieReductionResistanceChoice>,
+    ) {
+        let actor = step
+            .act_id
+            .and_then(|skill_id| {
+                catalog.get(skill_id).and_then(|effect| {
+                    effect.slots.iter().find_map(|slot| {
+                        (slot.behavior.spec.key.opcode == 30001
+                            && slot.behavior.spec.key.type_name == "DelExPoint"
+                            && slot.conditions.iter().any(|condition| {
+                                condition.opcode == 30208 && condition.type_name == "AttackCrit"
+                            }))
+                        .then_some(slot.behavior.spec.key.opcode)
+                    })
+                })
+            })
+            .zip(step.from_id.filter(|source_uid| *source_uid != 0));
+        if let Some((producer_id, source_uid)) = actor {
+            let crit_targets = step.act_effect.iter().filter_map(|effect| {
+                (effect.effect_type == Some(EffectType::Crit as i32)
+                    && effect.hurt_info.as_ref().is_some_and(|hurt| {
+                        hurt.damage_from_type == Some(DamageFromType::Skill as i32)
+                    }))
+                .then_some(effect.target_id)
+                .flatten()
+            });
+            for target_uid in crit_targets {
+                let resisted = step.act_effect.iter().any(|effect| {
+                    effect.target_id == Some(target_uid)
+                        && effect.effect_type == Some(EffectType::Resistances as i32)
+                        && effect.effect_num == Some(moxie_down_resistance_attribute_id())
+                });
+                let reduced = step.act_effect.iter().any(|effect| {
+                    effect.target_id == Some(target_uid)
+                        && effect.effect_type == Some(EffectType::Expointchange as i32)
+                        && effect.effect_num.is_some_and(|amount| amount < 0)
+                });
+                if resisted || reduced {
+                    choices.push(MoxieReductionResistanceChoice {
+                        producer_id,
+                        source_uid,
+                        target_uid,
+                        resisted,
+                    });
+                }
+            }
+        }
+        for child in step
+            .act_effect
+            .iter()
+            .filter_map(|effect| effect.fight_step.as_ref())
+        {
+            visit(catalog, child, choices);
+        }
+    }
+
+    let mut choices = Vec::new();
+    for step in &round.fight_step {
+        visit(catalog, step, &mut choices);
+    }
+    choices
 }
 
 fn skill_target_choices(
@@ -556,6 +670,89 @@ mod tests {
     }
 
     #[test]
+    fn moxie_reduction_import_keeps_resisted_and_applied_outcomes() {
+        use battle::tooling::scan::{
+            ParsedBehavior, ParsedCondition, ParsedConditionKind, ParsedSkillEffect, TargetRequest,
+            behavior::classify::BehaviorSpec,
+        };
+        use sonettobuf::{
+            ActEffect, effect_type_enum::EffectType, fight_hurt_info::DamageFromType,
+        };
+
+        let mut catalog = SkillEffectCatalog::default();
+        let mut slot = SkillEffectSlot::new(
+            ParsedBehavior::from_spec(
+                BehaviorSpec::new(30001, "DelExPoint"),
+                vec![1],
+                vec!["1".into()],
+            ),
+            TargetRequest::self_only(),
+        );
+        slot.conditions = vec![ParsedCondition {
+            opcode: 30208,
+            type_name: "AttackCrit".into(),
+            kind: ParsedConditionKind::AttackCrit,
+            raw_args: Vec::new(),
+        }];
+        catalog.insert(ParsedSkillEffect {
+            skill_id: 302524112,
+            slots: vec![slot],
+        });
+        let action = |result: ActEffect| FightStep {
+            act_id: Some(302524112),
+            from_id: Some(10),
+            act_effect: vec![
+                ActEffect {
+                    target_id: Some(-1),
+                    effect_type: Some(EffectType::Crit as i32),
+                    hurt_info: Some(FightHurtInfo {
+                        damage_from_type: Some(DamageFromType::Skill as i32),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                result,
+            ],
+            ..Default::default()
+        };
+        let round = FightRound {
+            fight_step: vec![
+                action(ActEffect {
+                    target_id: Some(-1),
+                    effect_type: Some(EffectType::Resistances as i32),
+                    effect_num: Some(409),
+                    ..Default::default()
+                }),
+                action(ActEffect {
+                    target_id: Some(-1),
+                    effect_type: Some(EffectType::Expointchange as i32),
+                    effect_num: Some(-1),
+                    ..Default::default()
+                }),
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            moxie_reduction_resistance_choices(&catalog, &round),
+            vec![
+                MoxieReductionResistanceChoice {
+                    producer_id: 30001,
+                    source_uid: 10,
+                    target_uid: -1,
+                    resisted: true,
+                },
+                MoxieReductionResistanceChoice {
+                    producer_id: 30001,
+                    source_uid: 10,
+                    target_uid: -1,
+                    resisted: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn direct_child_step_imports_the_parent_target_choice() {
         use battle::tooling::scan::{ParsedBehavior, ParsedSkillEffect, TargetRequest};
         use sonettobuf::{ActEffect, fight_hurt_info::DamageFromType};
@@ -675,6 +872,37 @@ mod tests {
         assert_eq!(
             determinism.take_start_decks(),
             Some((ai, normal.clone(), normal, 0))
+        );
+    }
+
+    #[test]
+    fn round_rng_import_excludes_only_existing_temporary_cards() {
+        let after_actions = card(10, 101, false);
+        let temporary = card(10, 999, true);
+        let normalized_temporary = card(10, 999, false);
+        let round_start = card(10, 102, false);
+
+        assert_eq!(
+            captured_round_draws(&FightRound {
+                fight_step: vec![FightStep {
+                    act_effect: vec![sonettobuf::ActEffect {
+                        effect_type: Some(
+                            sonettobuf::effect_type_enum::EffectType::Cardspush as i32,
+                        ),
+                        card_info_list: vec![temporary],
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }],
+                team_a_cards2: vec![
+                    normalized_temporary.clone(),
+                    normalized_temporary.clone(),
+                    after_actions.clone(),
+                ],
+                team_a_cards1: vec![round_start.clone()],
+                ..Default::default()
+            }),
+            vec![normalized_temporary, after_actions, round_start]
         );
     }
 

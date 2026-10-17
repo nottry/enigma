@@ -69,6 +69,84 @@ fn broad_buff_status_count_uses_configured_include_type_membership() {
 }
 
 #[test]
+fn visible_status_type_count_excludes_hidden_buffs_and_duplicate_types() {
+    init_config();
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![FightEntityInfo {
+                uid: Some(10),
+                buffs: vec![
+                    BuffInfo {
+                        buff_id: Some(400104),
+                        uid: Some(1),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(400105),
+                        uid: Some(2),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(31440116),
+                        uid: Some(3),
+                        ..Default::default()
+                    },
+                    BuffInfo {
+                        buff_id: Some(31440114),
+                        uid: Some(4),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(manager.visible_buff_status_type_count(10, &[1, 5]), 2);
+}
+
+#[test]
+fn visible_stacked_status_count_uses_direct_categories_and_type_ten_layers() {
+    init_config();
+    let buffs = |ids: &[i32], stacked_layer, uid_offset| {
+        ids.iter()
+            .enumerate()
+            .map(|(index, buff_id)| BuffInfo {
+                buff_id: Some(*buff_id),
+                uid: Some(index as i64 + uid_offset),
+                layer: (*buff_id == 103374114).then_some(stacked_layer),
+                ..Default::default()
+            })
+            .collect()
+    };
+    let mut manager = BuffManager::default();
+    manager.seed(&Fight {
+        attacker: Some(FightTeam {
+            entitys: vec![
+                FightEntityInfo {
+                    uid: Some(10),
+                    buffs: buffs(&[31450171, 30250001, 31440116, 31450111, 31450143], 0, 1),
+                    ..Default::default()
+                },
+                FightEntityInfo {
+                    uid: Some(11),
+                    buffs: buffs(&[31450171, 31440116, 31450111, 31450143, 103374114], 2, 101),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+
+    assert_eq!(manager.visible_stacked_status_type_count(10, &[1, 5]), 4);
+    assert_eq!(manager.visible_stacked_status_type_count(11, &[1, 5]), 5);
+}
+
+#[test]
 fn special_count_is_stored_on_the_marker_buff() {
     let fight = Fight {
         attacker: Some(FightTeam {

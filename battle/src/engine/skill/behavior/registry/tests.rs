@@ -36,6 +36,27 @@ fn lookup_requires_the_exact_opcode_type_pair() {
 }
 
 #[test]
+fn consume_buff_reset_device_listens_to_allies_and_targets_its_owner() {
+    let definition = find_key(60308, "ConsumeBuffResetDevice").unwrap();
+
+    assert_eq!(definition.required_event, Some(EventKind::AllyAction));
+    assert_eq!(definition.target_emission_mode, TargetEmissionMode::Owner);
+    assert!(definition.destination);
+}
+
+#[test]
+fn lethal_lost_life_settles_death_immediately() {
+    assert_eq!(
+        find_key(30006, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::Immediate)
+    );
+    assert_eq!(
+        find_key(30005, "LostLife").map(|definition| definition.death_settlement),
+        Some(DeathSettlement::ActionBoundary)
+    );
+}
+
+#[test]
 fn ezio_behaviors_accept_only_their_configured_shapes() {
     let behavior = |opcode, type_name, raw_args: &[&str]| {
         ParsedBehavior::from_spec(
@@ -583,6 +604,20 @@ fn conduit_group_change_uses_its_buff_gate_as_an_after_hit_driver() {
 }
 
 #[test]
+fn conduit_rate_uses_its_skill_gate_as_a_source_opening_driver() {
+    let definition = find_key(100030, "TwinsUpByCounter").unwrap();
+
+    assert_eq!(
+        definition.condition_route_override,
+        Some(ConditionRouteOverride::Trigger {
+            key: DefinitionKey::new(203, "None"),
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::SourceOpening),
+        })
+    );
+}
+
+#[test]
 fn channel_duration_reduction_keeps_its_exact_identity_and_phase() {
     let definition = find_key(60094, "ReduceCastChannelCount").unwrap();
     let supports = definition.supports.unwrap();
@@ -730,26 +765,41 @@ fn add_team_energy_is_parent_owned_only_during_setup() {
 
     assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }
 
 #[test]
-fn conduit_ex_point_is_parent_owned_only_during_setup() {
+fn conduit_ex_point_is_parent_owned_for_setup_and_final_settlement() {
     let definition = find_key(60292, "AddDeviceExPoint").unwrap();
 
-    assert_eq!(definition.output_owner, OutputOwner::SetupParent);
     assert_eq!(
-        definition.output_owner.resolve(false, true),
+        definition.output_owner,
+        OutputOwner::SetupOrFinalSettlementParent
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, true),
         OutputOwner::Parent
     );
     assert_eq!(
-        definition.output_owner.resolve(false, false),
+        definition
+            .output_owner
+            .resolve(Some(EventKind::RoundEndFinalSettlement), false),
+        OutputOwner::Parent
+    );
+    assert_eq!(
+        definition
+            .output_owner
+            .resolve(Some(EventKind::SkillAction), false),
+        OutputOwner::Skill
+    );
+    assert_eq!(
+        definition.output_owner.resolve(None, false),
         OutputOwner::Skill
     );
 }

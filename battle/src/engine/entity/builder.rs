@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use sonettobuf::{EnhanceInfoBox, EquipRecord, FightEntityInfo, HeroAttribute, PowerInfo};
 
-use crate::engine::manager::ex_point::ExPointKind;
+use crate::engine::manager::ex_point::{ExPointKind, parse_unique_skill_point};
 
 use super::{
     attr::Attr,
@@ -68,7 +68,7 @@ impl EntityBuilder {
         self
     }
 
-    pub fn build(self) -> FightEntityInfo {
+    pub fn build(self) -> Result<FightEntityInfo> {
         let hero = &self.hero;
         let game = self
             .catalog
@@ -87,7 +87,7 @@ impl EntityBuilder {
             hero.rank,
             hero.destiny_stone,
             hero.destiny_rank,
-        );
+        )?;
         let device_owned = crate::catalog::configured_conduit_device_id(
             game,
             hero.hero_id,
@@ -119,7 +119,7 @@ impl EntityBuilder {
             })
             .collect();
 
-        FightEntityInfo {
+        Ok(FightEntityInfo {
             uid: Some(hero.uid),
             model_id: Some(hero.hero_id),
             skin: Some(hero.skin),
@@ -161,7 +161,7 @@ impl EntityBuilder {
             custom_unit_id: Some(0),
             ex_point_max: Some(ex_point_max),
             ..Default::default()
-        }
+        })
     }
 
     pub fn trial(
@@ -238,7 +238,7 @@ impl EntityBuilder {
             rank,
             trial.facets_id,
             trial.facetslevel,
-        );
+        )?;
         let device_owned = crate::catalog::configured_conduit_device_id(
             tables,
             trial.hero_id,
@@ -411,21 +411,16 @@ impl EntityBuilder {
         rank: i32,
         destiny_stone: i32,
         destiny_rank: i32,
-    ) -> (i32, i32) {
+    ) -> Result<(i32, i32)> {
         let spec = Destiny::unique_skill_point(game, destiny_stone, destiny_rank)
-            .or_else(|| crate::catalog::configured_unique_skill_point(game, hero_id, rank));
-
-        let mut values = spec.into_iter().flat_map(|spec| spec.split('#'));
-        (
-            values
-                .next()
-                .and_then(|value| value.trim().parse().ok())
-                .unwrap_or_default(),
-            values
-                .next()
-                .and_then(|value| value.trim().parse().ok())
-                .unwrap_or_default(),
-        )
+            .or_else(|| crate::catalog::configured_unique_skill_point(game, hero_id, rank))
+            .filter(|spec| !spec.trim().is_empty());
+        match spec {
+            Some(spec) => {
+                parse_unique_skill_point(spec).map(|(kind, maximum)| (kind.as_wire(), maximum))
+            }
+            None => Ok((0, 0)),
+        }
     }
 
     fn career(game: &config::GameDB, hero_id: i32) -> i32 {
@@ -488,14 +483,16 @@ mod tests {
         let stats = Stats::build_for_loadout(&hero, &equips);
         let legacy = EntityBuilder::new(hero.clone(), 1, 1, false)
             .with_equips(equips.clone())
-            .build();
+            .build()
+            .unwrap();
         let explicit = EntityBuilder::new(hero, 1, 1, false)
             .with_catalog(crate::catalog::BattleCatalog::new(
                 crate::test_support::game_data(),
             ))
             .with_equips(equips)
             .with_stats(stats)
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(explicit, legacy);
         assert_eq!(explicit.equips[0].break_lv, None);
@@ -540,7 +537,9 @@ mod tests {
             ..Default::default()
         };
 
-        let lit = EntityBuilder::new(hero.clone(), 1, 1, false).build();
+        let lit = EntityBuilder::new(hero.clone(), 1, 1, false)
+            .build()
+            .unwrap();
         assert_eq!(lit.skill_group1, vec![312451115, 312451125, 312451135]);
         assert_eq!(lit.skill_group2, vec![312431212, 312431222, 312431232]);
         assert_eq!(lit.ex_skill, Some(312451031));
@@ -561,7 +560,8 @@ mod tests {
             1,
             false,
         )
-        .build();
+        .build()
+        .unwrap();
         assert_eq!(unlit.skill_group1, vec![31243111, 31243112, 31243113]);
         assert_eq!(unlit.ex_skill, Some(31242103));
 
@@ -575,7 +575,8 @@ mod tests {
             1,
             false,
         )
-        .build();
+        .build()
+        .unwrap();
         assert!(upgraded.passive_skill.contains(&312461452));
         assert!(!upgraded.passive_skill.contains(&312451452));
     }
@@ -596,7 +597,9 @@ mod tests {
             ..Default::default()
         };
 
-        let geared = EntityBuilder::new(hero.clone(), 1, 1, false).build();
+        let geared = EntityBuilder::new(hero.clone(), 1, 1, false)
+            .build()
+            .unwrap();
         assert_eq!(geared.skill_group1, vec![312301142, 312301152, 312301162]);
         assert_eq!(geared.skill_group2, vec![312301242, 312301252, 312301262]);
         assert_eq!(geared.ex_skill, Some(312301313));
@@ -611,7 +614,8 @@ mod tests {
             1,
             false,
         )
-        .build();
+        .build()
+        .unwrap();
         assert_ne!(plain.skill_group1, geared.skill_group1);
         assert!(!plain.passive_skill.contains(&312300011));
     }
@@ -653,7 +657,8 @@ mod tests {
             1,
             false,
         )
-        .build();
+        .build()
+        .unwrap();
         assert_eq!(roster.ex_point_type, Some(4));
         assert!(roster.skill_group1.is_empty());
         assert!(roster.skill_group2.is_empty());
@@ -683,7 +688,8 @@ mod tests {
             1,
             false,
         )
-        .build();
+        .build()
+        .unwrap();
 
         assert_eq!(entity.ex_point_type, Some(4));
         assert_eq!(entity.ex_point_max, Some(100));

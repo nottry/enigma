@@ -31,6 +31,21 @@ fn attack_conditions_keep_their_exact_routes() {
 }
 
 #[test]
+fn tuning_practice_observes_matching_incantations_at_action_start() {
+    assert_eq!(
+        parse(34201, "UseSkillEffectTag", &["4".into(), "6".into()]),
+        Some(ParsedConditionKind::ActiveSkillEffectTag(vec![4, 6]))
+    );
+    assert_eq!(
+        find_key(34201, "UseSkillEffectTag").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::Immediate),
+        })
+    );
+}
+
+#[test]
 fn mass_attack_received_keeps_its_target_attacked_route() {
     assert_eq!(
         parse(53209, "HurtNumType", &["2".into()]),
@@ -53,6 +68,18 @@ fn completed_attack_target_count_keeps_its_after_damage_route() {
             event: EventKind::SkillAction,
             phase: Some(SkillPhase::AfterDamage),
         })
+    );
+}
+
+#[test]
+fn attack_modifier_target_count_keeps_its_exact_predicate_route() {
+    assert_eq!(
+        parse(53203, "HurtNumType", &["1".into()]),
+        Some(ParsedConditionKind::DamageTargetCountKind(1))
+    );
+    assert_eq!(
+        find_key(53203, "HurtNumType").map(|definition| definition.role),
+        Some(ConditionRole::Predicate)
     );
 }
 
@@ -123,4 +150,56 @@ fn natural_buff_expiry_observes_buff_removal() {
             phase: None,
         })
     );
+}
+
+#[test]
+fn captured_mane_conditions_keep_their_exact_routes() {
+    assert_eq!(
+        parse(73203, "TeammateAliveNum", &["2".into()]),
+        Some(ParsedConditionKind::EntityCount {
+            scope: crate::engine::skill::condition::parse::EntityCountScope::AliveOtherTeammates,
+            compare: ConditionCompare::Equal,
+            count: 2,
+        })
+    );
+    assert_eq!(
+        find_key(73203, "TeammateAliveNum").map(|definition| definition.role),
+        Some(ConditionRole::Trigger {
+            event: EventKind::SkillAction,
+            phase: Some(SkillPhase::Immediate),
+        })
+    );
+
+    assert_eq!(
+        parse(42209, "HasTypeBuffMoreThan", &["6".into(), "1,5".into()]),
+        Some(ParsedConditionKind::VisibleStackedStatusTypeCount {
+            status_ids: vec![1, 5],
+            compare: ConditionCompare::GreaterThanOrEqual,
+            threshold: 6,
+        })
+    );
+    let status_count = find_key(42209, "HasTypeBuffMoreThan").unwrap();
+    assert_eq!(status_count.role, ConditionRole::Predicate);
+    assert_eq!(status_count.dependencies, &[EventKind::TargetAttacked]);
+    assert_eq!(
+        status_count.reaction_timing.resolve(Default::default()),
+        ReactionTiming::AfterSharedHit
+    );
+
+    assert_eq!(
+        parse(89304, "ExpointMoreThan", &["3".into()]),
+        Some(ParsedConditionKind::ExPoint {
+            compare: ConditionCompare::GreaterThanOrEqual,
+            threshold: 3,
+        })
+    );
+    let ex_point = find_key(89304, "ExpointMoreThan").unwrap();
+    assert_eq!(
+        ex_point.role,
+        ConditionRole::Trigger {
+            event: EventKind::RoundEndAfterSettlement,
+            phase: None,
+        }
+    );
+    assert_eq!(ex_point.reaction_frame_target, ReactionFrameTarget::Owner);
 }

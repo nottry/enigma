@@ -31,6 +31,12 @@ pub struct TurnbackState {
     pub updated_at: i64,
 }
 
+impl TurnbackState {
+    pub fn claimed_task_bonus_ids(&self) -> serde_json::Result<Vec<i32>> {
+        serde_json::from_str(&self.has_get_task_bonus)
+    }
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct TurnbackSignInState {
     pub user_id: i64,

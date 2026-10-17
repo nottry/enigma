@@ -184,6 +184,21 @@ impl Stats {
         )
     }
 
+    pub fn build_for_captured_loadout(
+        hero: &HeroBuildInput,
+        equips: &[EquipmentBuildInput],
+    ) -> Self {
+        let game = crate::catalog::BattleCatalog::global().game_data();
+        let base = StatInputs::from_build_input(hero, None);
+        equips.iter().fold(
+            Self::configured_with_talent_layout(game, &base, false),
+            |stats, equip| {
+                let input = StatInputs::from_build_input(hero, Some(equip));
+                stats + Self::equipment(game, &input)
+            },
+        )
+    }
+
     pub(crate) fn loadout(
         game: &config::GameDB,
         hero: &HeroBuildInput,
@@ -203,6 +218,14 @@ impl Stats {
     }
 
     pub(crate) fn configured(game: &config::GameDB, input: &StatInputs) -> Self {
+        Self::configured_with_talent_layout(game, input, true)
+    }
+
+    fn configured_with_talent_layout(
+        game: &config::GameDB,
+        input: &StatInputs,
+        infer_empty_layout: bool,
+    ) -> Self {
         let level = level_base(game, input.hero_id, input.level);
         let rank = rank_bonus(game, input.hero_id, input.rank);
         let core = apply_destiny(
@@ -210,7 +233,8 @@ impl Stats {
             rank,
             destiny_bonus(game, input.hero_id, input.destiny_rank),
         );
-        core + talent_bonus(game, input, level, rank) + Self::equipment(game, input)
+        core + talent_bonus(game, input, level, rank, infer_empty_layout)
+            + Self::equipment(game, input)
     }
 
     pub(crate) fn equipment(game: &config::GameDB, input: &StatInputs) -> Self {
@@ -287,10 +311,11 @@ pub(crate) fn monster_instance_ex_stats_with_game_data(
     };
     let curve = game.monster_level.get(level)?;
     let scaled = |initial: i32, equip: i32, resonance: i32| {
-        ((i64::from(initial) * 10_000
-            + i64::from(equip) * i64::from(curve.equip_super)
-            + i64::from(resonance) * i64::from(curve.base_super))
-            / 100_000) as i32
+        // The game truncates after combining normalized floating-point terms.
+        ((f64::from(initial) / 10_000.0
+            + f64::from(equip) / 10_000.0 * f64::from(curve.equip_super) / 10_000.0
+            + f64::from(resonance) / 10_000.0 * f64::from(curve.base_super) / 10_000.0)
+            * 1_000.0) as i32
     };
     Some(Stats {
         cri: scaled(job.cri_init_super, job.cri_equip_super, job.cri_reson_super),
@@ -717,6 +742,7 @@ fn talent_bonus(
     input: &StatInputs,
     actual_base: Stats,
     actual_rank: Stats,
+    infer_empty_layout: bool,
 ) -> Stats {
     let Some(character) = game
         .character_talent
@@ -728,7 +754,7 @@ fn talent_bonus(
     let Some((star_cube, star_level)) = parse_pair(&character.exclusive) else {
         return Stats::default();
     };
-    let placements = if input.talent_placements.is_empty() {
+    let placements = if infer_empty_layout && input.talent_placements.is_empty() {
         default_placements(game, input.talent, character.talent_mould, star_cube)
     } else {
         input.talent_placements.clone()
